@@ -66,13 +66,14 @@ say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
 VALUES="Sources/Umber/ThemeValues.swift"
+COMMUNITY="Sources/Umber/ThemeValues+CommunityPresets.swift"
 CONTRAST="Sources/Umber/ThemeContrast.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2
   exit 2
 }
-for f in "$VALUES" "$CONTRAST"; do
+for f in "$VALUES" "$COMMUNITY" "$CONTRAST"; do
   [[ -f "$f" ]] || { echo "error: $f missing." >&2; exit 2; }
 done
 
@@ -214,8 +215,8 @@ if let dark = ThemePalette.named("afk-dark"), let light = ThemePalette.named("af
 print(bad == 0 ? "ALL-OK" : "SOME-FAILED")
 SWIFT
 
-if ! swiftc -O -o "$TMP/lightcheck" "$VALUES" "$CONTRAST" "$TMP/pure/main.swift" 2>"$TMP/compile.log"; then
-  echo "error: $VALUES + $CONTRAST would not compile standalone — the gate cannot run." >&2
+if ! swiftc -O -o "$TMP/lightcheck" "$VALUES" "$COMMUNITY" "$CONTRAST" "$TMP/pure/main.swift" 2>"$TMP/compile.log"; then
+  echo "error: $VALUES + $COMMUNITY + $CONTRAST would not compile standalone — the gate cannot run." >&2
   echo "  That file is Foundation-only on purpose so this is possible. If it now needs" >&2
   echo "  AppKit or SwiftTerm, the palettes-as-data and the live NSColor bridging have" >&2
   echo "  been re-merged and the split that made those files checkable is gone —" >&2
