@@ -207,4 +207,24 @@ final class UmberTerminalView: LocalProcessTerminalView {
         send(bytes)
         return true
     }
+
+    // MARK: - Paste guard
+
+    /// Intercept ⌘V to guard against accidental multi-line or large pastes.
+    ///
+    /// SwiftTerm inherits NSView's paste action through the responder chain. The
+    /// default path reads the pasteboard and writes every byte to the pty, executing
+    /// newline-terminated lines immediately when bracketed paste (DECSET 2004) is not
+    /// active. This override shows a confirmation dialog when the clipboard content
+    /// exceeds safety thresholds — the same guard iTerm2 and WezTerm ship.
+    ///
+    /// Bracketed paste is NOT checked here on purpose: even with it active, a
+    /// surprising large paste deserves a heads-up, and the dialog is cheap.
+    override func paste(_ sender: Any?) {
+        guard let text = NSPasteboard.general.string(forType: .string),
+              PasteGuard.confirmIfNeeded(text, in: self) else {
+            return  // User cancelled or nothing on clipboard
+        }
+        super.paste(sender as Any)
+    }
 }
