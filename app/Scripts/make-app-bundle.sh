@@ -159,6 +159,8 @@ ${ICON_PLIST_ENTRY}	<key>CFBundlePackageType</key>
 	<string>A program running within Umber would like to access files on a removable volume.</string>
 	<key>NSNetworkVolumesUsageDescription</key>
 	<string>A program running within Umber would like to access files on a network volume.</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>Umber notifies you when a long-running command finishes in a background tab.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Griffin Long. MIT licensed. Includes SwiftTerm and Ghostty; see THIRD-PARTY-LICENSES.md.</string>
 	<key>LSMinimumSystemVersion</key>

@@ -60,6 +60,11 @@ enum CommandNotification {
         title: String,
         isActiveDocument: Bool
     ) {
+        // Match CommandOutcome: nil exitCode is not actionable evidence.
+        // It means the shell emitted 'D' without an exit code field, which
+        // happens on the first prompt after sourcing (before any command ran).
+        guard let exitCode = exitCode else { return }
+
         // Condition 1: only notify for background tabs.
         guard !isActiveDocument else { return }
 
@@ -67,7 +72,7 @@ enum CommandNotification {
         let durationSeconds = Double(durationNanos) / 1_000_000_000
         guard durationSeconds >= minimumDurationSeconds else { return }
 
-        let status = exitCode == 0 ? "completed" : "failed (exit \(exitCode ?? -1))"
+        let status = exitCode == 0 ? "completed" : "failed (exit \(exitCode))"
         let durationText = formatDuration(durationSeconds)
 
         let content = UNMutableNotificationContent()
