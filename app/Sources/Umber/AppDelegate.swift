@@ -32,6 +32,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Held for the app lifetime so its observer token is never released early.
     private let openFileHandler = OpenFileHandler()
 
+    /// The preferences panel. Created once on first ⌘, and retained so its
+    /// values survive a hide-and-re-show cycle (singleton pattern).
+    private var preferencesWindow: PreferencesWindow?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Surface config problems where the user will actually see them, instead
         // of silently substituting defaults and leaving them wondering why their
@@ -256,15 +260,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func openConfigFile(_ sender: Any?) {
+        // First visit: ensure a starter config exists so loadCurrentValues has
+        // something to read (matches the old behaviour before this panel existed).
         let url = AppConfig.configURL
         if !FileManager.default.fileExists(atPath: url.path) {
-            // Write a commented starter file rather than opening nothing — a
-            // config you can see is far easier to edit than one you must invent.
             try? FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? StarterConfig.text.write(to: url, atomically: true, encoding: .utf8)
         }
-        NSWorkspace.shared.open(url)
+        // Open the native preferences panel. Power users can reach the raw JSON
+        // via the "Open config.json" button inside the panel.
+        if preferencesWindow == nil {
+            preferencesWindow = PreferencesWindow()
+        }
+        preferencesWindow?.loadCurrentValues()  // re-read on every show
+        preferencesWindow?.showWindow(nil)
+        preferencesWindow?.window?.makeKeyAndOrderFront(nil)
     }
 
     /// The Space whose window has focus, falling back to the most recently opened.
