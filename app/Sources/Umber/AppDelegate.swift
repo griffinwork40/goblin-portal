@@ -10,6 +10,7 @@
 //
 
 import AppKit
+import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
@@ -51,6 +52,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // notifications can be delivered. The CLI waits 0.5s after the app appears
         // in NSRunningApplication before posting, so this registration window is safe.
         openFileHandler.register()
+
+        // Request notification permission so the app can post alerts when long
+        // commands finish in background tabs (CommandNotification). Safe to call
+        // repeatedly — the system ignores it after the user has granted or denied.
+        CommandNotification.requestPermissionIfNeeded()
+
+        // Register as delegate so macOS delivers banners even when Umber is
+        // frontmost. Without this, the system silently drops notifications from
+        // the active app — defeating the primary use-case: a build finishing in
+        // a background TAB of the same window. Conformance lives in
+        // AppDelegate+Notifications.swift.
+        UNUserNotificationCenter.current().delegate = self
 
         // Check for a newer release on GitHub, silently, at most once per 24 hours.
         // Deferred to the next run-loop tick so the window is visible before any
