@@ -19,21 +19,33 @@
 import AppKit
 
 extension SpaceViewController {
-    /// Add a terminal document rooted at `workingDirectory`, defaulting to the Space's own
-    /// `root`.
+    /// Add a terminal document rooted at `workingDirectory`, following a three-level CWD
+    /// inheritance chain:
     ///
-    /// The root default is the point. A Space *is* a project root (plan §12.4 item 1) and every
-    /// terminal in it inherited `$HOME` instead, because this function created the pane without
-    /// ever mentioning `root` — so ⌘T in a Space opened on a project landed outside that project
-    /// and the first thing you typed was a `cd`. The root was already right here, one property
-    /// away, which is exactly why it went unnoticed.
+    /// 1. **Explicit override** — `workingDirectory` when the caller passes one (e.g.
+    ///    "New Terminal Here" from the file tree, `fileTree(_:didRequestNewTerminalAt:)`).
+    /// 2. **Focused shell's CWD** — `focusedShellHost?.currentDirectory` when no override is
+    ///    given. This is the ⌘T case: the new tab opens in the directory the user has already
+    ///    navigated to in the active shell, so a `cd ~/Projects/foo` in the current tab is
+    ///    still the cwd in the next one. `currentDirectory` prefers an OSC 7 report (exact,
+    ///    from the shell itself via `shell-integration.zsh`) and falls back to a kernel poll
+    ///    (`proc_pidinfo` on the foreground process group) — see `ShellHosting.swift` for the
+    ///    full two-source explanation.
+    /// 3. **Space root** — `root` when there is no focused shell (first tab in a Space, or the
+    ///    focused document is a file viewer). A Space *is* a project root (plan §12.4 item 1),
+    ///    so landing there is always the correct bottom-of-chain answer.
     ///
-    /// `workingDirectory` is an override rather than a replacement so the tree's "New Terminal
-    /// Here" can pass a subdirectory (`fileTree(_:didRequestNewTerminalAt:)`) without every other
-    /// caller — first launch, ⌘T, the strip's `+` — having to restate the root it already implies.
+    /// The root default existed because this function once created the pane without ever
+    /// mentioning `root`, so ⌘T in a Space opened on a project landed outside it and the first
+    /// thing you typed was `cd`. The focused-shell level is what closes that gap without
+    /// touching callers that already pass an explicit directory.
     @discardableResult
     func addTerminalDocument(start: Bool = true, workingDirectory: URL? = nil) -> SpaceDocument {
-        let directory = workingDirectory ?? root
+        // Explicit override → focused shell's CWD → Space root.
+        // `focusedShellHost` is nil when no shell document exists yet (first tab); the
+        // kernel-poll fallback inside `currentDirectory` is safe to call on the main actor
+        // because it is a non-blocking `proc_pidinfo` snapshot, not a wait.
+        let directory = workingDirectory ?? focusedShellHost?.currentDirectory ?? root
 
         let pane = TerminalPane(
             config: config, frame: documentArea.container.bounds, workingDirectory: directory)
