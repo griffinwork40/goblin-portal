@@ -52,6 +52,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // in NSRunningApplication before posting, so this registration window is safe.
         openFileHandler.register()
 
+        // Request notification permission so the app can post alerts when long
+        // commands finish in background tabs (CommandNotification). Safe to call
+        // repeatedly — the system ignores it after the user has granted or denied.
+        CommandNotification.requestPermissionIfNeeded()
+
         // Check for a newer release on GitHub, silently, at most once per 24 hours.
         // Deferred to the next run-loop tick so the window is visible before any
         // alert appears (auto-check only shows one when a new version exists).

@@ -117,6 +117,16 @@ extension TerminalPane {
                     isActiveDocument: self.isActiveDocument
                 )
                 self.applyCommandOutcome(outcome)
+                // Fire a desktop notification for long commands that finish in the
+                // background. `postIfNeeded` applies its own guards (background tab,
+                // minimum duration) so the call is unconditional here — the policy
+                // lives in CommandNotification, not scattered across call sites.
+                CommandNotification.postIfNeeded(
+                    exitCode: exitCode,
+                    durationNanos: nanos,
+                    title: self.currentTitle,
+                    isActiveDocument: self.isActiveDocument
+                )
                 // Emit a diag line so OSC 133 completions are observable under UMBER_DIAG=1.
                 termDiag("""
                     OSC 133 command finished: exit=\(exitCode.map(String.init) ?? "nil") \
