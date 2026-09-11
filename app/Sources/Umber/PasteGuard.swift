@@ -53,17 +53,6 @@ enum PasteGuard {
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
 
-        // Present as a sheet on the view's window if available, otherwise modal
-        if let window = view.window {
-            var result: NSApplication.ModalResponse = .alertSecondButtonReturn
-            alert.beginSheetModal(for: window) { response in
-                result = response
-                NSApp.stopModal(withCode: response)
-            }
-            NSApp.runModal(for: window)
-            return result == .alertFirstButtonReturn
-        } else {
-            return alert.runModal() == .alertFirstButtonReturn
-        }
+        return alert.runModal() == .alertFirstButtonReturn
     }
 }
