@@ -53,7 +53,7 @@ command -v swiftc >/dev/null 2>&1 || {
     exit 2
 }
 
-TMP="$(mktemp -d)"
+TMP=$(mktemp -d) || { echo "error: mktemp failed" >&2; exit 2; }
 trap 'rm -rf "$TMP"' EXIT
 
 cat > "$TMP/main.swift" <<'SWIFT'
@@ -65,6 +65,22 @@ func expect(_ label: String, _ got: Bool, _ want: Bool) {
     if got == want { return }
     print("  FAIL \(label): shouldConfirm returned \(got), expected \(want)")
     bad += 1
+}
+
+func expectEval(_ label: String, result: PasteGuardPolicy.PasteResult,
+                wantConfirm: Bool, wantNewlines: Int, wantChars: Int) {
+    if result.shouldConfirm != wantConfirm {
+        print("  FAIL \(label): evaluate.shouldConfirm = \(result.shouldConfirm), expected \(wantConfirm)")
+        bad += 1
+    }
+    if result.newlineCount != wantNewlines {
+        print("  FAIL \(label): evaluate.newlineCount = \(result.newlineCount), expected \(wantNewlines)")
+        bad += 1
+    }
+    if result.characterCount != wantChars {
+        print("  FAIL \(label): evaluate.characterCount = \(result.characterCount), expected \(wantChars)")
+        bad += 1
+    }
 }
 
 // Helpers for building test inputs
@@ -139,14 +155,43 @@ if PasteGuardPolicy.shouldConfirm("ls -la") == true {
     bad += 1
 }
 
+// --- 8. evaluate(_:) path — pre-computed counts -----------------------------------------
+// Case 8a: a string at exactly charThreshold with exactly 1 newline tests both thresholds
+// simultaneously and exercises the evaluate path that PasteGuard.confirmIfNeeded uses to
+// avoid double-traversal.  charThreshold chars split as (charThreshold-1) x-chars + one
+// newline = charThreshold total characters, 1 newline.
+let boundary = chars(charThreshold - 1) + "\n"
+expectEval("simultaneous boundary (charThreshold chars, 1 newline)",
+           result: PasteGuardPolicy.evaluate(boundary),
+           wantConfirm: true,
+           wantNewlines: 1,
+           wantChars: charThreshold)
+
+// Case 8b: evaluate on a short safe string must return shouldConfirm=false with correct counts.
+let safeText = "hello"
+expectEval("evaluate safe string",
+           result: PasteGuardPolicy.evaluate(safeText),
+           wantConfirm: false,
+           wantNewlines: 0,
+           wantChars: 5)
+
+// Case 8c: shouldConfirm must agree with evaluate for both branches.
+let longText = chars(charThreshold)
+if PasteGuardPolicy.shouldConfirm(longText) != PasteGuardPolicy.evaluate(longText).shouldConfirm {
+    print("  FAIL evaluate/shouldConfirm agreement: results diverge on charThreshold string")
+    bad += 1
+}
+
 if bad == 0 {
     print("  ok  empty and trivial pastes never trigger confirmation")
     print("  ok  single-line pastes below character threshold pass through")
     print("  ok  character threshold boundary is inclusive (charThreshold - 1 = safe, charThreshold = confirm)")
     print("  ok  any newline triggers confirmation (newlineThreshold = 1)")
+    print("  ok  both thresholds exceeded simultaneously (charThreshold chars + 1 newline)")
     print("  ok  both thresholds pin to their documented values (1 newline, 1_500 chars)")
     print("  ok  falsification pin holds")
-    print("\nall paste-guard cases passed (14 threshold cases + 2 constant pins + 2 falsification pins)")
+    print("  ok  evaluate(_:) returns correct shouldConfirm, newlineCount, and characterCount")
+    print("\nall paste-guard cases passed (14 threshold cases + 2 constant pins + 2 falsification pins + 3 evaluate cases)")
 } else {
     print("\n\(bad) paste-guard case(s) FAILED")
 }

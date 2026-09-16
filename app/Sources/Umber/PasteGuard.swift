@@ -4,7 +4,8 @@
 //
 //  The threshold policy lives in `PasteGuardPolicy.swift` (Foundation-only, gated by
 //  `check-paste-guard.sh`). This file owns the AppKit half — the NSAlert dialog — and
-//  delegates every threshold decision to `PasteGuardPolicy.shouldConfirm(_:)`.
+//  delegates every threshold decision to `PasteGuardPolicy.evaluate(_:)`, reusing the
+//  pre-computed counts for the dialog message so the string is not traversed twice.
 //
 //  WHY THE SPLIT. `NSView` and `NSAlert` require AppKit, which makes this file opaque to a
 //  standalone `swiftc` invocation. The decision ("should this paste be confirmed?") has no such
@@ -28,16 +29,19 @@ import AppKit
 enum PasteGuard {
     /// Returns true if the paste should proceed, false if the user cancelled.
     ///
-    /// Delegates the threshold decision to `PasteGuardPolicy.shouldConfirm(_:)`, then
-    /// shows a confirmation dialog when the text exceeds either threshold.
+    /// Calls `PasteGuardPolicy.evaluate(_:)` once to get the threshold decision and
+    /// the pre-computed counts, then shows a confirmation dialog when the text exceeds
+    /// either threshold. The counts are reused for the dialog message — the string is
+    /// never traversed more than once.
     @discardableResult
     static func confirmIfNeeded(_ text: String, in view: NSView) -> Bool {
-        guard PasteGuardPolicy.shouldConfirm(text) else {
+        let result = PasteGuardPolicy.evaluate(text)
+        guard result.shouldConfirm else {
             return true  // Below thresholds — paste without asking
         }
 
-        let newlineCount = text.filter { $0.isNewline }.count
-        let charCount = text.count
+        let newlineCount = result.newlineCount
+        let charCount = result.characterCount
 
         let alert = NSAlert()
         alert.messageText = "Confirm Paste"

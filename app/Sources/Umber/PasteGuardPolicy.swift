@@ -14,11 +14,11 @@
 //  than a restatement of its logic, which is the only thing that keeps the gate honest.
 //
 //  WHAT THE GATE CAN AND CANNOT REACH. `check-paste-guard.sh` exercises every path through
-//  `shouldConfirm(_:)`: empty strings, single-line pastes, newline counts at and above the
-//  threshold, character counts at and above the threshold, and the confirmed-below-threshold
-//  path that returns `false`. It cannot reach `PasteGuard.confirmIfNeeded(_:in:)` — that
-//  requires an `NSView`, a window server, and the AppKit run loop. Those paths live in daily
-//  use and the main app binary.
+//  `shouldConfirm(_:)` and `evaluate(_:)`: empty strings, single-line pastes, newline counts
+//  at and above the threshold, character counts at and above the threshold, and the confirmed-
+//  below-threshold path that returns `false`. It cannot reach `PasteGuard.confirmIfNeeded(_:in:)`
+//  — that requires an `NSView`, a window server, and the AppKit run loop. Those paths live in
+//  daily use and the main app binary.
 //
 
 import Foundation
@@ -45,17 +45,43 @@ enum PasteGuardPolicy {
     /// wrong clipboard" failure.
     static let characterThreshold = 1_500
 
+    /// Pre-computed result of evaluating a paste against both thresholds.
+    ///
+    /// Returned by `evaluate(_:)` so callers that need the counts for a dialog message
+    /// do not traverse the string a second time.
+    struct PasteResult {
+        let shouldConfirm: Bool
+        let newlineCount: Int
+        let characterCount: Int
+    }
+
+    /// Evaluates `text` against both thresholds in a single pass and returns the counts.
+    ///
+    /// Use this when the dialog message will display the newline or character count —
+    /// it avoids the double traversal that arises when `shouldConfirm` is called first
+    /// and the counts are then re-computed for the message.
+    ///
+    /// - Parameter text: The string the user is about to paste.
+    /// - Returns: A `PasteResult` with the threshold decision and the pre-computed counts.
+    static func evaluate(_ text: String) -> PasteResult {
+        let newlineCount = text.filter { $0.isNewline }.count
+        let charCount = text.count
+        return PasteResult(
+            shouldConfirm: newlineCount >= newlineThreshold || charCount >= characterThreshold,
+            newlineCount: newlineCount,
+            characterCount: charCount
+        )
+    }
+
     /// Returns `true` when the paste should be confirmed before proceeding.
     ///
-    /// The caller is responsible for showing any dialog; this method only makes the
-    /// threshold decision.
+    /// Convenience wrapper around `evaluate(_:)`. Use `evaluate(_:)` directly when
+    /// the dialog message needs the newline or character count.
     ///
     /// - Parameter text: The string the user is about to paste.
     /// - Returns: `true` if the text exceeds either threshold, `false` if it is safe to
     ///   paste without asking.
     static func shouldConfirm(_ text: String) -> Bool {
-        let newlineCount = text.filter { $0.isNewline }.count
-        let charCount = text.count
-        return newlineCount >= newlineThreshold || charCount >= characterThreshold
+        evaluate(text).shouldConfirm
     }
 }
