@@ -64,6 +64,13 @@ struct CLIArguments {
         // some shells and wrappers may prepend flags before ours.
         if let index = args.firstIndex(of: "--wait"), args.indices.contains(index + 1) {
             let rawPath = args[index + 1]
+            // B-1: Guard against a flag being misread as the path. If the next argument
+            // starts with "-" the caller omitted the path, so treat `waitFile` as absent
+            // rather than resolving `--some-flag` relative to cwd and opening nonsense.
+            guard !rawPath.hasPrefix("-") else {
+                waitFile = nil
+                return
+            }
             // Resolve relative to the process's cwd, NOT the app bundle's location.
             // `URL(fileURLWithPath:)` treats a relative path as relative to "/" on
             // macOS; `URL(fileURLWithPath:relativeTo:)` fixes that.

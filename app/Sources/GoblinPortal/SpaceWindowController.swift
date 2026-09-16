@@ -258,6 +258,13 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
     /// — but omits `openFirstDocument()` and `persistOpenRoots()`, which are both
     /// wrong for a transient CLI session. Full contract in `AppDelegate+WaitMode.swift`.
     func presentForWaitMode(opening url: URL) {
+        // B-4 / B-5: Mark the session as terminating from the start so
+        // `persistOpenRoots()` is a no-op for this ephemeral CLI session. Without
+        // this, either ⌘⇧W (`windowWillClose` → `persistOpenRoots`) or ⌘W's
+        // single-tab path (`spaceViewControllerDidCloseLastDocument` → `close()` →
+        // `windowWillClose` → `persistOpenRoots`) would write the temp file path into
+        // the user's session restore list, corrupting it on next normal launch.
+        Self.isTerminating = true
         Self.open.append(self)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)

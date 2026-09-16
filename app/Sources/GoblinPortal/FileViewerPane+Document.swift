@@ -151,6 +151,20 @@ extension FileViewerPane: SpaceDocument {
         let alert = NSAlert()
         alert.messageText = "Save changes to \(url.lastPathComponent)?"
         alert.informativeText = "Your changes will be lost if you don't save them."
+        // B-7: In --wait mode the calling process (git, crontab) is blocked waiting
+        // for this process to exit. Offering Cancel here would let the user permanently
+        // stall that process with no way to unblock it short of force-quitting the app.
+        // In wait mode we present only Save / Don't Save — the file was opened by an
+        // external caller, so the right choice is always "resolve and move on".
+        let isWaitMode = CLIArguments.shared.waitFile != nil
+        if isWaitMode {
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Don't Save")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn: return write()
+            default: return true
+            }
+        }
         // Save / Cancel / Don't Save, in that order — the macOS HIG arrangement, and
         // the one muscle memory expects when ⌘W is followed by a blind ⏎.
         alert.addButton(withTitle: "Save")
@@ -195,7 +209,15 @@ extension FileViewerPane: SpaceDocument {
         if let waitFile = CLIArguments.shared.waitFile,
            url.resolvingSymlinksInPath() == waitFile.resolvingSymlinksInPath()
         {
-            NSApp.terminate(nil)
+            // B-2: One-shot guard — `tearDownAllDocuments` iterates all documents after
+            // this pane has already triggered termination, so without this flag a second
+            // call would re-enter `applicationShouldTerminate` mid-teardown.
+            guard !waitTerminateFired else { return }
+            waitTerminateFired = true
+            // B-6: Async dispatch so `NSApp.terminate` is not called synchronously
+            // inside `tearDownAllDocuments`'s loop, which would re-enter
+            // `applicationShouldTerminate` while teardown is still in progress.
+            DispatchQueue.main.async { NSApp.terminate(nil) }
         }
     }
 }

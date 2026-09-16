@@ -29,6 +29,16 @@ extension AppDelegate {
     /// argument. For git commit messages that is the repo root (git's cwd); for
     /// crontab it is a temp directory, where the sidebar is irrelevant but harmless.
     func openWaitFile(_ url: URL) {
+        // B-3: Reject a non-existent --wait file before opening anything. Without this
+        // check the app would open a placeholder ("Could not read …") for a path that
+        // doesn't exist yet, exit 0, and the calling process (git, crontab) would read
+        // back an unchanged file — silent false success. Exiting 1 here lets the caller
+        // report the problem instead.
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            FileHandle.standardError.write(
+                "goblin-portal: --wait file does not exist: \(url.path)\n".data(using: .utf8)!)
+            exit(1)
+        }
         let root = url.deletingLastPathComponent()
         let controller = SpaceWindowController(config: config, root: root)
         // `presentForWaitMode` is the single writer of `SpaceWindowController.open`
