@@ -213,8 +213,10 @@ final class PreferencesWindow: NSWindowController {
         to new: [String: Any]
     ) -> Bool {
         // Font family
-        let oldFamily = (old["font"] as? [String: Any])?["family"] as? String ?? ""
-        let newFamily = (new["font"] as? [String: Any])?["family"] as? String ?? ""
+        var oldFamily = (old["font"] as? [String: Any])?["family"] as? String ?? ""
+        if oldFamily.isEmpty || oldFamily.hasPrefix("SF Mono") { oldFamily = "" }
+        var newFamily = (new["font"] as? [String: Any])?["family"] as? String ?? ""
+        if newFamily.isEmpty || newFamily.hasPrefix("SF Mono") { newFamily = "" }
         if oldFamily != newFamily { return true }
 
         // Font size
@@ -223,7 +225,7 @@ final class PreferencesWindow: NSWindowController {
         if oldSize != newSize { return true }
 
         // Theme preset
-        let oldPreset = (old["theme"] as? [String: Any])?["preset"] as? String ?? ""
+        let oldPreset = (old["theme"] as? [String: Any])?["preset"] as? String ?? "classic-repaired"
         let newPreset = (new["theme"] as? [String: Any])?["preset"] as? String ?? ""
         if oldPreset != newPreset { return true }
 
