@@ -170,6 +170,9 @@ final class PreferencesWindow: NSWindowController {
         if themeSelected == "auto", let existing = existing["theme"] as? [String: Any] {
             if let dark  = existing["dark"]  { themeDict["dark"]  = dark  }
             if let light = existing["light"] { themeDict["light"] = light }
+        } else {
+            themeDict.removeValue(forKey: "dark")
+            themeDict.removeValue(forKey: "light")
         }
         newDict["theme"] = themeDict
 
