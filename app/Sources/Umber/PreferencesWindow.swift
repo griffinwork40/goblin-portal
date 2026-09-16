@@ -153,6 +153,15 @@ final class PreferencesWindow: NSWindowController {
         var themeDict = dict["theme"] as? [String: Any] ?? [:]
         let themeSelected = themePopup.titleOfSelectedItem ?? "classic-repaired"
         themeDict["preset"] = themeSelected
+        // When the preset is "auto", the theme block also holds "dark" and "light"
+        // sub-keys that name which palette to install per system appearance. These are
+        // not surfaced as controls in this window (the popup only sets the preset), so
+        // they must be carried forward from whatever is already on disk — otherwise a
+        // round-trip through Apply silently discards the user's per-appearance choices.
+        if themeSelected == "auto", let existing = dict["theme"] as? [String: Any] {
+            if let dark  = existing["dark"]  { themeDict["dark"]  = dark  }
+            if let light = existing["light"] { themeDict["light"] = light }
+        }
         dict["theme"] = themeDict
 
         // Cursor
