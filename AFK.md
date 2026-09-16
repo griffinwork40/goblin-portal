@@ -28,6 +28,7 @@ UMBER_DIAG=1 swift run Umber           # + dump resolved font/theme/scrollback t
 ./Scripts/check-cursor-style.sh         # headless: compiles shipped CursorStyle.swift, 15 spellings + 6 DECSCUSR codes — did the enum survive leaving SwiftTerm?
 ./Scripts/check-engine-config.sh        # headless: compiles shipped TerminalEngine.swift, 18-case mapping table — does an `engine` string reach the core it names?
 ./Scripts/check-command-outcome.sh      # headless: compiles shipped CommandOutcome.swift, 17 cases — does a finished command mark its tab correctly (and mostly NOT)?
+./Scripts/check-command-notification.sh # headless: pins the notification threshold against CommandOutcome.longRunningThreshold — structural grep + compiled coupling check ensure both surfaces share one floor
 ./Scripts/check-light-theme.sh          # headless: compiles shipped ThemeValues.swift + ThemeContrast.swift, 7 cases — are the palettes well-formed, is `afk-light` light enough to flip the window chrome, and does every OTHER preset stay dark?
 ./Scripts/check-pane-teardown.sh        # offscreen GUI: does closing a document FREE it? ghostty surface + BOTH engines' shells + idempotency + a control
 ./Scripts/verify-vendor.sh             # is vendor/SwiftTerm the pinned revision, WITH all six local patches?
