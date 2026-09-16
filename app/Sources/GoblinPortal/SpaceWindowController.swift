@@ -251,6 +251,27 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         space.addTerminalDocument()
     }
 
+    /// Present this Space for `--wait` mode: show the window but open `url`
+    /// instead of the default terminal, and skip session persistence.
+    ///
+    /// Like `present()` — it is the single writer of `SpaceWindowController.open`
+    /// — but omits `openFirstDocument()` and `persistOpenRoots()`, which are both
+    /// wrong for a transient CLI session. Full contract in `AppDelegate+WaitMode.swift`.
+    func presentForWaitMode(opening url: URL) {
+        // B-4 / B-5: Mark the session as terminating from the start so
+        // `persistOpenRoots()` is a no-op for this ephemeral CLI session. Without
+        // this, either ⌘⇧W (`windowWillClose` → `persistOpenRoots`) or ⌘W's
+        // single-tab path (`spaceViewControllerDidCloseLastDocument` → `close()` →
+        // `windowWillClose` → `persistOpenRoots`) would write the temp file path into
+        // the user's session restore list, corrupting it on next normal launch.
+        Self.isTerminating = true
+        Self.open.append(self)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        space.view.layoutSubtreeIfNeeded()
+        space.openFile(url: url)
+    }
+
     // MARK: - SpaceViewControllerDelegate
 
     func spaceViewController(_ controller: SpaceViewController, didChangeDocumentTitle title: String) {

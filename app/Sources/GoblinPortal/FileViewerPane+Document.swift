@@ -151,6 +151,20 @@ extension FileViewerPane: SpaceDocument {
         let alert = NSAlert()
         alert.messageText = "Save changes to \(url.lastPathComponent)?"
         alert.informativeText = "Your changes will be lost if you don't save them."
+        // B-7: In --wait mode the calling process (git, crontab) is blocked waiting
+        // for this process to exit. Offering Cancel here would let the user permanently
+        // stall that process with no way to unblock it short of force-quitting the app.
+        // In wait mode we present only Save / Don't Save — the file was opened by an
+        // external caller, so the right choice is always "resolve and move on".
+        let isWaitMode = CLIArguments.shared.waitFile != nil
+        if isWaitMode {
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Don't Save")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn: return write()
+            default: return true
+            }
+        }
         // Save / Cancel / Don't Save, in that order — the macOS HIG arrangement, and
         // the one muscle memory expects when ⌘W is followed by a blind ⏎.
         alert.addButton(withTitle: "Save")
@@ -165,17 +179,45 @@ extension FileViewerPane: SpaceDocument {
 
     func saveDocument() -> Bool { write() }
 
-    /// Nothing to release, and this empty body is the answer rather than a stub.
+    /// Nothing to release … unless this is the `--wait` file, in which case
+    /// closing it IS the signal that the calling process (git, crontab, …) is
+    /// waiting for. See `CLIArguments.swift` for the full contract.
     ///
-    /// This pane holds an `NSScrollView`, an `NSTextView` and a `String` — all ARC's. It
-    /// owns no process, no file handle (the file is read into memory and closed) and no
-    /// manually-freed resource. The protocol requires this member with no default
-    /// precisely so that claim is written down by whoever knows it, rather than inferred
-    /// later from an absence.
+    /// This pane holds an `NSScrollView`, an `NSTextView` and a `String` — all
+    /// ARC's. It owns no process, no file handle (the file is read into memory
+    /// and closed) and no manually-freed resource. The protocol requires this
+    /// member with no default precisely so that claim is written down by whoever
+    /// knows it, rather than inferred later from an absence.
     ///
-    /// Note what does NOT belong here: unsaved work is `documentShouldClose()`'s job,
-    /// above, which prompts and can still veto. By the time this runs the user has already
-    /// been asked, so saving here would either double-prompt or silently overwrite a file
-    /// the user just chose to discard.
-    func documentWillClose() {}
+    /// Note what does NOT belong here: unsaved work is `documentShouldClose()`'s
+    /// job, above, which prompts and can still veto. By the time this runs the
+    /// user has already been asked, so saving here would either double-prompt or
+    /// silently overwrite a file the user just chose to discard.
+    func documentWillClose() {
+        // In `--wait` mode, terminating the app IS the unblock signal to the
+        // calling process. We only trigger this when the file being closed
+        // matches the `--wait` argument — a user could open additional files in
+        // the same session (e.g. from the sidebar) and closing those should not
+        // terminate the app prematurely.
+        //
+        // `applicationShouldTerminateAfterLastWindowClosed` returns true, so
+        // `NSApp.terminate` would also fire when the window closes as the last
+        // one. The explicit call here is belt-and-suspenders: it makes the intent
+        // visible in the code rather than relying on the window-close cascade, and
+        // it handles the case where the user opened another document alongside the
+        // wait file and closes the wait file first (the window stays open).
+        if let waitFile = CLIArguments.shared.waitFile,
+           url.resolvingSymlinksInPath() == waitFile.resolvingSymlinksInPath()
+        {
+            // B-2: One-shot guard — `tearDownAllDocuments` iterates all documents after
+            // this pane has already triggered termination, so without this flag a second
+            // call would re-enter `applicationShouldTerminate` mid-teardown.
+            guard !waitTerminateFired else { return }
+            waitTerminateFired = true
+            // B-6: Async dispatch so `NSApp.terminate` is not called synchronously
+            // inside `tearDownAllDocuments`'s loop, which would re-enter
+            // `applicationShouldTerminate` while teardown is still in progress.
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+    }
 }

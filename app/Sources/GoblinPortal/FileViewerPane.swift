@@ -150,6 +150,13 @@ final class FileViewerPane: NSObject {
     /// is not read back as someone else's external change.
     var loadedStamp: (date: Date, size: Int)?
 
+    /// B-2: One-shot guard so `documentWillClose()` fires `NSApp.terminate` exactly
+    /// once, even if AppKit calls it a second time during teardown (e.g.
+    /// `tearDownAllDocuments()` iterates all documents after the wait-file pane has
+    /// already triggered termination). Without this, `applicationShouldTerminate`
+    /// would be entered a second time mid-teardown, potentially corrupting session state.
+    var waitTerminateFired = false
+
     /// Read by `setFontSize` in `+Document`, which does the clamping.
     static let minFontSize = CGFloat(AppConfig.minFontSize)
     static let maxFontSize = CGFloat(AppConfig.maxFontSize)
