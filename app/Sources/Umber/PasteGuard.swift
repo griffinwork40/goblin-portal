@@ -2,37 +2,42 @@
 //  PasteGuard.swift
 //  Guard against accidental multi-line or large pastes into the terminal.
 //
+//  The threshold policy lives in `PasteGuardPolicy.swift` (Foundation-only, gated by
+//  `check-paste-guard.sh`). This file owns the AppKit half — the NSAlert dialog — and
+//  delegates every threshold decision to `PasteGuardPolicy.shouldConfirm(_:)`.
+//
+//  WHY THE SPLIT. `NSView` and `NSAlert` require AppKit, which makes this file opaque to a
+//  standalone `swiftc` invocation. The decision ("should this paste be confirmed?") has no such
+//  requirement and lives in `PasteGuardPolicy.swift` so the gate can compile it headlessly.
+//  The same split appears in `CommandOutcome.swift` / `SpaceDocument.swift` and
+//  `Renderer.swift` / the AppKit panes that call it.
+//
 
 import AppKit
 
-/// Policy for whether a paste should be guarded with a confirmation dialog.
+/// AppKit-side guard for accidental multi-line or large pastes into the terminal.
 ///
 /// iTerm2 and WezTerm both ship this feature. The failure mode it prevents:
 /// pasting a script or multi-command block into a terminal that executes each
 /// newline-terminated line immediately. Without bracketed paste (DECSET 2004),
 /// every `\n` in the clipboard is a submitted command.
+///
+/// Threshold logic is in `PasteGuardPolicy` (Foundation-only). This enum owns only
+/// the dialog presentation and the `NSView` parameter the alert anchors to.
 @MainActor
 enum PasteGuard {
-    /// Newline count above which a confirmation is shown.
-    /// 1 means "any multiline paste". Deliberately low: the cost of a dialog
-    /// on a legitimate paste is one click; the cost of running an unintended
-    /// `rm -rf` is unbounded.
-    static let newlineThreshold = 1
-
-    /// Character count above which a confirmation is shown, even without newlines.
-    /// Protects against pasting a massive single line that floods the terminal.
-    static let characterThreshold = 1_500
-
     /// Returns true if the paste should proceed, false if the user cancelled.
-    /// Shows a confirmation dialog when the text exceeds thresholds.
+    ///
+    /// Delegates the threshold decision to `PasteGuardPolicy.shouldConfirm(_:)`, then
+    /// shows a confirmation dialog when the text exceeds either threshold.
     @discardableResult
     static func confirmIfNeeded(_ text: String, in view: NSView) -> Bool {
-        let newlineCount = text.filter { $0.isNewline }.count
-        let charCount = text.count
-
-        guard newlineCount >= newlineThreshold || charCount >= characterThreshold else {
+        guard PasteGuardPolicy.shouldConfirm(text) else {
             return true  // Below thresholds — paste without asking
         }
+
+        let newlineCount = text.filter { $0.isNewline }.count
+        let charCount = text.count
 
         let alert = NSAlert()
         alert.messageText = "Confirm Paste"
