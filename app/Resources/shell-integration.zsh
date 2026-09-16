@@ -21,7 +21,7 @@
 # terminal is a no-op, so this block is safe to leave in your .zshrc
 # unconditionally.
 
-[[ "$TERM_PROGRAM" == "GoblinPortal" || "$TERM_PROGRAM" == "Umber" ]] || return 0
+[[ "$TERM_PROGRAM" == "GoblinPortal" || "$TERM_PROGRAM" == "Umber" ]] || return 0  # backward-compat alias -- remove after one release
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 //
 //  Defaults.swift
-//  The three `UserDefaults`-backed stores: font zoom, last Space root, open Space roots.
+//  The five `UserDefaults`-backed stores: font zoom, last Space root, open Space roots,
+//  last update-check timestamp, and skipped update version.
 //
 //  Its own file because these share one argument, stated once in `FontZoom` and
 //  referred to by the other two: transient UI state belongs in `UserDefaults`,

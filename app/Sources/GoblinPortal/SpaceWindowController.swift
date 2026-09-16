@@ -114,8 +114,6 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         "GoblinPortalSpace:\(root.path)"
     }
 
-    /// The pre-per-root autosave name, still read once as a seed. Not written.
-    private static let legacyFrameAutosaveName: NSWindow.FrameAutosaveName = "UmberWindow"
 
     let space: SpaceViewController
 
@@ -187,39 +185,22 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         window.delegate = self
         space.spaceDelegate = self
 
-        // Seed from the old shared key BEFORE naming the per-root one, so an existing
-        // install's window does not jump back to the 1100×680 default the first time
-        // it opens a Space after this change. Read only, never written: the next
-        // frame change autosaves under the per-root name, and `"UmberWindow"` is left
-        // to go stale on its own.
-        //
-        // Ordering is the whole trick, and it was measured rather than assumed
-        // (AppKit's docs do not spell this out): `setFrameAutosaveName` *applies* the
-        // frame stored under the new name when one exists and leaves the current frame
-        // alone when it does not. So a Space that already has per-root geometry
-        // overwrites this seed, and one that does not keeps it — which is exactly the
-        // migration wanted, in that order and no other.
-        //
-        // The Bool is ignored because a miss is the normal case on a fresh install and
-        // a no-op: `setFrameUsingName` returns false and does not touch the frame.
-        _ = window.setFrameUsingName(Self.legacyFrameAutosaveName)
-        // Intermediate fallback: if the user had per-root geometry saved under the
-        // previous app name ("UmberSpace:/path"), apply it now so it overwrites the
-        // shared legacy seed above. A miss is a no-op. This key is never written
-        // by this build, so it goes stale on its own once the user moves the window
-        // and the GoblinPortalSpace: key takes over.
-        _ = window.setFrameUsingName("UmberSpace:\(root.path)")
         // Restore position/size per *project root*, not per app. This was one
         // hardcoded string, so every Space shared a single saved frame and the last
         // window moved dictated where all of them reopened.
+        //
+        // NOTE: Umber's per-root geometry (`NSWindow Frame UmberSpace:/path`) lived in
+        // the `com.griffinlong.umber` defaults domain. `setFrameUsingName` reads from
+        // `[NSUserDefaults standardUserDefaults]` (the running bundle's domain), so
+        // there is no public-API path to recover those frames post-rename. Users who
+        // upgrade from Umber open at the 1100x680 default on first launch, and the
+        // new `GoblinPortalSpace:` key takes over from the first window move.
         //
         // Two Spaces CAN share a root (⌘N twice; ⌘O dedupes, `AppDelegate.openFolder`)
         // and therefore this name. Measured, not assumed: a second live window taking
         // an already-claimed autosave name still returns true, so there is no failure
         // to handle here — the two simply overwrite each other's saved frame, and the
-        // last one moved wins. That is the old `"UmberWindow"` bug surviving between
-        // duplicate Spaces on one root, which is a far smaller blast radius than
-        // across every Space, and it needs a real answer only once ⌘N dedupes too.
+        // last one moved wins.
         //
         // Honest limit: while Spaces are *tabbed*, AppKit keeps every window in the
         // group at the group's frame, so the per-root frames converge on it. The
