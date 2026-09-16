@@ -128,13 +128,22 @@ final class PreferencesWindow: NSWindowController {
 
     /// Write changed fields back into config.json, then trigger a live reload.
     ///
-    /// Reads the whole file as a mutable dictionary first so any keys the user
-    /// added by hand (or keys this window does not know about) survive the round-trip.
+    /// Option 1 + Option 2 from issue #71:
+    ///   • Skip the write entirely when nothing the user controls has changed.
+    ///     This prevents both an unnecessary reloadConfig call AND any risk of
+    ///     disturbing the comment-key ordering in the starter template.
+    ///   • When a real change IS made, strip comment-keys before writing so the
+    ///     round-trip through JSONSerialization (which uses .sortedKeys) never
+    ///     scrambles the "// key" grouping again.  The starter template's comments
+    ///     have served their purpose once the user has opened this window and saved.
     @objc func saveValues() {
-        var dict = rawConfigDict() ?? [:]
+        let existing = rawConfigDict() ?? [:]
+
+        // Build the new dict from control state.
+        var newDict = existing
 
         // Font
-        var fontDict = dict["font"] as? [String: Any] ?? [:]
+        var fontDict = existing["font"] as? [String: Any] ?? [:]
         let selectedFamily = fontFamilyPopup.titleOfSelectedItem ?? ""
         if selectedFamily.isEmpty || selectedFamily.hasPrefix("SF Mono") {
             fontDict.removeValue(forKey: "family")   // omit = system mono
@@ -146,11 +155,11 @@ final class PreferencesWindow: NSWindowController {
            sizeVal >= AppConfig.minFontSize && sizeVal <= AppConfig.maxFontSize {
             fontDict["size"] = sizeVal
         }
-        if fontDict.isEmpty { dict.removeValue(forKey: "font") }
-        else { dict["font"] = fontDict }
+        if fontDict.isEmpty { newDict.removeValue(forKey: "font") }
+        else { newDict["font"] = fontDict }
 
         // Theme
-        var themeDict = dict["theme"] as? [String: Any] ?? [:]
+        var themeDict = existing["theme"] as? [String: Any] ?? [:]
         let themeSelected = themePopup.titleOfSelectedItem ?? "classic-repaired"
         themeDict["preset"] = themeSelected
         // When the preset is "auto", the theme block also holds "dark" and "light"
@@ -158,32 +167,94 @@ final class PreferencesWindow: NSWindowController {
         // not surfaced as controls in this window (the popup only sets the preset), so
         // they must be carried forward from whatever is already on disk — otherwise a
         // round-trip through Apply silently discards the user's per-appearance choices.
-        if themeSelected == "auto", let existing = dict["theme"] as? [String: Any] {
+        if themeSelected == "auto", let existing = existing["theme"] as? [String: Any] {
             if let dark  = existing["dark"]  { themeDict["dark"]  = dark  }
             if let light = existing["light"] { themeDict["light"] = light }
         }
-        dict["theme"] = themeDict
+        newDict["theme"] = themeDict
 
         // Cursor
-        dict["cursor"] = cursorPopup.titleOfSelectedItem ?? "block"
+        newDict["cursor"] = cursorPopup.titleOfSelectedItem ?? "block"
 
         // Scrollback
         let sb = scrollbackField.integerValue
-        if sb >= 0 { dict["scrollback"] = sb }
+        if sb >= 0 { newDict["scrollback"] = sb }
 
         // Booleans
-        dict["optionAsMeta"] = optionAsMetaCheck.state == .on
-        dict["fontThicken"]  = fontThickenCheck.state  == .on
+        newDict["optionAsMeta"] = optionAsMetaCheck.state == .on
+        newDict["fontThicken"]  = fontThickenCheck.state  == .on
 
         // Renderer
-        dict["renderer"] = rendererPopup.titleOfSelectedItem ?? "coretext"
+        newDict["renderer"] = rendererPopup.titleOfSelectedItem ?? "coretext"
 
-        writeConfigDict(dict)
+        // Skip the write if nothing the Preferences window controls has changed.
+        // This leaves the on-disk file (including comment-key ordering) untouched
+        // when the user opens the panel and closes it without changing anything.
+        guard prefsValuesChanged(from: existing, to: newDict) else { return }
+
+        // Strip comment-keys before serialising: they only make sense in the
+        // hand-formatted starter template; once we re-write the file as
+        // pretty-printed JSON the sorted ordering would scramble them anyway.
+        let clean = newDict.filter { !$0.key.hasPrefix("//") }
+        writeConfigDict(clean)
 
         // Apply immediately — same path as ⌘R.
         if let delegate = NSApp.delegate as? AppDelegate {
             delegate.reloadConfig(nil)
         }
+    }
+
+    /// Returns true when any Preferences-controlled value differs between the two dicts.
+    ///
+    /// Compares only the keys this window manages.  Unknown user-added keys are
+    /// intentionally ignored so they do not accidentally block a real save.
+    private func prefsValuesChanged(
+        from old: [String: Any],
+        to new: [String: Any]
+    ) -> Bool {
+        // Font family
+        var oldFamily = (old["font"] as? [String: Any])?["family"] as? String ?? ""
+        if oldFamily.isEmpty || oldFamily.hasPrefix("SF Mono") { oldFamily = "" }
+        var newFamily = (new["font"] as? [String: Any])?["family"] as? String ?? ""
+        if newFamily.isEmpty || newFamily.hasPrefix("SF Mono") { newFamily = "" }
+        if oldFamily != newFamily { return true }
+
+        // Font size
+        let oldSize = (old["font"] as? [String: Any])?["size"] as? Double ?? AppConfig.defaultFontSize
+        let newSize = (new["font"] as? [String: Any])?["size"] as? Double ?? AppConfig.defaultFontSize
+        if oldSize != newSize { return true }
+
+        // Theme preset
+        let oldPreset = (old["theme"] as? [String: Any])?["preset"] as? String ?? "classic-repaired"
+        let newPreset = (new["theme"] as? [String: Any])?["preset"] as? String ?? ""
+        if oldPreset != newPreset { return true }
+
+        // Cursor
+        let oldCursor = old["cursor"] as? String ?? ""
+        let newCursor = new["cursor"] as? String ?? ""
+        if oldCursor != newCursor { return true }
+
+        // Scrollback
+        let oldScroll = old["scrollback"] as? Int ?? AppConfig.defaults().scrollback
+        let newScroll = new["scrollback"] as? Int ?? AppConfig.defaults().scrollback
+        if oldScroll != newScroll { return true }
+
+        // optionAsMeta
+        let oldMeta = old["optionAsMeta"] as? Bool ?? true
+        let newMeta = new["optionAsMeta"] as? Bool ?? true
+        if oldMeta != newMeta { return true }
+
+        // fontThicken
+        let oldThicken = old["fontThicken"] as? Bool ?? false
+        let newThicken = new["fontThicken"] as? Bool ?? false
+        if oldThicken != newThicken { return true }
+
+        // Renderer
+        let oldRenderer = old["renderer"] as? String ?? ""
+        let newRenderer = new["renderer"] as? String ?? ""
+        if oldRenderer != newRenderer { return true }
+
+        return false
     }
 
     /// Open config.json in the system editor — the power-user escape hatch.
