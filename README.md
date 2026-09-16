@@ -55,8 +55,8 @@ stop seeing dots.
 
 **Not built:** preferences UI (config is a JSON file) · URL clicking · profiles.
 
-**Partial:** splits (v1, horizontal only — ⌘⇧\\ splits right, ⌘⇧- wired but stub;
-vertical splits and recursive splits are not yet built) · syntax-highlighting in the editor
+**Partial:** splits (v2 — ⌘⇧\\ splits right, ⌘⇧- splits down, up to 4 panes per tab;
+split state not persisted across launches) · syntax-highlighting in the editor
 (14 languages, regex-based; no tree-sitter, no code intelligence).
 
 **Shell integration ships for both engines.** Under SwiftTerm, set `UMBER_INTEGRATION` in
