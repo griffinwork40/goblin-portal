@@ -16,8 +16,9 @@ set -euo pipefail
 
 CONFIG="${1:-debug}"
 APP_NAME="GoblinPortal"
+DISPLAY_NAME="Goblin Portal"
 BUNDLE_ID="com.griffinlong.goblin-portal"
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
@@ -141,9 +142,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>CFBundleIdentifier</key>
 	<string>$BUNDLE_ID</string>
 	<key>CFBundleName</key>
-	<string>$APP_NAME</string>
+	<string>$DISPLAY_NAME</string>
 	<key>CFBundleDisplayName</key>
-	<string>$APP_NAME</string>
+	<string>$DISPLAY_NAME</string>
 ${ICON_PLIST_ENTRY}	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
