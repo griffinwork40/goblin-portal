@@ -3,7 +3,7 @@
 # Assert the Edit-menu actions this app does not implement actually exist.
 #
 # Undo, Redo and Find-and-Replace are the three menu items in `AppMenu.swift` with
-# no Umber code behind them: each is an AppKit responder action reached with
+# no Goblin Portal code behind them: each is an AppKit responder action reached with
 # `target = nil`, so correctness lives entirely in assumptions about the SDK. That
 # is a bad place for an assumption, because the failure mode is silent — a menu
 # item wired to a selector nobody answers, or carrying a tag nobody recognises,

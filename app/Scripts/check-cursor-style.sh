@@ -4,7 +4,7 @@
 # unrecognised one maps to NOTHING so AppConfig.load() can warn and degrade, and that every
 # case still emits the DECSCUSR code it emitted before the enum moved.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/CursorStyle.swift` only. Foundation-only by design — its
+# WHAT IS UNDER TEST. `Sources/GoblinPortal/CursorStyle.swift` only. Foundation-only by design — its
 # header says so — so it compiles standalone with swiftc and never links AppKit, SwiftTerm or
 # libghostty. Same trick check-renderer-config.sh plays on Renderer.swift, check-keybindings.sh
 # on KeyBindings.swift, check-cwd-follow.sh on ShellDirectory.swift. Compiling the SHIPPED
@@ -50,7 +50,7 @@ QUIET=0
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
-SRC="Sources/Umber/CursorStyle.swift"
+SRC="Sources/GoblinPortal/CursorStyle.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2

@@ -2,11 +2,11 @@
 #
 # check-git-status.sh — headless truth table for the git sidebar's data layer.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/GitStatus.swift` (the porcelain-v2 grammar) and
-# `Sources/Umber/GitStatusReader.swift` (repo discovery + the spawn). Both are pure
+# WHAT IS UNDER TEST. `Sources/GoblinPortal/GitStatus.swift` (the porcelain-v2 grammar) and
+# `Sources/GoblinPortal/GitStatusReader.swift` (repo discovery + the spawn). Both are pure
 # Foundation with no AppKit, no SwiftTerm and no @MainActor precisely so this script can
 # compile them directly with swiftc, the same trick check-cwd-follow.sh plays on
-# ShellDirectory.swift. Nothing here launches Umber, steals focus, or needs a window
+# ShellDirectory.swift. Nothing here launches Goblin Portal, steals focus, or needs a window
 # server.
 #
 # THIS SCRIPT IS TWO FILES. The shell half builds the fixtures; the assertions live in
@@ -45,7 +45,7 @@
 # ISOLATION. Everything happens under a mktemp -d removed by a trap: every repository,
 # every remote and every worktree. No UserDefaults domain is touched, and no repository
 # outside that directory is read or written — in particular this script never runs git
-# against Umber's own checkout.
+# against Goblin Portal's own checkout.
 #
 set -euo pipefail
 
@@ -60,10 +60,10 @@ cd "$ROOT"
 # what a row says in words. `+Phrasing` in particular is here because it MUST be — its
 # string logic is deterministic and therefore gateable, and the only thing that ever kept
 # it ungated was living beside an `import AppKit` it never used.
-PARSER="Sources/Umber/GitStatus.swift"
-ROLLUP="Sources/Umber/GitStatus+Rollup.swift"
-PHRASING="Sources/Umber/GitStatus+Phrasing.swift"
-READER="Sources/Umber/GitStatusReader.swift"
+PARSER="Sources/GoblinPortal/GitStatus.swift"
+ROLLUP="Sources/GoblinPortal/GitStatus+Rollup.swift"
+PHRASING="Sources/GoblinPortal/GitStatus+Phrasing.swift"
+READER="Sources/GoblinPortal/GitStatusReader.swift"
 
 for unit in "$PARSER" "$ROLLUP" "$PHRASING" "$READER"; do
     [ -f "$unit" ] || { echo "ENV: $unit not found (run from app/ or app/Scripts/)"; exit 2; }
@@ -187,7 +187,7 @@ build_fixtures() {
     # --- outer + inner-wt: a repository INSIDE another repository's working tree ---
     # Its own fixture rather than a worktree under `plain`, because `plain`'s dirty state is
     # asserted line by line and committing a .gitignore into it would move those answers.
-    # This is Umber's own layout: `.afk-worktrees/*` are real repositories under the main
+    # This is Goblin Portal's own layout: `.afk-worktrees/*` are real repositories under the main
     # checkout, gitignored there, so the outer repo reports nothing about their contents. It
     # is the shape that makes a CONTAINMENT test the wrong way to cache a discovered
     # repository — the inner root is inside the outer one, so "still inside the repo I knew"

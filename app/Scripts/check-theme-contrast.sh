@@ -3,8 +3,8 @@
 # Assert that the shipped `umber` palette is measurably legible — and that the rules
 # doing the asserting are strict enough to reject a palette known to be bad.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/ThemeValues.swift`, `Sources/Umber/ThemeContrast.swift`
-# and `Sources/Umber/SyntaxPalette.swift` only. All three are Foundation-only BY DESIGN — their
+# WHAT IS UNDER TEST. `Sources/GoblinPortal/ThemeValues.swift`, `Sources/GoblinPortal/ThemeContrast.swift`
+# and `Sources/GoblinPortal/SyntaxPalette.swift` only. All three are Foundation-only BY DESIGN — their
 # headers say so — precisely so they can be
 # compiled here with swiftc and never link AppKit, SwiftTerm, or the app. Same trick
 # check-renderer-config.sh plays on Renderer.swift and check-cwd-follow.sh plays on
@@ -18,7 +18,7 @@
 # Night's and Nord's are 10.3, and Tokyo Night, Catppuccin, Nord and Rosé Pine all ship
 # *identical* values in their normal and bright chromatic slots, so bold text — which
 # SwiftTerm draws from the bright half by default — is indistinguishable from plain. None of
-# that is visible by reading hex. This gate is how Umber's palette avoids joining them.
+# that is visible by reading hex. This gate is how Goblin Portal's palette avoids joining them.
 #
 # WHAT IT CANNOT REACH. Everything that needs AppKit: whether `Theme.swift` actually hands
 # these values to either engine, whether `installColors` took, the sidebar's git tints (which
@@ -49,16 +49,16 @@ say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
 
-VALUES="Sources/Umber/ThemeValues.swift"
-COMMUNITY="Sources/Umber/ThemeValues+CommunityPresets.swift"
-CONTRAST="Sources/Umber/ThemeContrast.swift"
-SYNTAX="Sources/Umber/SyntaxPalette.swift"
+VALUES="Sources/GoblinPortal/ThemeValues.swift"
+COMMUNITY="Sources/GoblinPortal/ThemeValues+CommunityPresets.swift"
+CONTRAST="Sources/GoblinPortal/ThemeContrast.swift"
+SYNTAX="Sources/GoblinPortal/SyntaxPalette.swift"
 HARNESS="Scripts/check-theme-contrast-harness.swift"
 SYNHARNESS="Scripts/check-theme-contrast-syntax.swift"
 REGISTRY="Scripts/check-theme-contrast-registry.swift"
 REPAIR="Scripts/check-theme-contrast-repair.swift"
 REFERENCE="Scripts/check-theme-contrast-reference.swift"
-THEME="Sources/Umber/Theme.swift"
+THEME="Sources/GoblinPortal/Theme.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2
@@ -160,12 +160,12 @@ fi
 # that could not follow it, because `DocumentTabStrip+Drawing.swift` imports AppKit and can
 # never be linked into a Foundation-only harness — a shell-side grep is the only instrument
 # that reaches it (PR #24 review, finding 1).
-DRAW="Sources/Umber/DocumentTabStrip+Drawing.swift"
+DRAW="Sources/GoblinPortal/DocumentTabStrip+Drawing.swift"
 [[ -f "$DRAW" ]] || { echo "error: $DRAW not found." >&2; exit 2; }
 STRIP_DRAW="$TMP/draw-nocomments.swift"
 STRIP_CFG="$TMP/config-nocomments.swift"
 sed -e 's|//.*$||' "$DRAW" > "$STRIP_DRAW"
-sed -e 's|//.*$||' "Sources/Umber/Config.swift" > "$STRIP_CFG"
+sed -e 's|//.*$||' "Sources/GoblinPortal/Config.swift" > "$STRIP_CFG"
 
 drift=()
 grep -qE 'isActive \? 0\.95 : 0\.72' "$STRIP_DRAW" \
@@ -186,9 +186,9 @@ grep -qE '^[[:space:]]*theme: \.classicRepaired,' "$STRIP_CFG" \
 # and cannot be linked here — and therefore weak: it proves the expression is present, not
 # that a selected range renders in it. That remains daily-drive territory. Comments stripped
 # first and matched on the CONSTRUCT for the reason the preset check below documents at length.
-VIEWER="Sources/Umber/FileViewerPane+Document.swift"
-CHROME="Sources/Umber/Config+Chrome.swift"
-TERMINAL="Sources/Umber/TerminalPane.swift"
+VIEWER="Sources/GoblinPortal/FileViewerPane+Document.swift"
+CHROME="Sources/GoblinPortal/Config+Chrome.swift"
+TERMINAL="Sources/GoblinPortal/TerminalPane.swift"
 [[ -f "$VIEWER" ]]   || { echo "error: $VIEWER not found." >&2; exit 2; }
 [[ -f "$CHROME" ]]   || { echo "error: $CHROME not found." >&2; exit 2; }
 [[ -f "$TERMINAL" ]] || { echo "error: $TERMINAL not found." >&2; exit 2; }

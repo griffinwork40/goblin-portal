@@ -5,10 +5,10 @@
 # Same technique as check-keybindings.sh, and for the same reason: this app has no
 # test target, and `OpenSpaceRoots` is a near-pure function of (stored strings,
 # what exists on disk) — so instead of standing up XCTest, compile the SHIPPED
-# Sources/Umber/Defaults.swift together with a throwaway harness and run a truth
+# Sources/GoblinPortal/Defaults.swift together with a throwaway harness and run a truth
 # table. Nothing is stubbed or restated: a change to the real store shows up here.
 #
-# The compiled unit was Sources/Umber/Config.swift until 2026-07-28, when the
+# The compiled unit was Sources/GoblinPortal/Config.swift until 2026-07-28, when the
 # 350-LOC ceiling split the UserDefaults stores out into Defaults.swift. Only the
 # file name moved; `OpenSpaceRoots` itself is unchanged, which is why all 12 cases
 # below are untouched.
@@ -22,7 +22,7 @@
 # user whose app opened to nothing.
 #
 # Runs against a temp directory and its own defaults domain, NOT
-# com.griffinlong.umber: a check that trashed your real remembered Spaces would be
+# com.griffinlong.goblin-portal: a check that trashed your real remembered Spaces would be
 # a bad check. The last assertion proves that isolation held.
 #
 # Usage: ./Scripts/check-space-restore.sh
@@ -59,20 +59,20 @@ func check(_ label: String, _ got: [String], _ expect: [String]) {
 /// Snapshot the real app's remembered Spaces BEFORE this harness writes anything,
 /// so the isolation assertion at the bottom can compare a delta.
 ///
-/// This used to assert the key was *absent* from com.griffinlong.umber, which was
-/// wrong and made the check fail on any machine where Umber had actually been used
-/// — `Umber.openSpaceRoots` is exactly what a real launch is supposed to write, so
+/// This used to assert the key was *absent* from com.griffinlong.goblin-portal, which was
+/// wrong and made the check fail on any machine where Goblin Portal had actually been used
+/// — `GoblinPortal.openSpaceRoots` is exactly what a real launch is supposed to write, so
 /// the gate went permanently red for the correct reason and reported it as
 /// pollution (found 2026-07-28 by three independent readers during the 350-LOC
 /// split). A red gate nobody can fix is worse than no gate: it trains you to skip
 /// the one signal that would have caught a real regression. Absence was never the
 /// property worth asserting — "the harness did not write here" is.
-let realDomain = UserDefaults(suiteName: "com.griffinlong.umber")
-let realSpacesBefore = realDomain?.stringArray(forKey: "Umber.openSpaceRoots")
+let realDomain = UserDefaults(suiteName: "com.griffinlong.goblin-portal")
+let realSpacesBefore = realDomain?.stringArray(forKey: "GoblinPortal.openSpaceRoots")
 
 let fm = FileManager.default
 let sandbox = URL(fileURLWithPath: NSTemporaryDirectory())
-    .appendingPathComponent("umber-restore-check-\(getpid())")
+    .appendingPathComponent("goblin-portal-restore-check-\(getpid())")
 
 func dir(_ name: String) -> URL {
     let url = sandbox.appendingPathComponent(name)
@@ -137,7 +137,7 @@ check("every-root-deleted reads as empty", OpenSpaceRoots.urls.map(\.path), [])
 // Fail-soft, the AppConfig.load() contract applied to persistence. A key someone
 // hand-edited (or a future version wrote differently) must degrade to a working
 // app, not trap on launch — stringArray(forKey:) returns nil for a non-array.
-let key = "Umber.openSpaceRoots"
+let key = "GoblinPortal.openSpaceRoots"
 UserDefaults.standard.set("a-bare-string", forKey: key)
 check("a string where an array belongs degrades to empty", OpenSpaceRoots.urls.map(\.path), [])
 UserDefaults.standard.set(42, forKey: key)
@@ -167,9 +167,9 @@ try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: noExec.path)
 // than trusting it. Compared as a delta against the snapshot taken before any of
 // the writes above — whatever the real domain held, it must still hold, whether
 // that is nothing or a dozen roots from daily use.
-let realSpacesAfter = realDomain?.stringArray(forKey: "Umber.openSpaceRoots")
+let realSpacesAfter = realDomain?.stringArray(forKey: "GoblinPortal.openSpaceRoots")
 check(
-    "the real com.griffinlong.umber domain was not written",
+    "the real com.griffinlong.goblin-portal domain was not written",
     [realSpacesBefore == realSpacesAfter ? "unchanged" : "POLLUTED"],
     ["unchanged"])
 
@@ -181,7 +181,7 @@ exit(failures == 0 ? 0 : 1)
 SWIFT
 
 swiftc -o "$TMP/harness" \
-  Sources/Umber/Defaults.swift "$TMP/main.swift" \
+  Sources/GoblinPortal/Defaults.swift "$TMP/main.swift" \
   -framework AppKit
 
 "$TMP/harness"

@@ -1,12 +1,12 @@
 // check-runtime-paths-harness.swift
 // Swift harness for check-runtime-paths.sh.
 //
-// Compiled by the shell script against the @testable Umber objects — never run directly.
+// Compiled by the shell script against the @testable GoblinPortal objects — never run directly.
 // Three cases: cwd correctness (⌘T), context-menu wiring, BEL→attention.
 //
 import AppKit
 import SwiftTerm
-@testable import Umber
+@testable import GoblinPortal
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
@@ -198,7 +198,7 @@ MainActor.assumeIsolated {
     //
     // The chain being tested:
     //   view.feed(byteArray: [0x07])         — byte 0x07 is BEL
-    //     → UmberTerminalView.bell(source:)  — open override on TerminalView
+    //     → GoblinPortalTerminalView.bell(source:)  — open override on TerminalView
     //     → bellDelegate?.terminalViewDidRingBell(self)
     //     → TerminalPane.terminalViewDidRingBell(_:)
     //     → guard !isActiveDocument else { return }

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for Goblin Portal.
+
+  A terminal app inherits every capability request from whatever the user runs inside
+  it, so the entitlements here are the ones the SHELL process needs, not the ones a
+  typical GUI app would request.
+
+  com.apple.security.cs.allow-jit
+    JIT compilation. Required by some programs the user may run (node, bun, etc.) and
+    harmless when unused.
+
+  com.apple.security.cs.allow-unsigned-executable-memory
+    mmap(PROT_WRITE|PROT_EXEC) without code-signing the page first. Some interpreters
+    and JIT engines (Python, Ruby, Lua) allocate executable memory this way. Without
+    this, those programs segfault inside Goblin Portal but work fine in Terminal.app.
+
+  com.apple.security.cs.disable-library-validation
+    Load dylibs/bundles not signed by the same team. Required because users run
+    programs that dlopen third-party libraries — without this, the hardened runtime
+    refuses to load any dylib not signed by the app's own team, so interpreters,
+    language servers, and tools that load plugins would fail inside Goblin Portal but work
+    in Terminal.app. If GhosttyKit returns as a linked dependency it will add a
+    second justification (prebuilt upstream binary signed by a different team).
+
+  The TCC keys (microphone, desktop, etc.) are in Info.plist, not here — those are
+  usage-description strings, not entitlements.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

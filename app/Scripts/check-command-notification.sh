@@ -31,7 +31,7 @@
 # WHAT IT CANNOT REACH. Whether the notification actually appears on screen,
 # whether permission was granted, and whether the UNUserNotificationCenter
 # delegate fires — all require an AppKit run loop and a running UNDaemon.
-# Daily use and `UMBER_DIAG=1` own those. This owns the policy coupling.
+# Daily use and `GOBLIN_PORTAL_DIAG=1` own those. This owns the policy coupling.
 #
 # EXIT CODES: 0 = all pass. 1 = a REAL failure (threshold decoupled, or the
 # grep pin tripped). 2 = environmental (no toolchain, source file missing,
@@ -45,8 +45,8 @@ say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
 
-SRC_NOTIFICATION="Sources/Umber/CommandNotification.swift"
-SRC_OUTCOME="Sources/Umber/CommandOutcome.swift"
+SRC_NOTIFICATION="Sources/GoblinPortal/CommandNotification.swift"
+SRC_OUTCOME="Sources/GoblinPortal/CommandOutcome.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }

@@ -39,19 +39,19 @@ PRODUCTS="$ROOT/.build/out/Products/Debug"
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }
 
-say "==> building (the harness links Umber's own objects, so they must be current)"
+say "==> building (the harness links Goblin Portal's own objects, so they must be current)"
 if ! swift build >/dev/null 2>&1; then
   echo "error: swift build failed — fix the build before running this gate." >&2
   swift build 2>&1 | grep -E 'error' | head -10 >&2
   exit 2
 fi
 
-# The testable variant is what exposes Umber's internals to `@testable import`. The directory
+# The testable variant is what exposes Goblin Portal's internals to `@testable import`. The directory
 # carries a build-configuration hash, so glob for it rather than hardcoding one machine's.
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
   -path '*testable-t.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/GhosttyPane.o" ]] || {
-  echo "error: no testable Umber objects under .build — cannot @testable import the real panes." >&2
+  echo "error: no testable GoblinPortal objects under .build — cannot @testable import the real panes." >&2
   echo "  Looked for '*testable-t.build/Objects-normal/*/GhosttyPane.o'. Try: swift build" >&2
   exit 2; }
 for o in GhosttyTerminal.o GhosttyKit.o libghostty.a SwiftTerm.o; do
@@ -62,10 +62,10 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 cat > "$TMP/main.swift" <<'SWIFT'
 import AppKit
-// `@testable` on BOTH modules: Umber for the panes, GhosttyTerminal because `view.surface` is
+// `@testable` on BOTH modules: GoblinPortal for the panes, GhosttyTerminal because `view.surface` is
 // internal to the dependency and the freed-ness of the surface is the whole assertion.
 @testable import GhosttyTerminal
-@testable import Umber
+@testable import GoblinPortal
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
@@ -149,7 +149,7 @@ MainActor.assumeIsolated {
     // the result. That gap is the quiet one: the mapping table could be perfect while
     // `addTerminalDocument` ignores it, and the symptom is a config line that parses without a
     // warning and changes nothing. This is the cheapest place to close it — the harness already
-    // links Umber testably, and `start: false` means no shell is spawned and no window is needed, so
+    // links GoblinPortal testably, and `start: false` means no shell is spawned and no window is needed, so
     // this asserts the WIRING without paying for a surface.
     // ========================================================================================
     for (engine, expected) in [(TerminalEngine.swiftTerm, "TerminalPane"),

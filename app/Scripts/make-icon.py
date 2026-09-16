@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate the Umber app icon.
+"""Generate the Goblin Portal app icon.
 
 Design intent
 -------------
-"Umber" contains "ember". The icon is warm light in the dark: a near-black
+The icon is warm light in the dark: a near-black
 squircle with the pigment showing up as a glowing ember-gradient mark, rather
 than as a brown background. Brown backgrounds read as mud; ember reads as heat.
 
@@ -19,7 +19,7 @@ Usage:
   python3 make-icon.py                        # build/icon/icon_1024.png
   python3 make-icon.py --variant caret        # pick a treatment
   python3 make-icon.py --all                  # render every variant
-  python3 make-icon.py --icns                 # + Umber.icns via iconutil
+  python3 make-icon.py --icns                 # + GoblinPortal.icns via iconutil
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ VARIANT_DEFAULT = "prompt"
 
 # The icon is a small window of the app: these are the app's OWN colours.
 # Background is the afk-dark theme background and the mark's mid stop is the
-# real cursor colour -- both from Sources/Umber/Config.swift. Keep them in sync;
+# real cursor colour -- both from Sources/GoblinPortal/Config.swift. Keep them in sync;
 # the cool slate also makes the warm mark read hotter, and unlike a near-black
 # tile it stays visible against a black Dock.
 BG_TOP = (0x15, 0x1B, 0x24)
@@ -311,12 +311,12 @@ def main() -> int:
     print(f"wrote {outdir / 'icon_1024.png'}  (variant={a.variant})")
 
     if a.icns:
-        iconset = outdir / "Umber.iconset"
+        iconset = outdir / "GoblinPortal.iconset"
         iconset.mkdir(exist_ok=True)
         for sz in (16, 32, 128, 256, 512):
             img.resize((sz, sz), Image.LANCZOS).save(iconset / f"icon_{sz}x{sz}.png")
             img.resize((sz * 2, sz * 2), Image.LANCZOS).save(iconset / f"icon_{sz}x{sz}@2x.png")
-        icns = outdir / "Umber.icns"
+        icns = outdir / "GoblinPortal.icns"
         subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(icns)], check=True)
         print(f"wrote {icns}")
     return 0

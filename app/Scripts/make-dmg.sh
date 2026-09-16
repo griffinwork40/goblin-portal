@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# Create a distribution .dmg from an already-built Umber.app.
+# Create a distribution .dmg from an already-built GoblinPortal.app.
 #
 # Produces a compressed, read-only disk image with:
-#   - Umber.app on the left
+#   - GoblinPortal.app on the left
 #   - An Applications symlink on the right
 #   - A background image with a drag-here arrow
 #   - Window sized and positioned so the two icons sit centered
@@ -14,11 +14,11 @@
 # positions.
 #
 # Usage:
-#   ./Scripts/make-dmg.sh [path/to/Umber.app] [output.dmg]
+#   ./Scripts/make-dmg.sh [path/to/GoblinPortal.app] [output.dmg]
 #
 # Defaults:
-#   app:    build/Umber.app
-#   output: build/Umber-vX.Y.Z.dmg  (version read from the app's Info.plist)
+#   app:    build/GoblinPortal.app
+#   output: build/GoblinPortal-vX.Y.Z.dmg  (version read from the app's Info.plist)
 #
 # Requires: hdiutil, sips, python3 (ships with macOS 14+)
 #
@@ -26,15 +26,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-APP="${1:-build/Umber.app}"
+APP="${1:-build/GoblinPortal.app}"
 if [[ ! -d "$APP" ]]; then
   echo "error: $APP not found — run make-app-bundle.sh first" >&2
   exit 1
 fi
 
 VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
-OUTPUT="${2:-build/Umber-v${VERSION}.dmg}"
-VOLUME_NAME="Umber"
+OUTPUT="${2:-build/GoblinPortal-v${VERSION}.dmg}"
+VOLUME_NAME="Goblin Portal"
 
 # Window geometry. The Finder window that opens when the user mounts the DMG is
 # positioned and sized by the .DS_Store baked into the image. These numbers place
@@ -43,7 +43,7 @@ VOLUME_NAME="Umber"
 WIN_W=640
 WIN_H=400
 ICON_SIZE=128
-APP_X=160     # Umber.app icon center
+APP_X=160     # GoblinPortal.app icon center
 APP_Y=190
 APPS_X=480    # Applications alias icon center
 APPS_Y=190
@@ -163,7 +163,7 @@ PYEOF
 echo "==> assembling DMG contents"
 
 STAGING="$(mktemp -d)"
-cp -R "$APP" "$STAGING/Umber.app"
+cp -R "$APP" "$STAGING/GoblinPortal.app"
 ln -s /Applications "$STAGING/Applications"
 
 # Hidden directory for the background image. The dot-prefix hides it in Finder.
@@ -215,7 +215,7 @@ tell application "Finder"
     set arrangement of theViewOptions to not arranged
     set icon size of theViewOptions to $ICON_SIZE
     set background picture of theViewOptions to file ".background:background.png"
-    set position of item "Umber.app" of container window to {$APP_X, $APP_Y}
+    set position of item "GoblinPortal.app" of container window to {$APP_X, $APP_Y}
     set position of item "Applications" of container window to {$APPS_X, $APPS_Y}
     update without registering applications
     delay 1
@@ -230,8 +230,8 @@ else
 fi
 
 # Set the volume icon if the app has one.
-if [[ -f "$APP/Contents/Resources/Umber.icns" ]]; then
-  cp "$APP/Contents/Resources/Umber.icns" "$MOUNT_DIR/.VolumeIcon.icns"
+if [[ -f "$APP/Contents/Resources/GoblinPortal.icns" ]]; then
+  cp "$APP/Contents/Resources/GoblinPortal.icns" "$MOUNT_DIR/.VolumeIcon.icns"
   SetFile -c icnC "$MOUNT_DIR/.VolumeIcon.icns" 2>/dev/null || true
   SetFile -a C "$MOUNT_DIR" 2>/dev/null || true
 fi

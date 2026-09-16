@@ -7,7 +7,7 @@
 # Same technique as check-reflow.sh: no test target exists, so compile a throwaway
 # harness against the SHIPPED vendored SwiftTerm and run a truth table. The unit
 # under test is the vendored emulator, which is why this links
-# .build/out/Products/Debug/SwiftTerm.o rather than any file from Sources/Umber.
+# .build/out/Products/Debug/SwiftTerm.o rather than any file from Sources/GoblinPortal.
 #
 # THE DEFECT (upstream SwiftTerm, not introduced by any local patch — 0002 touches
 # neither `resize` nor `isReflowEnabled`)
@@ -27,7 +27,7 @@
 # tmux lives in the alt buffer and repaints only the deltas its own screen model says
 # changed. The emulator mutated cells tmux never wrote, so the two models diverge with no
 # event to reconcile them, and a tmux window switch is redrawn from that same stale model.
-# Umber calls terminal.resize on EVERY cols/rows change — processSizeChange
+# Goblin Portal calls terminal.resize on EVERY cols/rows change — processSizeChange
 # (AppleTerminalView.swift:233: live window drag, ⌘B sidebar, full screen) and resetFont
 # (:151: ⌘+/⌘-/⌘0 zoom, ⌘R reload) — so a day of use deposits several bands, each holding
 # text a differently-sized tmux pane layout wrapped at ITS width. Rendered inside today's

@@ -3,7 +3,7 @@
 # Assert that the URL scheme allow-list in LinkScheme.swift matches the safety contract —
 # that every allowed scheme is recognised as safe and every blocked one is rejected.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/LinkScheme.swift` only. Foundation-only by design — its
+# WHAT IS UNDER TEST. `Sources/GoblinPortal/LinkScheme.swift` only. Foundation-only by design — its
 # header says so — so it compiles standalone with swiftc and never links AppKit, SwiftTerm or
 # libghostty. Same trick check-renderer-config.sh plays on Renderer.swift, check-cursor-style.sh
 # on CursorStyle.swift, check-keybindings.sh on KeyBindings.swift. Compiling the SHIPPED file,
@@ -45,7 +45,7 @@ QUIET=0
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
-SRC="Sources/Umber/LinkScheme.swift"
+SRC="Sources/GoblinPortal/LinkScheme.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2

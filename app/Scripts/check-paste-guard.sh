@@ -3,7 +3,7 @@
 # Does PasteGuard's threshold logic fire on the right pastes?
 # Asserts the newline and character count policies in PasteGuardPolicy.swift.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/PasteGuardPolicy.swift` only. That file is
+# WHAT IS UNDER TEST. `Sources/GoblinPortal/PasteGuardPolicy.swift` only. That file is
 # Foundation-only BY DESIGN — the *decision* (should this paste be confirmed?) is a pure
 # function of the text being pasted, and a pure function compiles headless with swiftc: no
 # NSAlert, no NSView, no window server. Same trick check-command-outcome.sh plays on
@@ -42,7 +42,7 @@ QUIET=0
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
-SRC="Sources/Umber/PasteGuardPolicy.swift"
+SRC="Sources/GoblinPortal/PasteGuardPolicy.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
     echo "error: swiftc not found — no Swift toolchain on PATH." >&2

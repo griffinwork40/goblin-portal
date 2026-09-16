@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # One question, asked by the two gates whose subject is the VENDORED emulator rather than
-# a file in Sources/Umber: **where is the compiled SwiftTerm module, and is it the tree on
+# a file in Sources/GoblinPortal: **where is the compiled SwiftTerm module, and is it the tree on
 # disk rather than something left over?**
 #
 # Sourced, never executed. `check-reflow.sh` and `check-altbuffer-resize.sh` both link a

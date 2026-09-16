@@ -3,7 +3,7 @@
 # Does the OSC 133 parser correctly implement the A/C/D state machine?
 # Asserts ShellIntegration.swift's handler and parseExitCode function.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/ShellIntegration.swift` only. That file is
+# WHAT IS UNDER TEST. `Sources/GoblinPortal/ShellIntegration.swift` only. That file is
 # Foundation-only BY DESIGN — the OSC 133 parser and state machine are pure functions
 # of their inputs, and a pure function compiles headless with swiftc. Same trick
 # check-command-outcome.sh plays on CommandOutcome.swift, check-cwd-follow.sh on
@@ -33,7 +33,7 @@ QUIET="${QUIET:-0}"
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
-SRC="Sources/Umber/ShellIntegration.swift"
+SRC="Sources/GoblinPortal/ShellIntegration.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
     echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }

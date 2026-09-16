@@ -1,12 +1,12 @@
-# Umber
+# Goblin Portal
 
 A native macOS terminal, in Swift, with no AI features. Built to host
 [`agent-afk`](https://github.com/griffinwork40/agent-afk) well.
 
-Named **Umber**, after the warm earth pigment that matches its own accent colour
-(`#E67E4C`, see `Sources/Umber/Config.swift`). See
+Renamed from **Umber** to **Goblin Portal** on 2026-09-15. The theme preset
+`"umber"` (a warm earth pigment) survives as an easter egg. See
 [`../.afk/research/naming-decision-2026-07-27.md`](../.afk/research/naming-decision-2026-07-27.md)
-for how that was chosen.
+for the original naming rationale.
 
 Step 2 of [`../.afk/plans/native-swift-terminal-afk-host.md`](../.afk/plans/native-swift-terminal-afk-host.md).
 
@@ -15,13 +15,13 @@ Step 2 of [`../.afk/plans/native-swift-terminal-afk-host.md`](../.afk/plans/nati
 ```sh
 ./Scripts/make-app-bundle.sh          # debug
 ./Scripts/make-app-bundle.sh release  # optimised
-open build/Umber.app
+open build/GoblinPortal.app
 ```
 
 Or, for a quick iteration loop without bundling:
 
 ```sh
-swift run Umber
+swift run GoblinPortal
 ```
 
 The bundle path is what you want for real use — it gets a Dock icon, appears in
@@ -56,7 +56,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
                                  # and does clicking it move the sidebar? offscreen, steals no focus
 ./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
                                  # needs Accessibility permission for your terminal
-UMBER_DIAG=1 swift run Umber   # dumps resolved font/theme/scrollback state to stderr
+GOBLIN_PORTAL_DIAG=1 swift run GoblinPortal   # dumps resolved font/theme/scrollback state to stderr
 ```
 
 `verify-vendor.sh` runs first inside `make-app-bundle.sh`, and exists because the two
@@ -134,12 +134,12 @@ to be thrown away. The transcript is kept at
 
 What it cannot reach is stated in its own header: the poller's cadence, the badge glyph, colour
 legibility inside the selection pill, and every line of AppKit wiring — all of which import
-AppKit and therefore cannot be compiled alone. `UMBER_DIAG=1` prints one `[umber] git:` line
+AppKit and therefore cannot be compiled alone. `GOBLIN_PORTAL_DIAG=1` prints one `[goblin-portal] git:` line
 per changed snapshot to cover the gap that matters most, which is telling "not a repository"
 apart from "the tint failed to draw".
 
 `check-reflow.sh` is the gate for SwiftTerm #494 and for local patch `0002`. It compiles a
-harness against the **vendored emulator itself** (not a file from `Sources/Umber`), seeds
+harness against the **vendored emulator itself** (not a file from `Sources/GoblinPortal`), seeds
 more lines than `rows` so the scrollback offset `_yBase` is non-zero, uses absolute CUP to
 put the cursor above the last row — the only state in which the faulty branch at
 `Buffer.swift:1167`/`:1205` executes at all — writes a wrapping line, narrows, then asserts
@@ -193,7 +193,7 @@ that is invisible by construction: a config that says
 it was this project's actual state until 2026-07-31, because `0001` used to `exclude:` the
 Metal shader rather than ship it, and `MetalTerminalRenderer` needs the `.metal` source in the
 resource bundle so it can compile it at runtime. Six cases: two static (the shader is in the
-SwiftPM resource bundle, **and** in `Umber.app/Contents/Resources` — different lookup paths,
+SwiftPM resource bundle, **and** in `GoblinPortal.app/Contents/Resources` — different lookup paths,
 so one proves nothing about the other), three behavioural (asking for `metal` yields metal;
 asking for `coretext` yields coretext; and asking for `metal` *then* `coretext` in one process
 still yields coretext), and one falsification. Only the third behavioural case is a real
@@ -229,7 +229,7 @@ behind — and that the default is still `coretext`. It was validated by falsifi
 siblings: breaking one alias, flipping the default, and making unknown values resolve each make
 it fail with the specific case named.
 
-`check-find-menu.sh` covers the three Edit-menu items with **no Umber code behind them** —
+`check-find-menu.sh` covers the three Edit-menu items with **no Goblin Portal code behind them** —
 Undo, Redo, and Find and Replace are AppKit responder actions reached with `target = nil`,
 so all three are correct only as long as an assumption about the SDK holds. It checks that
 `undo:`/`redo:` are answered by NSWindow (not NSTextView, which does not implement them),
@@ -309,7 +309,7 @@ integration (OSC 7/133). Search. URL clicking. Profiles.
 
 ## Configuration
 
-Lives at `~/.config/umber/config.json`. It does not exist until you create
+Lives at `~/.config/goblin-portal/config.json`. It does not exist until you create
 it — **Settings… (⌘,) writes a commented starter file** and opens it. ⌘R reloads
 without restarting.
 

@@ -56,7 +56,7 @@ PRODUCTS="$ROOT/.build/out/Products/Debug"
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }
 
-say "==> building (the harness links Umber's own objects, so they must be current)"
+say "==> building (the harness links Goblin Portal's own objects, so they must be current)"
 if ! swift build >/dev/null 2>&1; then
   echo "error: swift build failed — fix the build before running this gate." >&2
   swift build 2>&1 | grep -E 'error' | head -10 >&2
@@ -64,10 +64,10 @@ if ! swift build >/dev/null 2>&1; then
 fi
 
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*Debug*Umber-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*Debug*GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/TerminalPane.o" ]] || {
-  echo "error: no Umber objects under .build — cannot @testable import Umber." >&2
-  echo "  Looked for '*Debug*Umber-p.build/Objects-normal/*/TerminalPane.o'. Try: swift build" >&2
+  echo "error: no GoblinPortal objects under .build — cannot @testable import GoblinPortal." >&2
+  echo "  Looked for '*Debug*GoblinPortal-p.build/Objects-normal/*/TerminalPane.o'. Try: swift build" >&2
   exit 2; }
 [[ -e "$PRODUCTS/SwiftTerm.o" ]] || {
   echo "error: $PRODUCTS/SwiftTerm.o missing after build." >&2; exit 2; }

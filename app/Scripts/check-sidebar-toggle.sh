@@ -61,7 +61,7 @@
 #
 # LINK INPUTS. This harness never touches a `GhosttyTerminal` type — it never calls `.start()`
 # on any pane — but it still links against `GhosttyTerminal.o`/`GhosttyKit.o`/`libghostty.a`
-# because Umber's OWN object files (`GhosttyPane.o`, `GhosttyTerminalView.o`, pulled in by the
+# because Goblin Portal's OWN object files (`GhosttyPane.o`, `GhosttyTerminalView.o`, pulled in by the
 # `$OBJS` glob below) reference those symbols unconditionally. Measured, not assumed: dropping
 # them produces `symbol(s) not found for architecture arm64` against `TerminalSurfaceOptions`,
 # `TerminalSurfacePwdDelegate` and friends, so they go back in — same full object set
@@ -87,7 +87,7 @@ PRODUCTS="$ROOT/.build/out/Products/Debug"
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }
 
-say "==> building (the harness links Umber's own objects, so they must be current)"
+say "==> building (the harness links Goblin Portal's own objects, so they must be current)"
 if ! swift build >/dev/null 2>&1; then
   echo "error: swift build failed — fix the build before running this gate." >&2
   swift build 2>&1 | grep -E 'error' | head -10 >&2
@@ -100,7 +100,7 @@ fi
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
   -path '*testable-t.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/SidebarToggleAccessory.o" ]] || {
-  echo "error: no testable Umber objects under .build — cannot @testable import the real accessory." >&2
+  echo "error: no testable GoblinPortal objects under .build — cannot @testable import the real accessory." >&2
   echo "  Looked for '*testable-t.build/Objects-normal/*/SidebarToggleAccessory.o'. Try: swift build" >&2
   exit 2; }
 for o in GhosttyTerminal.o GhosttyKit.o libghostty.a SwiftTerm.o MSDisplayLink.o; do
@@ -117,7 +117,7 @@ cat > "$TMP/main.swift" <<'SWIFT'
 import AppKit
 // @testable for SpaceWindowController, SpaceViewController and SidebarToggleAccessory — all
 // `internal` — the same reach check-pane-teardown.sh needs for TerminalPane/GhosttyPane.
-@testable import Umber
+@testable import GoblinPortal
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
