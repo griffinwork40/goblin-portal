@@ -111,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         // ⌘⇧P — always available (palette surfaces all commands).
         if sel == #selector(showCommandPalette(_:)) { return true }
+        // `openSearch(_:)` falls through: valid in both terminal and editor contexts.
         return true
     }
 

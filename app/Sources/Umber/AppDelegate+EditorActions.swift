@@ -1,7 +1,7 @@
 //
 //  AppDelegate+EditorActions.swift
 //  Editor-specific menu actions: Go to Line, Word Wrap, Send Path to Terminal,
-//  and Run in Terminal. Extracted from AppDelegate.swift when that file hit the
+//  Run in Terminal, and openSearch. Extracted from AppDelegate.swift when that file hit the
 //  350-line ceiling — the seam is clean because every action here requires a
 //  `FileViewerPane` to be the active document (terminals do not answer these).
 //
@@ -9,6 +9,7 @@
 //  used by the terminal-integration actions.
 //
 //  **Wave 3 actions**
+//    · `openSearch(_:)`           — ⌘F, opens the find bar (terminal) or NSTextFinder (editor)
 //    · `selectNextOccurrence(_:)` — ⌘D, routes through the responder chain
 //    · `showCommandPalette(_:)`   — ⌘⇧P, opens the floating command palette
 //
