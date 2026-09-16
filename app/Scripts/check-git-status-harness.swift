@@ -2,8 +2,8 @@
 //  check-git-status-harness.swift
 //  The assertion half of Scripts/check-git-status.sh.
 //
-//  Not part of the app: `Package.swift` globs `Sources/Umber` only, so nothing here is
-//  ever linked into Umber. `check-git-status.sh` copies this file to `main.swift` in its
+//  Not part of the app: `Package.swift` globs `Sources/GoblinPortal` only, so nothing here is
+//  ever linked into Goblin Portal. `check-git-status.sh` copies this file to `main.swift` in its
 //  temp dir and compiles it against the two shipped sources under test.
 //
 //  WHY IT IS NOT A HEREDOC, unlike every other check script's harness. The shell half
@@ -216,7 +216,7 @@ if let (_, conflicted) = snapshot("conflicted") {
 }
 
 // DISCOVERY. The bug this replaces would have passed every manual test from an ordinary
-// clone and failed on every worktree, including Umber's own development checkout.
+// clone and failed on every worktree, including Goblin Portal's own development checkout.
 print("DISCOVERY — including the worktree landmine")
 check("plain repo root is found", plainRepo.root.lastPathComponent == "plain",
       plainRepo.root.path)

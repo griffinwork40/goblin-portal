@@ -24,7 +24,7 @@
 # stored properties — it cannot be compiled standalone the way Foundation-only files
 # like `CommandOutcome.swift` or `TerminalEngine.swift` can. An offscreen harness
 # like `check-sidebar-toggle.sh` would work but requires `swift build` (30-60s) and
-# linking all of Umber's objects, which is disproportionate for a two-line structural
+# linking all of Goblin Portal's objects, which is disproportionate for a two-line structural
 # invariant that grep can verify in under a second. The check uses awk to enforce
 # line adjacency: `defer { isHandlingSmartEdit = false }` must appear on the line
 # IMMEDIATELY following `isHandlingSmartEdit = true`, with no intervening lines.
@@ -42,7 +42,7 @@ QUIET="${QUIET:-0}"
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
-SRC="Sources/Umber/FileViewerPane+SmartEditing.swift"
+SRC="Sources/GoblinPortal/FileViewerPane+SmartEditing.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }

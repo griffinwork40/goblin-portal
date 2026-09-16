@@ -27,7 +27,7 @@
 #     activates the new instance — don't click away while this runs.
 #   * The script signals only the pid it launched itself, and only after
 #     confirming that pid's environment names the throwaway shell. Matching
-#     Umber by name and killing the newest/last match will eventually kill
+#     Goblin Portal by name and killing the newest/last match will eventually kill
 #     the instance you are working in.
 #
 # Usage: ./Scripts/check-keys-e2e.sh   (opens and closes one window; steals focus)
@@ -35,7 +35,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-APP="build/Umber.app"
+APP="build/GoblinPortal.app"
 [[ -d "$APP" ]] || {
   echo "error: $APP not found — run ./Scripts/make-app-bundle.sh first" >&2
   exit 1
@@ -115,7 +115,7 @@ guard frontmostPid() == pid else {
     FileHandle.standardError.write(Data("""
     inconclusive: pid \(pid) never became frontmost (frontmost is \
     \(frontmostPid().map(String.init) ?? "unknown")), so ⌘ chords would never reach
-                  the key-equivalent phase. Click the new Umber window, or
+                  the key-equivalent phase. Click the new Goblin Portal window, or
                   re-run — nothing was posted.
 
     """.utf8))
@@ -156,7 +156,7 @@ AFTER="$(pgrep -f "$PWD/$APP" | sort || true)"
 
 APP_PID="$(comm -13 <(echo "$BEFORE") <(echo "$AFTER") | tr -d ' ' | head -1)"
 [[ -n "$APP_PID" ]] || {
-  echo "error: no new Umber instance appeared — did the throwaway shell exit" >&2
+  echo "error: no new Goblin Portal instance appeared — did the throwaway shell exit" >&2
   echo "       immediately? (that closes the tab, which quits the app)" >&2
   exit 1
 }

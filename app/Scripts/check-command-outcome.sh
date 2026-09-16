@@ -2,7 +2,7 @@
 #
 # Does a finished shell command mark its tab correctly? Asserts the OSC 133 status policy.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/CommandOutcome.swift` only. That file is Foundation-only BY
+# WHAT IS UNDER TEST. `Sources/GoblinPortal/CommandOutcome.swift` only. That file is Foundation-only BY
 # DESIGN — the *decision* (what a finished command means for its tab) is a pure function of exit
 # code, duration and whether the user is looking, and a pure function compiles headless with
 # swiftc: no NSView, no window server, no shell, no `swift build`. Same trick
@@ -33,7 +33,7 @@ QUIET="${QUIET:-0}"
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
-SRC="Sources/Umber/CommandOutcome.swift"
+SRC="Sources/GoblinPortal/CommandOutcome.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }

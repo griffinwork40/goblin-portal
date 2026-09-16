@@ -3,7 +3,7 @@
 # check-light-theme.sh — the shipped palettes are well-formed, and `afk-light` is
 # actually light enough to flip the window chrome.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/ThemeValues.swift` only. That file is
+# WHAT IS UNDER TEST. `Sources/GoblinPortal/ThemeValues.swift` only. That file is
 # Foundation-only BY DESIGN — its header says so — precisely so it can be compiled on
 # its own with swiftc and never link AppKit or SwiftTerm. Same trick
 # check-renderer-config.sh plays on Renderer.swift and check-cursor-style.sh plays on
@@ -11,7 +11,7 @@
 # point: a check that restates the palette proves only that the check agrees with itself.
 #
 # `Theme.swift` is deliberately NOT the subject and cannot be: it imports AppKit *and*
-# SwiftTerm, so `swiftc Sources/Umber/Theme.swift` exits 1 on `no such module 'SwiftTerm'`
+# SwiftTerm, so `swiftc Sources/GoblinPortal/Theme.swift` exits 1 on `no such module 'SwiftTerm'`
 # and nothing in it has ever been gateable. That is why the palettes and the luminance
 # formula were moved out — the split is what created something checkable.
 #
@@ -39,8 +39,8 @@
 # it never renders a pixel. It cannot tell you the sidebar's vibrant material actually
 # changed, that the tab strip picked the right rail blend, that the caret is visible
 # inside a selection, or that `.aqua` chrome looks right against #FFFFFF. Those import
-# AppKit and are UMBER_DIAG and daily-drive territory. It also says nothing about ANSI
-# 16-255: Umber pins `ansi256PaletteStrategy = .xterm` (`TerminalPane.swift:165`) so
+# AppKit and are GOBLIN_PORTAL_DIAG and daily-drive territory. It also says nothing about ANSI
+# 16-255: Goblin Portal pins `ansi256PaletteStrategy = .xterm` (`TerminalPane.swift:165`) so
 # those 240 indices are the emulator's fixed xterm cube, not ours — and being dark-tuned,
 # many of them are low-contrast on a white background. That is a known, documented
 # limitation (app/README.md), not something this gate can measure or fix.
@@ -65,9 +65,9 @@ QUIET=0
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
-VALUES="Sources/Umber/ThemeValues.swift"
-COMMUNITY="Sources/Umber/ThemeValues+CommunityPresets.swift"
-CONTRAST="Sources/Umber/ThemeContrast.swift"
+VALUES="Sources/GoblinPortal/ThemeValues.swift"
+COMMUNITY="Sources/GoblinPortal/ThemeValues+CommunityPresets.swift"
+CONTRAST="Sources/GoblinPortal/ThemeContrast.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2

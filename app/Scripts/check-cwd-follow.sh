@@ -3,10 +3,10 @@
 # check-cwd-follow.sh — headless truth table for ShellDirectory, the unit both halves
 # of cwd-follow run through.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/ShellDirectory.swift` only. It is pure and
+# WHAT IS UNDER TEST. `Sources/GoblinPortal/ShellDirectory.swift` only. It is pure and
 # imports nothing but Foundation/Darwin precisely so this script can compile it
 # directly with swiftc and never link AppKit, SwiftTerm, or the app — the same trick
-# check-keybindings.sh plays on KeyBindings.swift. Nothing here launches Umber, steals
+# check-keybindings.sh plays on KeyBindings.swift. Nothing here launches Goblin Portal, steals
 # focus, or needs a window server.
 #
 # WHY THIS EXISTS. The repo has no test target and no CI (AFK.md, "Checks"), so a
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-SRC="Sources/Umber/ShellDirectory.swift"
+SRC="Sources/GoblinPortal/ShellDirectory.swift"
 
 [ -f "$SRC" ] || { echo "ENV: $SRC not found (run from app/ or app/Scripts/)"; exit 2; }
 command -v swiftc >/dev/null 2>&1 || { echo "ENV: no swiftc on PATH"; exit 2; }

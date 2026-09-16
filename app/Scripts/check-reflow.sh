@@ -10,7 +10,7 @@
 # compile a throwaway harness against the SHIPPED vendored SwiftTerm and run a
 # truth table. The unit under test is the vendored emulator itself, which is why
 # this script links .build/out/Products/Debug/SwiftTerm.o rather than any file
-# from Sources/Umber.
+# from Sources/GoblinPortal.
 #
 # WHY THIS SCRIPT IS SHAPED THE WAY IT IS
 # A previous gate (spike/Tests/SpikeGatesTests/ReflowGateTests.swift, deleted at

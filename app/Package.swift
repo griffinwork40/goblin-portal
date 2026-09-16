@@ -3,11 +3,10 @@ import PackageDescription
 
 // The real app. Step 2 of ../.afk/plans/native-swift-terminal-afk-host.md.
 //
-// The product name is `Umber` — a warm earth pigment, matching the app's own
-// accent (#E67E4C, see Config.swift). Settled 2026-07-27; the reasoning and the
-// availability checks live in ../.afk/research/naming-decision-2026-07-27.md.
+// Renamed from Umber to Goblin Portal on 2026-09-15. The theme preset "umber"
+// (a warm earth pigment) survives as an easter egg.
 let package = Package(
-    name: "Umber",
+    name: "GoblinPortal",
     platforms: [.macOS(.v14)],
     dependencies: [
         // Upstream SwiftTerm v1.15.0, vendored at ../vendor/SwiftTerm with SIX
@@ -26,25 +25,26 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "Umber",
+            name: "GoblinPortal",
             dependencies: ["SwiftTerm"],
-            path: "Sources/Umber",
+            path: "Sources/GoblinPortal",
             // `shell-integration.zsh` must be declared here so SwiftPM copies it into
             // the product bundle and `Bundle.main.path(forResource:ofType:)` returns a
-            // non-nil path. Without this, `swift run Umber` and the release bundle both
-            // silently skip UMBER_INTEGRATION, and the zsh integration is never sourced.
-            // The path is relative to the target's `path` ("Sources/Umber"), so two levels
-            // up to the package root, then into Resources/.
+            // non-nil path. Without this, `swift run GoblinPortal` and the release bundle
+            // both silently skip GOBLIN_PORTAL_INTEGRATION, and the zsh integration is
+            // never sourced. The path is relative to the target's `path`
+            // ("Sources/GoblinPortal"), so two levels up to the package root, then into
+            // Resources/.
             resources: [.copy("../../Resources/shell-integration.zsh")]
         ),
-        // Standalone CLI binary that enables `EDITOR='umber --wait'` workflows.
-        // No dependency on the Umber target or SwiftTerm — it communicates with
+        // Standalone CLI binary that enables `EDITOR='goblin-portal --wait'` workflows.
+        // No dependency on the GoblinPortal target or SwiftTerm — it communicates with
         // the running app via NSDistributedNotificationCenter and a Unix domain socket.
-        // See Sources/UmberCLI/main.swift for the full IPC design rationale.
+        // See Sources/GoblinPortalCLI/main.swift for the full IPC design rationale.
         .executableTarget(
-            name: "UmberCLI",
+            name: "GoblinPortalCLI",
             dependencies: [],
-            path: "Sources/UmberCLI"
+            path: "Sources/GoblinPortalCLI"
         ),
     ]
 )

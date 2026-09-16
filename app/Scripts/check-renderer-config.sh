@@ -3,7 +3,7 @@
 # Assert that a `renderer` string in config.json maps to the renderer it names — and that an
 # unrecognised one maps to NOTHING, so AppConfig.load() can warn and degrade.
 #
-# WHAT IS UNDER TEST. `Sources/Umber/Renderer.swift` only. That file is Foundation-only BY
+# WHAT IS UNDER TEST. `Sources/GoblinPortal/Renderer.swift` only. That file is Foundation-only BY
 # DESIGN — its header says so — precisely so it can be compiled on its own with swiftc and
 # never link AppKit, SwiftTerm, or the app. Same trick check-keybindings.sh plays on
 # KeyBindings.swift and check-cwd-follow.sh plays on ShellDirectory.swift. Compiling the
@@ -41,7 +41,7 @@ QUIET=0
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
-SRC="Sources/Umber/Renderer.swift"
+SRC="Sources/GoblinPortal/Renderer.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2

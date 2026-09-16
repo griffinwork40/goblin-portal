@@ -67,7 +67,7 @@ pin_value() {
 # shell prompt keeps the user's selection while output streams; 0007 gates
 # feedPrepare()'s selection.active = false the same way so pty output between
 # selecting and ⌘C does not silently disable Copy; 0008 makes draw(_:) `open`
-# instead of `public` so UmberTerminalView can override it for font dilation
+# instead of `public` so GoblinPortalTerminalView can override it for font dilation
 # (required by Xcode 27 / Swift 6 strict access control). A tree missing any
 # one of them is not the tree this project is tested against, which is the whole
 # reason the pin records hashes rather than a version.

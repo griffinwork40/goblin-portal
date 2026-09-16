@@ -10,13 +10,13 @@
 # Usage:
 #   ./Scripts/make-app-bundle.sh [debug|release]
 #
-# Output: build/Umber.app
+# Output: build/GoblinPortal.app
 #
 set -euo pipefail
 
 CONFIG="${1:-debug}"
-APP_NAME="Umber"
-BUNDLE_ID="com.griffinlong.umber"
+APP_NAME="GoblinPortal"
+BUNDLE_ID="com.griffinlong.goblin-portal"
 VERSION="1.0.0"
 
 cd "$(dirname "$0")/.."
@@ -36,7 +36,7 @@ ROOT="$(pwd)"
 # SDK version, keeping the deployment target (minos) at 14.0.
 #
 # Verified by otool -l: without this flag, sdk=14.0; with it, sdk=<actual>.
-# Apple's Terminal.app shows minos=27.0 sdk=27.0; Umber needs minos=14.0 sdk=27.0
+# Apple's Terminal.app shows minos=27.0 sdk=27.0; Goblin Portal needs minos=14.0 sdk=27.0
 # because it still supports macOS 14 (Package.swift:11).
 ACTUAL_SDK_VERSION="$(xcrun --show-sdk-version 2>/dev/null || echo "14.0")"
 PLATFORM_VERSION_FLAGS="-Xlinker -platform_version -Xlinker macos -Xlinker 14.0 -Xlinker $ACTUAL_SDK_VERSION"
@@ -57,21 +57,21 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 
-# CLI binary (`umber`). Installed into the app bundle so it travels with the app
+# CLI binary (`goblin-portal`). Installed into the app bundle so it travels with the app
 # and is versioned together with it. The recommended install path for users is
-# /usr/local/bin/umber, added as a symlink to the bundle's copy so updates to
-# Umber.app are picked up automatically without re-running any installer:
+# /usr/local/bin/goblin-portal, added as a symlink to the bundle's copy so updates to
+# GoblinPortal.app are picked up automatically without re-running any installer:
 #
-#   sudo ln -sf /Applications/Umber.app/Contents/MacOS/umber /usr/local/bin/umber
+#   sudo ln -sf /Applications/GoblinPortal.app/Contents/MacOS/goblin-portal /usr/local/bin/goblin-portal
 #
-# We install the binary at Contents/MacOS/umber (lowercase) alongside Umber so
+# We install the binary at Contents/MacOS/goblin-portal (lowercase) alongside GoblinPortal so
 # codesign and notarisation treat it as part of the same bundle.
-CLI_BIN="$BIN_DIR/UmberCLI"
+CLI_BIN="$BIN_DIR/GoblinPortalCLI"
 if [[ -x "$CLI_BIN" ]]; then
-  cp "$CLI_BIN" "$APP/Contents/MacOS/umber"
-  echo "==> installed CLI binary: $APP/Contents/MacOS/umber"
+  cp "$CLI_BIN" "$APP/Contents/MacOS/goblin-portal"
+  echo "==> installed CLI binary: $APP/Contents/MacOS/goblin-portal"
 else
-  echo "==> warning: UmberCLI binary not found at $CLI_BIN — 'umber' CLI will not be bundled" >&2
+  echo "==> warning: GoblinPortalCLI binary not found at $CLI_BIN — 'umber' CLI will not be bundled" >&2
 fi
 
 # Any resource bundles SwiftPM produced for dependencies must travel with the
@@ -84,7 +84,7 @@ done
 shopt -u nullglob
 
 # Shell-integration script. Bundled in Resources/ so TerminalPane.start() can
-# locate it via Bundle.main.path(forResource:ofType:) and set UMBER_INTEGRATION.
+# locate it via Bundle.main.path(forResource:ofType:) and set GOBLIN_PORTAL_INTEGRATION.
 SHELL_INT_SRC="$ROOT/Resources/shell-integration.zsh"
 if [[ -f "$SHELL_INT_SRC" ]]; then
   cp "$SHELL_INT_SRC" "$APP/Contents/Resources/shell-integration.zsh"
@@ -92,7 +92,7 @@ else
   echo "==> warning: $SHELL_INT_SRC missing; shell-integration will not be available" >&2
 fi
 
-# App icon. Resources/Umber.icns is committed so a build needs no Python or
+# App icon. Resources/GoblinPortal.icns is committed so a build needs no Python or
 # Pillow; regenerate it with Scripts/make-icon.py --icns when the design changes.
 ICON_SRC="$ROOT/Resources/$APP_NAME.icns"
 if [[ -f "$ICON_SRC" ]]; then
@@ -146,21 +146,21 @@ ${ICON_PLIST_ENTRY}	<key>CFBundlePackageType</key>
 	<key>CFBundleVersion</key>
 	<string>$VERSION</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>A program running within Umber would like to use your microphone.</string>
+	<string>A program running within Goblin Portal would like to use your microphone.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>A program running within Umber would like to control another application.</string>
+	<string>A program running within Goblin Portal would like to control another application.</string>
 	<key>NSDesktopFolderUsageDescription</key>
-	<string>A program running within Umber would like to access files on your Desktop.</string>
+	<string>A program running within Goblin Portal would like to access files on your Desktop.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>A program running within Umber would like to access files in your Documents folder.</string>
+	<string>A program running within Goblin Portal would like to access files in your Documents folder.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>A program running within Umber would like to access files in your Downloads folder.</string>
+	<string>A program running within Goblin Portal would like to access files in your Downloads folder.</string>
 	<key>NSRemovableVolumesUsageDescription</key>
-	<string>A program running within Umber would like to access files on a removable volume.</string>
+	<string>A program running within Goblin Portal would like to access files on a removable volume.</string>
 	<key>NSNetworkVolumesUsageDescription</key>
-	<string>A program running within Umber would like to access files on a network volume.</string>
+	<string>A program running within Goblin Portal would like to access files on a network volume.</string>
 	<key>NSUserNotificationsUsageDescription</key>
-	<string>Umber notifies you when a long-running command finishes in a background tab.</string>
+	<string>Goblin Portal notifies you when a long-running command finishes in a background tab.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Griffin Long. MIT licensed. Includes SwiftTerm and Ghostty; see THIRD-PARTY-LICENSES.md.</string>
 	<key>LSMinimumSystemVersion</key>
@@ -203,7 +203,7 @@ PLIST
 # credentials are also present — submits, waits, and staples in one pass. The ad-hoc
 # path is unchanged: no hardened runtime, no notarisation, works on the local machine.
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
-ENTITLEMENTS="$ROOT/Resources/Umber.entitlements"
+ENTITLEMENTS="$ROOT/Resources/GoblinPortal.entitlements"
 
 if [[ "$SIGN_IDENTITY" != "-" ]]; then
   # --- Distribution signing: hardened runtime + entitlements ---
@@ -275,7 +275,7 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
 
   if [[ "$NOTARIZE" == "true" ]]; then
     echo "==> notarising (this takes 1–5 minutes)"
-    ZIP_TMP="$(mktemp -d)/Umber-notarize.zip"
+    ZIP_TMP="$(mktemp -d)/GoblinPortal-notarize.zip"
     ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP_TMP"
 
     xcrun notarytool submit "$ZIP_TMP" "${NOTARY_ARGS[@]}" --wait

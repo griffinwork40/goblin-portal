@@ -4,7 +4,7 @@
 #
 # This app has no test target, and the thing being checked is a pure function of
 # (virtual key code, modifier flags) — so instead of standing up XCTest, compile
-# the SHIPPED Sources/Umber/KeyBindings.swift together with a throwaway
+# the SHIPPED Sources/GoblinPortal/KeyBindings.swift together with a throwaway
 # harness and run the truth table. Nothing is stubbed or restated: a change to
 # the real mapping shows up here immediately.
 #
@@ -79,5 +79,5 @@ print(failures == 0 ? "\nall checks passed" : "\n\(failures) check(s) FAILED")
 exit(failures == 0 ? 0 : 1)
 SWIFT
 
-swiftc -o "$TMP/keycheck" Sources/Umber/KeyBindings.swift "$TMP/main.swift"
+swiftc -o "$TMP/keycheck" Sources/GoblinPortal/KeyBindings.swift "$TMP/main.swift"
 "$TMP/keycheck"
