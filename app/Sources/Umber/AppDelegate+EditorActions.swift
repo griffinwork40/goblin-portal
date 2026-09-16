@@ -93,6 +93,17 @@ extension AppDelegate {
 
     // MARK: - Wave 3 actions
 
+    /// Edit → Find… (⌘F from the command palette). Opens the scrollback find bar
+    /// in the focused terminal pane by calling `TerminalPane.openSearch()` directly,
+    /// so the palette does not need to synthesise a tagged `NSMenuItem` internally.
+    ///
+    /// Falls back gracefully when no terminal is focused: `focusedShellHost` returns
+    /// nil if the active document is a file viewer with no visible terminal — the
+    /// action silently no-ops, mirroring how the menu item greys out in that state.
+    @objc func openSearch(_ sender: Any?) {
+        (focusedSpace?.focusedShellHost as? TerminalPane)?.openSearch()
+    }
+
     /// Edit → Select Next Occurrence (⌘D). Routes through the responder chain —
     /// `FileViewerPane` answers `selectNextOccurrence:`; terminals don't, so the
     /// item greys itself out over a terminal automatically.

@@ -60,7 +60,7 @@
 //     which hides the bar and returns first responder to the terminal view.
 //
 //  6. SEARCH ENGINE. Matches are found by `SearchService` (vendor/SwiftTerm/Sources/
-//     SwiftTerm/Search.swift), which walks the terminal's buffer via `getLine(row:)`.
+//     SwiftTerm/SearchService.swift), which walks the terminal's buffer via `getLine(row:)`.
 //     Matches highlight as yellow selection blocks; the current match cycles forward
 //     and backward via ⌘G / ⌘⇧G. This is selection-based — one match highlighted at
 //     a time — not all-match annotation. That is a known gap (AFK.md, "Search is

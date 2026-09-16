@@ -36,8 +36,7 @@ extension CommandPalette {
         PaletteCommand("Select Next Occurrence",   key: "⌘D",    action: #selector(AppDelegate.selectNextOccurrence(_:))),
         // Find (tags must match NSFindPanelAction raw values — see AppMenu.swift)
         PaletteCommand("Find…",                    key: "⌘F",
-                       action: #selector(NSTextView.performFindPanelAction(_:)),
-                       tag: Int(NSFindPanelAction.showFindPanel.rawValue)),
+                       action: #selector(AppDelegate.openSearch(_:))),
         PaletteCommand("Find Next",                key: "⌘G",
                        action: #selector(NSTextView.performFindPanelAction(_:)),
                        tag: Int(NSFindPanelAction.next.rawValue)),
