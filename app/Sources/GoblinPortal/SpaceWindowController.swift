@@ -251,6 +251,20 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         space.addTerminalDocument()
     }
 
+    /// Present this Space for `--wait` mode: show the window but open `url`
+    /// instead of the default terminal, and skip session persistence.
+    ///
+    /// Like `present()` — it is the single writer of `SpaceWindowController.open`
+    /// — but omits `openFirstDocument()` and `persistOpenRoots()`, which are both
+    /// wrong for a transient CLI session. Full contract in `AppDelegate+WaitMode.swift`.
+    func presentForWaitMode(opening url: URL) {
+        Self.open.append(self)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        space.view.layoutSubtreeIfNeeded()
+        space.openFile(url: url)
+    }
+
     // MARK: - SpaceViewControllerDelegate
 
     func spaceViewController(_ controller: SpaceViewController, didChangeDocumentTitle title: String) {

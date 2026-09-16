@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             FileHandle.standardError.write("config: \(warning)\n".data(using: .utf8)!)
         }
         buildMenu()
-        restoreSpaces()
+        if let f = CLIArguments.shared.waitFile { openWaitFile(f) } else { restoreSpaces() } // --wait mode: AppDelegate+WaitMode.swift
 
         // Register the CLI open-file notification handler. Must happen after
         // applicationDidFinishLaunching so the run loop is running and distributed
