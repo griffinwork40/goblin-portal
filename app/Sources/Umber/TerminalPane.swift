@@ -66,11 +66,13 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// exists to fix, so a call site with no opinion should fail to compile rather
     /// than silently inherit the app's own cwd. Optional would have re-opened that
     /// hole at runtime for a caller that passed `nil` to make the compiler quiet —
-    /// and there is no such caller to serve, because the only one there is resolves
+    /// and there is no such caller to serve, because the primary one resolves
     /// the default itself (`addTerminalDocument` passes
     /// `workingDirectory ?? focusedShellHost?.currentDirectory ?? root`, and `root`
     /// is non-optional — see `SpaceViewController+DocumentConstruction.swift` for the
-    /// three-level chain and why each fallback exists).
+    /// three-level chain and why each fallback exists). Split construction paths in
+    /// `SpaceViewController+Splits.swift` also resolve the directory before calling
+    /// init directly.
     init(config: AppConfig, frame: NSRect, workingDirectory: URL) {
         self.config = config
         self.workingDirectory = workingDirectory
