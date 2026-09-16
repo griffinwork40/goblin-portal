@@ -203,6 +203,12 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // The Bool is ignored because a miss is the normal case on a fresh install and
         // a no-op: `setFrameUsingName` returns false and does not touch the frame.
         _ = window.setFrameUsingName(Self.legacyFrameAutosaveName)
+        // Intermediate fallback: if the user had per-root geometry saved under the
+        // previous app name ("UmberSpace:/path"), apply it now so it overwrites the
+        // shared legacy seed above. A miss is a no-op. This key is never written
+        // by this build, so it goes stale on its own once the user moves the window
+        // and the GoblinPortalSpace: key takes over.
+        _ = window.setFrameUsingName("UmberSpace:\(root.path)")
         // Restore position/size per *project root*, not per app. This was one
         // hardcoded string, so every Space shared a single saved frame and the last
         // window moved dictated where all of them reopened.

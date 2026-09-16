@@ -22,7 +22,7 @@ import AppKit
 
 // MARK: - One-time migration from Umber UserDefaults
 
-/// Copies the three UserDefaults stores from the old `com.griffinlong.umber` domain
+/// Copies the five UserDefaults stores from the old `com.griffinlong.umber` domain
 /// into the current `com.griffinlong.goblin-portal` domain, then removes the old keys.
 ///
 /// Same one-time migration pattern as `SpaceWindowController`'s `UmberWindow` ->
@@ -37,6 +37,14 @@ private enum UmberMigration {
     private static let sentinelKey = "GoblinPortal.migratedFromUmber"
 
     static func migrateIfNeeded() {
+        // Only run inside the real app. In headless gate contexts (check-space-restore.sh
+        // compiles this file standalone) Bundle.main.bundleIdentifier is nil and
+        // UserDefaults.standard is a transient per-binary domain — the sentinel never
+        // persists between runs, so migration fires on every getter call and reaches
+        // removeObject on the real com.griffinlong.umber suite, deleting keys before the
+        // real app can copy them. A wrong bundle id is treated the same way: a misbundled
+        // binary should not migrate either.
+        guard Bundle.main.bundleIdentifier == "com.griffinlong.goblin-portal" else { return }
         guard !UserDefaults.standard.bool(forKey: sentinelKey) else { return }
         // Mark done first: if the app is force-quit mid-migration, a partial copy is
         // better than an infinite retry that clobbers a partially-written new value.
@@ -61,6 +69,19 @@ private enum UmberMigration {
         if let paths = old?.stringArray(forKey: "Umber.openSpaceRoots") {
             UserDefaults.standard.set(paths, forKey: "GoblinPortal.openSpaceRoots")
             old?.removeObject(forKey: "Umber.openSpaceRoots")
+        }
+
+        // UpdateChecker -- lastUpdateCheck is a Double timestamp, 0 means absent.
+        let lastCheck = old?.double(forKey: "Umber.lastUpdateCheck") ?? 0
+        if lastCheck > 0 {
+            UserDefaults.standard.set(lastCheck, forKey: "GoblinPortal.lastUpdateCheck")
+            old?.removeObject(forKey: "Umber.lastUpdateCheck")
+        }
+
+        // UpdateChecker -- skippedUpdateVersion is a String, nil means absent.
+        if let skipped = old?.string(forKey: "Umber.skippedUpdateVersion") {
+            UserDefaults.standard.set(skipped, forKey: "GoblinPortal.skippedUpdateVersion")
+            old?.removeObject(forKey: "Umber.skippedUpdateVersion")
         }
     }
 }
