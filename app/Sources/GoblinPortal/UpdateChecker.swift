@@ -35,7 +35,7 @@ final class UpdateChecker {
     // --- Configuration -----------------------------------------------------------
 
     /// Owner/repo for the GitHub API. Change only if the repo moves.
-    private static let repo = "griffinwork40/umber"
+    private static let repo = "griffinwork40/goblin-portal"
 
     /// Minimum seconds between automatic checks. Manual checks bypass this.
     private static let autoCheckInterval: TimeInterval = 24 * 60 * 60
