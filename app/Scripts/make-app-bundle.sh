@@ -242,6 +242,22 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
   done
   shopt -u nullglob
 
+  # Sign every executable inside Contents/MacOS/ individually (inside-out).
+  # SwiftPM's linker produces ad-hoc signatures; notarytool rejects those,
+  # so each Mach-O must carry the Developer ID + hardened runtime + timestamp
+  # before the outer .app signature seals the tree.
+  echo "==> signing executables in Contents/MacOS/"
+  for exe in "$APP/Contents/MacOS/"*; do
+    if [[ -f "$exe" ]] && file -b "$exe" | grep -q "Mach-O"; then
+      codesign --force --sign "$SIGN_IDENTITY" \
+        --options runtime \
+        --entitlements "$ENTITLEMENTS" \
+        --timestamp \
+        "$exe"
+      echo "    signed $(basename "$exe")"
+    fi
+  done
+
   echo "==> signing $APP_NAME.app (hardened runtime)"
   codesign --force --sign "$SIGN_IDENTITY" \
     --options runtime \
