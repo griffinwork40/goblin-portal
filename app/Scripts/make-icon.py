@@ -3,9 +3,9 @@
 
 Design intent
 -------------
-The icon is warm light in the dark: a near-black
-squircle with the pigment showing up as a glowing ember-gradient mark, rather
-than as a brown background. Brown backgrounds read as mud; ember reads as heat.
+A luminous, slightly broken doorway on a near-black squircle: eldritch green
+signals Goblin Portal without fantasy illustration. The arch and threshold use
+bold geometry that survives at 16px. Legacy Umber treatments remain available.
 
 That also puts it in the right reference class — modern dark developer tools
 (Warp, Cursor, Linear, Raycast) — instead of 2011 skeuomorphism. No lit-sphere
@@ -31,6 +31,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
+from icon_portal_mark import PORTAL_VARIANTS, draw_portal
 from icon_path_mark import (
     PATH_BLOOM_COOL, PATH_BLOOM_WARM, PATH_DEFAULT_PRESET, PATH_PRESETS,
     PATH_RAMP, draw_path_mark,
@@ -42,7 +43,7 @@ SS = 4                    # supersample factor
 TILE = 824                # squircle edge on the 1024 grid (Apple macOS metric)
 SQUIRCLE_N = 5.4          # superellipse exponent; ~5.4 matches Apple's corner
 
-VARIANT_DEFAULT = "prompt"
+VARIANT_DEFAULT = "portal"
 
 # The icon is a small window of the app: these are the app's OWN colours.
 # Background is the afk-dark theme background and the mark's mid stop is the
@@ -214,7 +215,9 @@ def build(scale: int = SS, variant: str = VARIANT_DEFAULT) -> Image.Image:
 
     shape = squircle_mask(tile, SQUIRCLE_N)
 
-    if is_path:
+    if variant in PORTAL_VARIANTS:
+        body = draw_portal(tile, variant, gradient, ember_over)
+    elif is_path:
         preset = variant.split("_")[1] if "_" in variant else PATH_DEFAULT_PRESET
         mark_rgba, glyph = draw_path_mark(tile, scale, STROKE, OPTICAL_LIFT, preset)
         body = gradient(tile, [(0.0, BG_TOP), (1.0, BG_BOTTOM)]).convert("RGBA")
@@ -262,7 +265,8 @@ def build(scale: int = SS, variant: str = VARIANT_DEFAULT) -> Image.Image:
         [int(-0.30 * tile), int(-0.055 * tile), int(1.30 * tile), int(0.030 * tile)], fill=54
     )
     rim = rim.filter(ImageFilter.GaussianBlur(tile * 0.006))
-    body = Image.composite(Image.new("RGBA", (tile, tile), (255, 226, 190, 255)), body, rim)
+    rim_color = (200, 239, 225, 255) if variant in PORTAL_VARIANTS else (255, 226, 190, 255)
+    body = Image.composite(Image.new("RGBA", (tile, tile), rim_color), body, rim)
 
     body.putalpha(shape)
 
@@ -275,7 +279,7 @@ def build(scale: int = SS, variant: str = VARIANT_DEFAULT) -> Image.Image:
 
 
 PATH_VARIANT_NAMES = tuple(f"path_{k}" for k in PATH_PRESETS)
-VARIANTS = ("path",) + PATH_VARIANT_NAMES + (
+VARIANTS = PORTAL_VARIANTS + ("path",) + PATH_VARIANT_NAMES + (
     "prompt", "cursorline", "caret", "inverse_prompt", "inverse_cursorline")
 
 
