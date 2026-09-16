@@ -8,8 +8,11 @@
 //  350-LOC ceiling. Adding a new command means editing this file only.
 //
 //  Every entry is a `PaletteCommand` (title, key hint, selector, optional tag).
-//  The `tag` field is required only for `performFindPanelAction:` senders — see
-//  `AppMenu.swift`'s search block for the full explanation of why.
+//  The `tag` field is required only for `performFindPanelAction:` senders (Find
+//  Next, Find Previous, Find and Replace) — see `AppMenu.swift`'s search block
+//  for the full explanation of why. `Find…` is the exception: it now routes
+//  through `openSearch(_:)` instead of `performFindPanelAction:`, so it does
+//  not need a tag.
 //
 
 import AppKit
