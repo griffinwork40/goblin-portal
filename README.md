@@ -2,7 +2,7 @@
   <img src="app/Resources/icon-1024.png" width="132" alt="Umber app icon">
 </p>
 
-# Umber
+# Goblin Portal
 
 A native macOS terminal, written in Swift 6 / AppKit, with **no AI features** — built
 to host [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s REPL properly.
