@@ -20,6 +20,51 @@
 
 import AppKit
 
+// MARK: - One-time migration from Umber UserDefaults
+
+/// Copies the three UserDefaults stores from the old `com.griffinlong.umber` domain
+/// into the current `com.griffinlong.goblin-portal` domain, then removes the old keys.
+///
+/// Same one-time migration pattern as `SpaceWindowController`'s `UmberWindow` ->
+/// `GoblinPortalSpace:` frame autosave seed. The sentinel key prevents re-running on
+/// every launch. After migration the old suite object is released and the Umber domain
+/// is not touched again.
+///
+/// `UserDefaults(suiteName:)` returns nil on a machine that never had Umber installed;
+/// nil?.double returns 0, nil?.string returns nil, nil?.stringArray returns nil -- all
+/// three match the "absent" convention the getters already use. No crash, no data loss.
+private enum UmberMigration {
+    private static let sentinelKey = "GoblinPortal.migratedFromUmber"
+
+    static func migrateIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: sentinelKey) else { return }
+        // Mark done first: if the app is force-quit mid-migration, a partial copy is
+        // better than an infinite retry that clobbers a partially-written new value.
+        UserDefaults.standard.set(true, forKey: sentinelKey)
+
+        let old = UserDefaults(suiteName: "com.griffinlong.umber")
+
+        // FontZoom -- Double, 0 means absent (same convention the getter uses).
+        let zoom = old?.double(forKey: "Umber.fontSizeOverride") ?? 0
+        if zoom > 0 {
+            UserDefaults.standard.set(zoom, forKey: "GoblinPortal.fontSizeOverride")
+            old?.removeObject(forKey: "Umber.fontSizeOverride")
+        }
+
+        // LastSpaceRoot -- String path, nil means absent.
+        if let path = old?.string(forKey: "Umber.lastSpaceRoot") {
+            UserDefaults.standard.set(path, forKey: "GoblinPortal.lastSpaceRoot")
+            old?.removeObject(forKey: "Umber.lastSpaceRoot")
+        }
+
+        // OpenSpaceRoots -- [String], nil means absent.
+        if let paths = old?.stringArray(forKey: "Umber.openSpaceRoots") {
+            UserDefaults.standard.set(paths, forKey: "GoblinPortal.openSpaceRoots")
+            old?.removeObject(forKey: "Umber.openSpaceRoots")
+        }
+    }
+}
+
 // MARK: - Font zoom
 
 /// The live ⌘+ / ⌘− zoom level, app-wide and persisted.
@@ -38,6 +83,7 @@ enum FontZoom {
 
     static var override: CGFloat? {
         get {
+            UmberMigration.migrateIfNeeded()
             let stored = UserDefaults.standard.double(forKey: key)
             return stored > 0 ? CGFloat(stored) : nil
         }
@@ -72,6 +118,7 @@ enum LastSpaceRoot {
 
     static var url: URL? {
         get {
+            UmberMigration.migrateIfNeeded()
             guard let path = UserDefaults.standard.string(forKey: key) else { return nil }
             // Checked, not trusted: a remembered project can be deleted, renamed, or
             // sit on an unmounted volume, and rooting a Space at a path that is gone
@@ -156,6 +203,7 @@ enum OpenSpaceRoots {
 
     static var urls: [URL] {
         get {
+            UmberMigration.migrateIfNeeded()
             guard let paths = UserDefaults.standard.stringArray(forKey: key) else { return [] }
             let usable = paths.filter(FileManager.default.isUsableSpaceRoot(atPath:))
             return normalized(usable.map { URL(fileURLWithPath: $0) })

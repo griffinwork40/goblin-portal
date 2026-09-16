@@ -66,7 +66,7 @@ fi
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
   -path '*Debug*GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/TerminalPane.o" ]] || {
-  echo "error: no Umber objects under .build — cannot @testable import GoblinPortal." >&2
+  echo "error: no GoblinPortal objects under .build — cannot @testable import GoblinPortal." >&2
   echo "  Looked for '*Debug*GoblinPortal-p.build/Objects-normal/*/TerminalPane.o'. Try: swift build" >&2
   exit 2; }
 [[ -e "$PRODUCTS/SwiftTerm.o" ]] || {

@@ -71,7 +71,7 @@ if [[ -x "$CLI_BIN" ]]; then
   cp "$CLI_BIN" "$APP/Contents/MacOS/goblin-portal"
   echo "==> installed CLI binary: $APP/Contents/MacOS/goblin-portal"
 else
-  echo "==> warning: GoblinPortalCLI binary not found at $CLI_BIN — 'umber' CLI will not be bundled" >&2
+  echo "==> warning: GoblinPortalCLI binary not found at $CLI_BIN — 'goblin-portal' CLI will not be bundled" >&2
 fi
 
 # Any resource bundles SwiftPM produced for dependencies must travel with the

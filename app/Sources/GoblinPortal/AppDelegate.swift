@@ -28,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// delegate. See `AppearanceObserver.swift` for the full rationale.
     private let appearanceObserver = AppearanceObserver()
 
-    /// Handles open-file requests from the `umber` CLI binary via
+    /// Handles open-file requests from the `goblin-portal` CLI binary via
     /// NSDistributedNotificationCenter. Registered in applicationDidFinishLaunching.
     /// Held for the app lifetime so its observer token is never released early.
     private let openFileHandler = OpenFileHandler()

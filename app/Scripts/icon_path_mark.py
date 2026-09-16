@@ -1,4 +1,4 @@
-"""Path mark renderer for the Umber app icon.
+"""Path mark renderer for the Goblin Portal app icon.
 
 Owns the "path" variant: three joined cubic Bézier segments with C1
 continuity, rendered as overlapping circles for smooth tapered edges.

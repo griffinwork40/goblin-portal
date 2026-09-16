@@ -88,7 +88,7 @@ if !isAppRunning() {
     // Launch Goblin Portal. NSWorkspace finds it by bundle ID — no hard-coded path needed.
     // If the app is not installed, the open call fails and we exit early.
     guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
-        fputs("umber: GoblinPortal.app not found — is it installed in /Applications?\n", stderr)
+        fputs("goblin-portal: GoblinPortal.app not found — is it installed in /Applications?\n", stderr)
         exit(1)
     }
     let config = NSWorkspace.OpenConfiguration()
@@ -105,7 +105,7 @@ if !isAppRunning() {
     }
     sema.wait()
     if let err = launchError {
-        fputs("umber: could not launch GoblinPortal.app: \(err.localizedDescription)\n", stderr)
+        fputs("goblin-portal: could not launch GoblinPortal.app: \(err.localizedDescription)\n", stderr)
         exit(1)
     }
     // Wait for the app to finish launching and register its notification observer.
@@ -162,7 +162,7 @@ exit(exitCode)
 // MARK: - Helpers
 
 func printUsage() {
-    let name = (CommandLine.arguments.first as NSString?)?.lastPathComponent ?? "umber"
+    let name = (CommandLine.arguments.first as NSString?)?.lastPathComponent ?? "goblin-portal"
     print("""
     Usage:
       \(name) <file>          Open <file> in Goblin Portal (no wait).
@@ -190,7 +190,7 @@ func waitForCloseSignal(socketPath: String) -> Int32 {
     // Create and bind the server socket.
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
     guard fd >= 0 else {
-        fputs("umber: socket() failed: \(String(cString: strerror(errno)))\n", stderr)
+        fputs("goblin-portal: socket() failed: \(String(cString: strerror(errno)))\n", stderr)
         return 1
     }
     defer {
@@ -203,7 +203,7 @@ func waitForCloseSignal(socketPath: String) -> Int32 {
     addr.sun_family = sa_family_t(AF_UNIX)
     let pathBytes = socketPath.utf8CString
     guard pathBytes.count <= MemoryLayout.size(ofValue: addr.sun_path) else {
-        fputs("umber: socket path too long\n", stderr)
+        fputs("goblin-portal: socket path too long\n", stderr)
         return 1
     }
     withUnsafeMutableBytes(of: &addr.sun_path) { ptr in
@@ -219,11 +219,11 @@ func waitForCloseSignal(socketPath: String) -> Int32 {
         }
     }
     guard bindResult == 0 else {
-        fputs("umber: bind() failed: \(String(cString: strerror(errno)))\n", stderr)
+        fputs("goblin-portal: bind() failed: \(String(cString: strerror(errno)))\n", stderr)
         return 1
     }
     guard listen(fd, 1) == 0 else {
-        fputs("umber: listen() failed: \(String(cString: strerror(errno)))\n", stderr)
+        fputs("goblin-portal: listen() failed: \(String(cString: strerror(errno)))\n", stderr)
         return 1
     }
 
@@ -244,7 +244,7 @@ func waitForCloseSignal(socketPath: String) -> Int32 {
         if errno == EAGAIN || errno == EWOULDBLOCK {
             fputs("goblin-portal: timed out waiting for Goblin Portal to signal close\n", stderr)
         } else {
-            fputs("umber: accept() failed: \(String(cString: strerror(errno)))\n", stderr)
+            fputs("goblin-portal: accept() failed: \(String(cString: strerror(errno)))\n", stderr)
         }
         return 1
     }

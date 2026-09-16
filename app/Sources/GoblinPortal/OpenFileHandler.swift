@@ -1,6 +1,6 @@
 //
 //  OpenFileHandler.swift
-//  Receives open-file requests from the `umber` CLI binary.
+//  Receives open-file requests from the `goblin-portal` CLI binary.
 //
 //  The CLI posts `com.griffinlong.goblin-portal.openFile` via
 //  DistributedNotificationCenter with a userInfo dict:
