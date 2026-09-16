@@ -17,7 +17,7 @@ set -euo pipefail
 CONFIG="${1:-debug}"
 APP_NAME="Umber"
 BUNDLE_ID="com.griffinlong.umber"
-VERSION="0.4.0"
+VERSION="1.0.0"
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
