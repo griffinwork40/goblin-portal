@@ -1,19 +1,9 @@
 #!/usr/bin/env python3
 """Generate the Goblin Portal app icon.
 
-Design intent
--------------
-The icon is warm light in the dark: a near-black
-squircle with the pigment showing up as a glowing ember-gradient mark, rather
-than as a brown background. Brown backgrounds read as mud; ember reads as heat.
-
-That also puts it in the right reference class — modern dark developer tools
-(Warp, Cursor, Linear, Raycast) — instead of 2011 skeuomorphism. No lit-sphere
-gradient, no gloss, no heavy drop shadow.
-
-Everything is sized for the WORST case (16x16 in the menu bar / Finder list).
-The squircle occupies 824/1024 (Apple's macOS icon grid) and the mark's stroke
-is >=112px at 1024 scale so it survives to ~1.8px at 16x16.
+Design: acid-green >_ on dark blue-purple with layered bloom (see
+icon_goblin_palette.py).  Legacy umber variants preserved.  Sized for 16x16
+worst case; squircle 824/1024, mark stroke >=112px at 1024.
 
 Usage:
   python3 make-icon.py                        # build/icon/icon_1024.png
@@ -35,6 +25,7 @@ from icon_path_mark import (
     PATH_BLOOM_COOL, PATH_BLOOM_WARM, PATH_DEFAULT_PRESET, PATH_PRESETS,
     PATH_RAMP, draw_path_mark,
 )
+import icon_goblin_palette as goblin
 
 # ---------------------------------------------------------------- parameters
 S = 1024
@@ -42,13 +33,14 @@ SS = 4                    # supersample factor
 TILE = 824                # squircle edge on the 1024 grid (Apple macOS metric)
 SQUIRCLE_N = 5.4          # superellipse exponent; ~5.4 matches Apple's corner
 
-VARIANT_DEFAULT = "prompt"
+VARIANT_DEFAULT = "goblin"
 
 # The icon is a small window of the app: these are the app's OWN colours.
+
+# -- Goblin Portal identity (default) — see icon_goblin_palette.py ------------
+# -- Umber identity (legacy, still reachable via --variant prompt) -------------
 # Background is the afk-dark theme background and the mark's mid stop is the
-# real cursor colour -- both from Sources/GoblinPortal/Config.swift. Keep them in sync;
-# the cool slate also makes the warm mark read hotter, and unlike a near-black
-# tile it stays visible against a black Dock.
+# real cursor colour — both from Sources/GoblinPortal/Config.swift.
 BG_TOP = (0x15, 0x1B, 0x24)
 BG_BOTTOM = (0x0D, 0x11, 0x17)      # Config.swift afkDark.background
 
@@ -214,7 +206,28 @@ def build(scale: int = SS, variant: str = VARIANT_DEFAULT) -> Image.Image:
 
     shape = squircle_mask(tile, SQUIRCLE_N)
 
-    if is_path:
+    is_goblin = variant == "goblin"
+
+    if is_goblin:
+        glyph = mark_mask(tile, "prompt", scale)
+        body = gradient(tile, [(0.0, goblin.BG_TOP), (1.0, goblin.BG_BOTTOM)]).convert("RGBA")
+
+        # layered bloom: wide magenta halo first (behind), tight green glow on top
+        outer = glyph.filter(ImageFilter.GaussianBlur(tile * goblin.OUTER_RADIUS)).point(
+            lambda v: int(v * goblin.OUTER_STRENGTH)
+        )
+        body = Image.composite(
+            Image.new("RGBA", (tile, tile), goblin.OUTER_BLOOM + (255,)), body, outer
+        )
+        bloom = glyph.filter(ImageFilter.GaussianBlur(tile * goblin.BLOOM_RADIUS)).point(
+            lambda v: int(v * BLOOM)
+        )
+        body = Image.composite(
+            Image.new("RGBA", (tile, tile), goblin.BLOOM_TINT + (255,)), body, bloom
+        )
+        body = Image.composite(ember_over(tile, glyph, goblin.RAMP), body, glyph)
+
+    elif is_path:
         preset = variant.split("_")[1] if "_" in variant else PATH_DEFAULT_PRESET
         mark_rgba, glyph = draw_path_mark(tile, scale, STROKE, OPTICAL_LIFT, preset)
         body = gradient(tile, [(0.0, BG_TOP), (1.0, BG_BOTTOM)]).convert("RGBA")
@@ -256,13 +269,15 @@ def build(scale: int = SS, variant: str = VARIANT_DEFAULT) -> Image.Image:
         )
         body = Image.composite(ember_over(tile, glyph, ramp), body, glyph)
 
-    # a single hairline of warm light along the top edge — depth without gloss
+    # a single hairline of light along the top edge — depth without gloss
     rim = Image.new("L", (tile, tile), 0)
     ImageDraw.Draw(rim).ellipse(
         [int(-0.30 * tile), int(-0.055 * tile), int(1.30 * tile), int(0.030 * tile)], fill=54
     )
     rim = rim.filter(ImageFilter.GaussianBlur(tile * 0.006))
-    body = Image.composite(Image.new("RGBA", (tile, tile), (255, 226, 190, 255)), body, rim)
+    # cool rim for goblin (blue-purple bg), warm rim for umber variants
+    rim_tint = goblin.RIM_TINT if is_goblin else (255, 226, 190, 255)
+    body = Image.composite(Image.new("RGBA", (tile, tile), rim_tint), body, rim)
 
     body.putalpha(shape)
 
@@ -275,7 +290,7 @@ def build(scale: int = SS, variant: str = VARIANT_DEFAULT) -> Image.Image:
 
 
 PATH_VARIANT_NAMES = tuple(f"path_{k}" for k in PATH_PRESETS)
-VARIANTS = ("path",) + PATH_VARIANT_NAMES + (
+VARIANTS = ("goblin", "path",) + PATH_VARIANT_NAMES + (
     "prompt", "cursorline", "caret", "inverse_prompt", "inverse_cursorline")
 
 
