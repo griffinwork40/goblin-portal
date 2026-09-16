@@ -66,7 +66,7 @@
 //     a time — not all-match annotation. That is a known gap (AFK.md, "Search is
 //     SwiftTerm's, not ours").
 //
-//  WHAT UMBER DOES NOT ADD: the find bar is SwiftTerm's own; its appearance (popover
+//  WHAT GOBLIN PORTAL DOES NOT ADD: the find bar is SwiftTerm's own; its appearance (popover
 //  material, 8pt corner radius) is fixed in `TerminalFindBarView.setup()`. No Goblin Portal
 //  styling is applied. The bar works, and touching its internals would mean patching
 //  the vendor — which costs a future re-vendor and was rejected for this feature for

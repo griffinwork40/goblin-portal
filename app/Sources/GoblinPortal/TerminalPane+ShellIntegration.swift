@@ -88,10 +88,15 @@ extension TerminalPane {
     /// guards on `TERM_PROGRAM==GoblinPortal`, so sourcing it in another terminal is a no-op.
     /// `Bundle.main` is empty during the gate script run (no app bundle), so this is
     /// silent when the script is absent rather than crashing.
+    ///
+    /// `UMBER_INTEGRATION` is set to the same path as a backward-compatibility alias.
+    /// Users with `[[ -n "$UMBER_INTEGRATION" ]] && source "$UMBER_INTEGRATION"` in their
+    /// .zshrc continue to get shell integration after the rename. Remove after one release.
     func appendShellIntegrationEnv(_ env: inout [String]) {
         guard let path = Bundle.main.path(forResource: "shell-integration", ofType: "zsh")
         else { return }
         env.append("GOBLIN_PORTAL_INTEGRATION=\(path)")
+        env.append("UMBER_INTEGRATION=\(path)")  // backward-compat alias -- remove after one release
     }
 
     // MARK: OSC 133 setup

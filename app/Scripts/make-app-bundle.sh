@@ -69,7 +69,12 @@ cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 CLI_BIN="$BIN_DIR/GoblinPortalCLI"
 if [[ -x "$CLI_BIN" ]]; then
   cp "$CLI_BIN" "$APP/Contents/MacOS/goblin-portal"
+  # Backward-compat symlink: users with EDITOR='umber --wait' or /usr/local/bin/umber
+  # pointing into a previous bundle still resolve to the renamed binary.
+  # Remove after one release cycle.
+  ln -sf goblin-portal "$APP/Contents/MacOS/umber"
   echo "==> installed CLI binary: $APP/Contents/MacOS/goblin-portal"
+  echo "==> installed compat symlink: $APP/Contents/MacOS/umber -> goblin-portal"
 else
   echo "==> warning: GoblinPortalCLI binary not found at $CLI_BIN — 'goblin-portal' CLI will not be bundled" >&2
 fi
