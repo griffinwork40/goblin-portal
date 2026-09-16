@@ -5,21 +5,20 @@
 # case still emits the DECSCUSR code it emitted before the enum moved.
 #
 # WHAT IS UNDER TEST. `Sources/GoblinPortal/CursorStyle.swift` only. Foundation-only by design — its
-# header says so — so it compiles standalone with swiftc and never links AppKit, SwiftTerm or
-# libghostty. Same trick check-renderer-config.sh plays on Renderer.swift, check-keybindings.sh
+# header says so — so it compiles standalone with swiftc and never links AppKit or SwiftTerm.
+# Same trick check-renderer-config.sh plays on Renderer.swift, check-keybindings.sh
 # on KeyBindings.swift, check-cwd-follow.sh on ShellDirectory.swift. Compiling the SHIPPED
 # file, not a copy, is the whole point: a check that restates the table proves only that the
 # check agrees with itself.
 #
 # WHY IT EXISTS. On 2026-07-31 `CursorStyle` stopped being **SwiftTerm's** enum and became this
-# project's own, so that a second engine-backed pane could read `AppConfig.cursorStyle` without
-# importing the emulator (and so deleting SwiftTerm at Step 2 of the libghostty swap would not
-# break Config.swift). That move carried two hand-maintained tables across a file boundary —
-# the six config spellings and the six DECSCUSR codes — and a transcription slip in either is
-# the quietest possible bug: a config line that reads correctly, parses without a warning, and
-# either does nothing or silently selects a different caret. Nothing else in the repo would
-# catch it. TerminalPane feeds `\e[<n> q` straight to the emulator, so a wrong `n` is a wrong
-# cursor with no error anywhere, and `check-keybindings.sh` does not touch this file.
+# project's own, decoupling the app-wide config type from the emulator so that `Config.swift`
+# has no terminal-engine import. That move carried two hand-maintained tables across a file
+# boundary — the six config spellings and the six DECSCUSR codes — and a transcription slip in
+# either is the quietest possible bug: a config line that reads correctly, parses without a
+# warning, and either does nothing or silently selects a different caret. Nothing else in the
+# repo would catch it. TerminalPane feeds `\e[<n> q` straight to the emulator, so a wrong `n`
+# is a wrong cursor with no error anywhere, and `check-keybindings.sh` does not touch this file.
 #
 # THE CODES ARE ASSERTED AGAINST THE PRE-MOVE SOURCE, NOT AGAINST THE NEW ENUM. The six
 # expected values below are transcribed from the switch as it stood in TerminalPane.swift
@@ -135,9 +134,9 @@ if codes != [1, 2, 3, 4, 5, 6] {
 }
 
 // ---- 4. shape/blinks decomposition -----------------------------------------------------
-// libghostty takes shape and blink as two settings, so GhosttyPane reads these rather than the
-// DECSCUSR code. They must agree with the case they came from, or the two engines would render
-// the same config differently — the exact divergence the shared enum exists to prevent.
+// `shape` and `blinks` decompose the combined DECSCUSR value into two orthogonal dimensions.
+// They must agree with the case they came from — a mismatch would mean a config line selects
+// a different caret than the one its name describes.
 func expectParts(_ s: CursorStyle, _ shape: CursorStyle.Shape, _ blinks: Bool, _ label: String) {
     if s.shape != shape || s.blinks != blinks {
         print("FAIL parts \(label): \(s) -> shape=\(s.shape) blinks=\(s.blinks), "
@@ -187,8 +186,8 @@ SWIFT
 if ! swiftc -O -o "$TMP/cursorcheck" "$SRC" "$TMP/pure/main.swift" 2>"$TMP/compile.log"; then
   echo "error: $SRC would not compile standalone — the gate cannot run." >&2
   echo "  That file is Foundation-only on purpose so this is possible. If it now needs" >&2
-  echo "  AppKit, SwiftTerm or GhosttyTerminal, the pure mapping and the live action have" >&2
-  echo "  been re-merged and the split that made CursorStyle.swift checkable is gone — that" >&2
+  echo "  AppKit or SwiftTerm, the pure mapping and the live action have been re-merged and" >&2
+  echo "  the split that made CursorStyle.swift checkable is gone — that" >&2
   echo "  is the thing to fix, not this script." >&2
   sed 's/^/    /' "$TMP/compile.log" >&2
   exit 2

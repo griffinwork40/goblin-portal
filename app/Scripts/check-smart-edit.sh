@@ -22,7 +22,7 @@
 # WHY STATIC ANALYSIS, NOT A COMPILED HARNESS. `FileViewerPane+SmartEditing.swift`
 # imports AppKit and references `NSTextView`, `NSRange`, and the rest of the pane's
 # stored properties — it cannot be compiled standalone the way Foundation-only files
-# like `CommandOutcome.swift` or `TerminalEngine.swift` can. An offscreen harness
+# like `CommandOutcome.swift` or `Renderer.swift` can. An offscreen harness
 # like `check-sidebar-toggle.sh` would work but requires `swift build` (30-60s) and
 # linking all of Goblin Portal's objects, which is disproportionate for a two-line structural
 # invariant that grep can verify in under a second. The check uses awk to enforce

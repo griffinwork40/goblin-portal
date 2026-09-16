@@ -23,11 +23,9 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     private(set) var currentTitle: String = ""
     /// The container, reached through the document-level protocol declared in
     /// `SpaceDocument.swift` rather than a terminal-specific one. Moved there when the
-    /// callbacks stopped naming this class, so a second engine-backed conformer can
-    /// report the same three events without a parallel delegate
-    /// (plan `libghostty-swap-sequencing-2026-07-28.md` §2, site 1). Named
-    /// `documentDelegate` to witness `SpaceDocumentReporting` — see that protocol for
-    /// why the generic name was rejected.
+    /// callbacks stopped naming this class, so any document kind can report the same
+    /// events without a parallel delegate. Named `documentDelegate` to witness
+    /// `SpaceDocumentReporting` — see that protocol for why the generic name was rejected.
     weak var documentDelegate: SpaceDocumentDelegate?
 
     /// What the tab strip should be saying about this pane.

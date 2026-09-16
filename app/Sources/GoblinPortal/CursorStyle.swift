@@ -11,11 +11,10 @@
 //  IT ALSO REMOVES A REAL COUPLING. Until 2026-07-31 `AppConfig.cursorStyle` was typed as
 //  **SwiftTerm's** `CursorStyle`, which is why `Config.swift` carried `import SwiftTerm`
 //  while using exactly one symbol from it. That made the app-wide configuration type
-//  depend on the emulator: a second engine-backed pane could not read the cursor style
-//  without importing SwiftTerm too, and deleting SwiftTerm at Step 2 of
-//  `.afk/plans/libghostty-swap-sequencing-2026-07-28.md` would have broken `Config.swift`
-//  — a file with nothing to do with either engine. The enum is redeclared here with the
-//  same six cases and the same spellings, so nothing user-visible changes.
+//  depend on the emulator: any code that needed a cursor style would have had to import
+//  SwiftTerm too, coupling the config layer to the terminal engine for no reason. The enum
+//  is redeclared here with the same six cases and the same spellings, so nothing user-visible
+//  changes and `Config.swift` stays engine-free.
 //
 //  Note that `TerminalPane` never called a SwiftTerm *API* with the old type anyway; it
 //  converted it to a DECSCUSR code and fed the escape sequence (`TerminalPane.applyCursorStyle`).

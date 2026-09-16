@@ -6,10 +6,10 @@
 # DESIGN — the *decision* (what a finished command means for its tab) is a pure function of exit
 # code, duration and whether the user is looking, and a pure function compiles headless with
 # swiftc: no NSView, no window server, no shell, no `swift build`. Same trick
-# check-renderer-config.sh plays on Renderer.swift, check-engine-config.sh on TerminalEngine.swift,
-# check-cursor-style.sh on CursorStyle.swift, check-cwd-follow.sh on ShellDirectory.swift.
-# Compiling the SHIPPED file, not a restatement of its table, is the whole point: a check that
-# restates the policy proves only that the check agrees with itself.
+# check-renderer-config.sh plays on Renderer.swift, check-cursor-style.sh on CursorStyle.swift,
+# check-cwd-follow.sh on ShellDirectory.swift. Compiling the SHIPPED file, not a restatement of
+# its table, is the whole point: a check that restates the policy proves only that the check
+# agrees with itself.
 #
 # WHY IT EXISTS. This policy is the kind that fails silently and in the annoying direction. Get it
 # slightly wrong and a status dot appears after every `ls` — at which point the user stops seeing
@@ -19,9 +19,9 @@
 # guess this policy, so the guess deserves an instrument.
 #
 # WHAT IT CANNOT REACH, stated rather than implied. Whether the dot is legible, whether
-# `documentDidBecomeActive()` really clears it, and whether libghostty's OSC 133 delegate fires
-# when this policy assumes it does — all AppKit or live-shell territory. `check-ghostty-pane.sh`
-# and daily use own those. This owns the mapping.
+# `documentDidBecomeActive()` really clears it, and whether the OSC 133 delegate fires correctly
+# in a live shell — all AppKit or live-shell territory. Daily use and the other check-*.sh scripts
+# own those. This owns the mapping.
 #
 # EXIT CODES: 0 = all cases passed. 1 = a REAL failure (an outcome mapped wrongly, or the
 # threshold moved). 2 = environmental (no toolchain, source file missing, harness would not
@@ -134,6 +134,5 @@ fi
 
 out="$("$TMP/outcome" 2>&1)"; status=$?
 say "$out"
-# The exit code is the verdict, not a stdout substring — see check-ghostty-pane.sh's header for
-# the run where that distinction mattered.
+# The exit code is the verdict, not a stdout substring.
 exit $status

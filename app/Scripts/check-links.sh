@@ -4,9 +4,9 @@
 # that every allowed scheme is recognised as safe and every blocked one is rejected.
 #
 # WHAT IS UNDER TEST. `Sources/GoblinPortal/LinkScheme.swift` only. Foundation-only by design — its
-# header says so — so it compiles standalone with swiftc and never links AppKit, SwiftTerm or
-# libghostty. Same trick check-renderer-config.sh plays on Renderer.swift, check-cursor-style.sh
-# on CursorStyle.swift, check-keybindings.sh on KeyBindings.swift. Compiling the SHIPPED file,
+# header says so — so it compiles standalone with swiftc and never links AppKit or SwiftTerm.
+# Same trick check-renderer-config.sh plays on Renderer.swift, check-cursor-style.sh on
+# CursorStyle.swift, check-keybindings.sh on KeyBindings.swift. Compiling the SHIPPED file,
 # not a copy of it, is the whole point: a check that restates the allow-list proves only that
 # the check agrees with itself.
 #

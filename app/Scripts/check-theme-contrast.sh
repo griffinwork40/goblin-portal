@@ -71,7 +71,7 @@ done
 # A pure file that has quietly acquired a UI import is a real regression in the split that
 # makes this gate possible, so name it as that rather than as a compile error later.
 for f in "$VALUES" "$COMMUNITY" "$CONTRAST" "$SYNTAX"; do
-  if grep -qE '^\s*import\s+(AppKit|SwiftUI|Cocoa|SwiftTerm|GhosttyTerminal)' "$f"; then
+  if grep -qE '^\s*import\s+(AppKit|SwiftUI|Cocoa|SwiftTerm)' "$f"; then
     echo "error: $f imports a UI framework — it is supposed to be Foundation-only." >&2
     echo "  That split is the only reason this gate can compile it standalone. Fix the" >&2
     echo "  import, not this script." >&2
@@ -93,8 +93,8 @@ if ! swiftc -O -o "$TMP/themecheck" "$VALUES" "$COMMUNITY" "$CONTRAST" "$SYNTAX"
 fi
 
 # The harness's EXIT CODE is the verdict. It also prints ALL-OK, but trusting the string
-# alone would let a crash *after* the verdict read as a pass — a bug that really shipped in
-# check-ghostty-pane.sh, where the shell forgave any status if ALL-OK appeared anywhere.
+# alone would let a crash *after* the verdict read as a pass — exit-code discipline is shared
+# by all check-*.sh scripts to prevent that class of false green.
 out="$("$TMP/themecheck" 2>&1)"; status=$?
 
 if [[ $status -ne 0 && $status -ne 1 ]]; then
