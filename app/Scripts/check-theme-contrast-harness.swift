@@ -9,7 +9,8 @@
 //
 //  The verdict is this program's EXIT CODE. It also prints ALL-OK, but the shell half
 //  checks the status, because a harness that crashes after printing its verdict would
-//  otherwise read as a green gate — a real bug that shipped in check-ghostty-pane.sh.
+//  otherwise read as a green gate — the exit-code discipline is shared by all check-*.sh
+//  scripts for this reason.
 //
 
 import Foundation

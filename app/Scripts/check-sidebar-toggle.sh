@@ -53,20 +53,15 @@
 # harness would not compile, or the testable objects it needs to link are not there. A broken
 # environment must never read as a green gate.
 #
-# THE VERDICT IS THE EXIT CODE, never a stdout substring. AFK.md records that
-# `check-ghostty-pane.sh` once exited 0 unconditionally with its verdict travelling only as text,
-# so a crash *after* printing "ALL-OK" still read as green. This script counts failures and
-# exits on the count, and reclassifies a status-2/no-marker run as environmental before it ever
-# reaches a plain `exit 1`/`exit 0`.
+# THE VERDICT IS THE EXIT CODE, never a stdout substring. A previous version of a related script
+# exited 0 unconditionally with its verdict travelling only as text, so a crash *after* printing
+# "ALL-OK" still read as green. This script counts failures and exits on the count, and
+# reclassifies a status-2/no-marker run as environmental before it ever reaches a plain
+# `exit 1`/`exit 0`.
 #
-# LINK INPUTS. This harness never touches a `GhosttyTerminal` type — it never calls `.start()`
-# on any pane — but it still links against `GhosttyTerminal.o`/`GhosttyKit.o`/`libghostty.a`
-# because Goblin Portal's OWN object files (`GhosttyPane.o`, `GhosttyTerminalView.o`, pulled in by the
-# `$OBJS` glob below) reference those symbols unconditionally. Measured, not assumed: dropping
-# them produces `symbol(s) not found for architecture arm64` against `TerminalSurfaceOptions`,
-# `TerminalSurfacePwdDelegate` and friends, so they go back in — same full object set
-# `check-pane-teardown.sh` links, for a reason that has nothing to do with what this gate
-# actually exercises.
+# LINK INPUTS. This harness links only `SwiftTerm.o` alongside the Goblin Portal object files.
+# The Ghostty libraries (GhosttyTerminal.o, GhosttyKit.o, libghostty.a) were removed when
+# libghostty was cancelled — SwiftTerm is now the sole engine.
 #
 # WHAT THIS CANNOT SEE, stated so "all green" is not misread as "fully verified": whether the
 # button is visually where a user expects it (beside the traffic lights, not overlapping them),
@@ -103,9 +98,8 @@ TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
   echo "error: no testable GoblinPortal objects under .build — cannot @testable import the real accessory." >&2
   echo "  Looked for '*testable-t.build/Objects-normal/*/SidebarToggleAccessory.o'. Try: swift build" >&2
   exit 2; }
-for o in GhosttyTerminal.o GhosttyKit.o libghostty.a SwiftTerm.o MSDisplayLink.o; do
-  [[ -e "$PRODUCTS/$o" ]] || { echo "error: $PRODUCTS/$o missing after build." >&2; exit 2; }
-done
+[[ -e "$PRODUCTS/SwiftTerm.o" ]] || {
+  echo "error: $PRODUCTS/SwiftTerm.o missing after build." >&2; exit 2; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 # The Space root the harness constructs against. A real directory, not just a path string:
@@ -116,7 +110,7 @@ SPACE_ROOT="$TMP/space-root"; mkdir -p "$SPACE_ROOT"
 cat > "$TMP/main.swift" <<'SWIFT'
 import AppKit
 // @testable for SpaceWindowController, SpaceViewController and SidebarToggleAccessory — all
-// `internal` — the same reach check-pane-teardown.sh needs for TerminalPane/GhosttyPane.
+// `internal` — the same reach check-pane-teardown.sh needs for TerminalPane.
 @testable import GoblinPortal
 
 let app = NSApplication.shared
@@ -291,8 +285,7 @@ SWIFT
 OBJS=$(ls "$TOBJ"/*.o | grep -v '/main\.o$' | tr '\n' ' ')
 if ! swiftc -o "$TMP/sidebartoggle" "$TMP/main.swift" \
     -I "$TOBJ" -I "$PRODUCTS" -I "$PRODUCTS/include" -L "$PRODUCTS" \
-    $OBJS "$PRODUCTS/SwiftTerm.o" "$PRODUCTS/GhosttyTerminal.o" "$PRODUCTS/GhosttyKit.o" \
-    "$PRODUCTS/MSDisplayLink.o" "$PRODUCTS/libghostty.a" \
+    $OBJS "$PRODUCTS/SwiftTerm.o" \
     -framework AppKit 2>"$TMP/compile.log"; then
   echo "error: the harness would not compile — the gate cannot run." >&2
   echo "  If this names a missing member on the accessory or window controller, the seam" >&2

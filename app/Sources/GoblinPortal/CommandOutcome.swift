@@ -2,8 +2,8 @@
 //  CommandOutcome.swift
 //  What a finished shell command should do to its tab — the decision, separated from the doing.
 //
-//  Its own file and Foundation-only, for the reason `Renderer.swift`, `TerminalEngine.swift`,
-//  `KeyBindings.swift`, `CursorStyle.swift` and `ShellDirectory.swift` are: the interesting part
+//  Its own file and Foundation-only, for the reason `Renderer.swift`, `KeyBindings.swift`,
+//  `CursorStyle.swift` and `ShellDirectory.swift` are: the interesting part
 //  here is a *policy*, policy is a pure function of its inputs, and a pure function can be
 //  compiled into a headless check (`check-command-outcome.sh`) while the AppKit half cannot.
 //

@@ -70,7 +70,7 @@
 //  material, 8pt corner radius) is fixed in `TerminalFindBarView.setup()`. No Goblin Portal
 //  styling is applied. The bar works, and touching its internals would mean patching
 //  the vendor — which costs a future re-vendor and was rejected for this feature for
-//  the same reason libghostty's binary was rejected: auditability is the point.
+//  the same reason any opaque binary dependency is avoided in this project: auditability is the point.
 //  Patch 0008 (`0008-make-draw-open-for-subclass-override.patch`) already landed to
 //  let `GoblinPortalTerminalView` override `draw(_:)`; the find bar needs no further opens.
 

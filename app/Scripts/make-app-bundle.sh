@@ -167,7 +167,7 @@ ${ICON_PLIST_ENTRY}	<key>CFBundlePackageType</key>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>Goblin Portal notifies you when a long-running command finishes in a background tab.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 Griffin Long. MIT licensed. Includes SwiftTerm and Ghostty; see THIRD-PARTY-LICENSES.md.</string>
+	<string>Copyright © 2026 Griffin Long. MIT licensed. Includes SwiftTerm; see THIRD-PARTY-LICENSES.md.</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>

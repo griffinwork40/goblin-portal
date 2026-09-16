@@ -3,8 +3,8 @@
 //  The `SpaceDocument` conformance: everything the Space's strip is allowed to ask for.
 //
 //  Its own file because `SpaceDocument` is the seam that lets a terminal, a file
-//  viewer, and a future editor/diff/Ghostty pane share one container without the
-//  container knowing their types (`SpaceDocument.swift:8-32`, plan §12.3). Keeping
+//  viewer, and any future document kind share one container without the container knowing
+//  their types (`SpaceDocument.swift:8-32`, plan §12.3). Keeping
 //  the conformance whole and by itself is what makes that claim checkable: this is
 //  the complete list of what a document owes its Space, readable end to end, and
 //  the file a third conformer gets written against. Nothing here reaches back into

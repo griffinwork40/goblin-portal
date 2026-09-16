@@ -1,6 +1,6 @@
 # Third-party licenses
 
-Umber itself is MIT — see [`LICENSE`](LICENSE). This file covers everything Umber
+Goblin Portal itself is MIT — see [`LICENSE`](LICENSE). This file covers everything Goblin Portal
 **redistributes**: the code compiled into the shipping binary, and the colour palettes
 transcribed into its source.
 
@@ -10,23 +10,16 @@ which shows the work rather than asserting the conclusion.
 
 ---
 
-## Compiled into the Umber binary
+## Compiled into the Goblin Portal binary
 
 | Component | Version | License | Copyright |
 |---|---|---|---|
 | [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | v1.15.0 + 6 local patches | MIT | Miguel de Icaza; the xterm.js authors; SourceLair; Christopher Jeffrey |
-| [Ghostty](https://github.com/ghostty-org/ghostty) (`libghostty`) | `35e1a01` via libghostty-spm 1.3.2 | MIT | Mitchell Hashimoto, Ghostty contributors |
-| [libghostty-spm](https://github.com/Lakr233/libghostty-spm) | 1.3.2 | MIT | @Lakr233 |
-| [MSDisplayLink](https://github.com/Lakr233/MSDisplayLink) | 2.1.0 | MIT | Lakr Aream |
-
-Both terminal engines are linked on purpose while the libghostty probe runs — see
-`AFK.md` ("the libghostty probe") and `app/Package.swift`. When one is deleted, delete
-its entry here too.
 
 ### SwiftTerm
 
 Vendored at `vendor/SwiftTerm` (gitignored; materialise it with
-`app/Scripts/bootstrap-vendor.sh`). Umber applies **six local patches** from
+`app/Scripts/bootstrap-vendor.sh`). Goblin Portal applies **six local patches** from
 `patches/swiftterm/`, which are modifications to the original work: three fix upstream
 defects (scrollback corruption on narrowing, an alt-buffer resize bleed, and an ungated
 release-build `abort()`), one repackages the Metal shader as a copy resource, one adds
@@ -59,82 +52,28 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Ghostty
-
-Reaches the binary as compiled object code inside `GhosttyKit.xcframework`, the prebuilt
-binary target that libghostty-spm wraps. The exact upstream revision is recorded in that
-package's `Ghostty.ref` (`35e1a0160c4f6797e1bb1ef8e7a2b8c6b114ab58`).
-
-```
-MIT License
-
-Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### libghostty-spm
-
-The SwiftPM wrapper around the above. Its own MIT notice, distinct from Ghostty's:
-
-```
-MIT License
-
-Copyright (c) 2026 @Lakr233
-```
-
-*(full MIT text as reproduced for Ghostty above)*
-
-### MSDisplayLink
-
-A transitive dependency of libghostty-spm:
-
-```
-MIT License
-
-Copyright (c) 2024 Lakr Aream
-```
-
-*(full MIT text as reproduced for Ghostty above)*
-
 ---
 
 ## Resolved but not shipped
 
-Two packages appear in dependency metadata without reaching the binary. Both are listed
-here so that a reader who finds them in `Package.resolved` or a checkout directory can see
-they were considered rather than missed.
+One package appears in dependency metadata without reaching the binary. It is listed
+here so that a reader who finds it in a checkout directory can see it was considered
+rather than missed.
 
 **[swift-argument-parser](https://github.com/apple/swift-argument-parser) 1.8.2 —
 Apache-2.0 with the Swift Runtime Library Exception.** This is the only non-MIT package
 SwiftPM resolves, so it is the one worth being sure about. It is pulled in by the
 *vendored SwiftTerm's* own `Package.swift`, where its only consumer is `Termcast`, an
-example CLI target inside that package. Umber's executable target depends on exactly
-`SwiftTerm` and `GhosttyTerminal` (`app/Package.swift`), and the `SwiftTerm` **library**
-target declares no dependencies of its own.
+example CLI target inside that package. Goblin Portal's executable target depends on
+exactly `SwiftTerm` (`app/Package.swift`), and the `SwiftTerm` **library** target declares
+no dependencies of its own.
 
 Verified against the built product rather than inferred from the manifest:
 
 ```
-$ nm -a app/build/Umber.app/Contents/MacOS/Umber | grep -ci ArgumentParser
+$ nm -a app/build/GoblinPortal.app/Contents/MacOS/GoblinPortal | grep -ci ArgumentParser
 0
-$ nm -a app/build/Umber.app/Contents/MacOS/Umber | grep -ci SwiftTerm
+$ nm -a app/build/GoblinPortal.app/Contents/MacOS/GoblinPortal | grep -ci SwiftTerm
 24249
 ```
 
@@ -142,16 +81,12 @@ The second number is the control: it is what makes the first one mean "absent" r
 "the grep is broken". No `NOTICE` file exists in the package, so Apache-2.0 §4(d) — whose
 trigger is conditional on one existing — never fires either way.
 
-**iTerm2-Color-Schemes (Mark Badolato, MIT)**, 485 colour schemes bundled inside
-libghostty-spm's `GhosttyTheme` module. Umber imports no part of `GhosttyTheme`, and the
-module is not a dependency of the `GhosttyTerminal` product Umber does import.
-
 ---
 
 ## Colour palettes
 
 Not code, but transcribed values, and three of the five came from somewhere. The source
-comments in `app/Sources/Umber/ThemeValues.swift` describe each palette's provenance; this
+comments in `app/Sources/GoblinPortal/ThemeValues.swift` describe each palette's provenance; this
 is where the licences for that provenance live.
 
 | Preset | Origin | License |
@@ -171,8 +106,7 @@ is where the licences for that provenance live.
 ```sh
 cat vendor/SwiftTerm/LICENSE                          # after ./app/Scripts/bootstrap-vendor.sh
 cat app/.build/checkouts/*/LICENSE*                   # after swift build
-cat app/.build/checkouts/libghostty-spm/Ghostty.ref   # the pinned Ghostty revision
-nm -a app/build/Umber.app/Contents/MacOS/Umber | grep -ci <symbol>
+nm -a app/build/GoblinPortal.app/Contents/MacOS/GoblinPortal | grep -ci <symbol>
 ```
 
 If a dependency is added, removed, or bumped, update this file in the same commit — a

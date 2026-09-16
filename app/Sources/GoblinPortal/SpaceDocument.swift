@@ -83,8 +83,8 @@ enum DocumentStatus: Int, Comparable {
 ///
 /// Hence the appearance and zoom members below are **hard requirements with no
 /// default implementations**, deliberately. A default no-op would restore exactly
-/// the failure mode just removed: a future editor/diff/Ghostty conformer that
-/// forgets font zoom would compile, render, and ignore ⌘+ forever. Requiring them
+/// the failure mode just removed: a future editor/diff conformer that forgets font
+/// zoom would compile, render, and ignore ⌘+ forever. Requiring them
 /// turns that into a build error at the moment the conformer is written.
 @MainActor
 protocol SpaceDocument: AnyObject {
@@ -192,11 +192,10 @@ protocol SpaceDocument: AnyObject {
 /// terminal-level ones — the container's reaction to each is already kind-agnostic
 /// (`syncDocumentChrome()`, `closeDocument(at:)`). This was `TerminalPaneDelegate` in
 /// `TerminalPane.swift` and typed all three callbacks to the concrete class, which gave
-/// a second engine-backed conformer *no route to the container at all* for shell-exit
-/// and title-change — and title changes drive both the strip and the window subtitle
-/// (`emulator-foundation-probe-and-vendor-integrity.md` §8.2, "The delegate cannot
-/// carry it"). Widening it and moving it here is site 1 of
-/// `libghostty-swap-sequencing-2026-07-28.md` §2.
+/// a second document kind *no route to the container at all* for shell-exit and
+/// title-change — and title changes drive both the strip and the window subtitle.
+/// Widening it and moving it here is what makes those signals reachable from any
+/// document kind, not just TerminalPane.
 ///
 /// The parameter type is `SpaceDocument` rather than `ShellHosting` even though only a
 /// shell-backed pane emits these today: "my title changed" and "I am finished" are not

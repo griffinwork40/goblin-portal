@@ -54,8 +54,8 @@ final class SplitContainerView: NSView {
     /// Not part of the layout concern this view owns, but there is no clean place to
     /// intercept a click that lands on a child without sitting at this level: NSView
     /// event routing delivers mouseDown to the deepest hit-tested descendant, and the
-    /// child pane (SwiftTerm or GhosttyKit) does not report upward. A closure here
-    /// costs nothing when nil (the unsplit case and any owner that does not set it).
+    /// child pane does not report upward. A closure here costs nothing when nil (the
+    /// unsplit case and any owner that does not set it).
     var didReceiveClickInChild: ((_ child: NSView) -> Void)?
 
     /// Drag bookkeeping — nil when no drag is in progress.
@@ -162,9 +162,8 @@ final class SplitContainerView: NSView {
     ///
     /// WHY alphaValue: it is the AppKit idiomatic way to fade an entire view subtree
     /// without modifying any child. The value propagates through the layer hierarchy
-    /// automatically — no per-pane knowledge needed, and both engine backends (SwiftTerm
-    /// and GhosttyKit) are opaque to this view, so this is the only approach that works
-    /// without naming either.
+    /// automatically — no per-pane knowledge needed, and the terminal engine is opaque
+    /// to this view, so this is the only approach that works without naming it directly.
     ///
     /// WHY NSAnimationContext: a 150ms ease-in-out makes the transition readable without
     /// drawing attention to itself — the same duration Core Animation uses for implicit

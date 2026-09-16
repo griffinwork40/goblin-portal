@@ -37,8 +37,8 @@ final class SpaceViewController: NSSplitViewController {
 
     /// `private(set)`, not `private`, for the same file-scope reason as `documents` below:
     /// `addTerminalDocument` moved to `SpaceViewController+DocumentConstruction.swift` when
-    /// this file reached the 350-line ceiling, and it must read `config.engine` to know which
-    /// pane to build. Reads cross the file boundary; writes do not — `config` is still
+    /// this file reached the 350-line ceiling, and that extension reads `config` to build a
+    /// `TerminalPane`. Reads cross the file boundary; writes do not — `config` is still
     /// assigned only by `init` and `apply(config:)`, both here.
     private(set) var config: AppConfig
 

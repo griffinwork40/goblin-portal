@@ -14,17 +14,14 @@
 //  Why this exists at all: the container needs to answer "which of these documents
 //  can I write shell input to?" without naming a concrete pane type. That question
 //  used to be answered by a cast to `TerminalPane`
-//  (`SpaceViewController.focusedTerminalPane`, pre-change), which blocked a second
-//  engine-backed document kind — the whole subject of
-//  `.afk/plans/libghostty-swap-sequencing-2026-07-28.md` §2.
+//  (`SpaceViewController.focusedTerminalPane`, pre-change).
 //
 //  Why it is NOT answered by widening that cast to `SpaceDocument`: a shell-directed
 //  action must land in a *shell*. `SpaceDocument` is satisfied by `FileViewerPane`,
 //  so widening would let the file tree's "insert path" inject a filesystem path into
 //  a text-editor buffer as if the user had typed it there — a silent data-corrupting
-//  wrong target, not a cosmetic mistake. §2's "the one cast that must NOT widen to
-//  `SpaceDocument`" and `next-sequencing-2026-07-28.md` §1's closing note both land
-//  on a *narrower* protocol instead, which is this one.
+//  wrong target, not a cosmetic mistake. A narrower protocol prevents that, and is
+//  what this one exists to be.
 //
 
 import AppKit
@@ -52,9 +49,7 @@ import SwiftTerm
 ///
 /// The two members are also inverses, which is the test for whether a member belongs:
 /// `currentDirectory` reads where the shell is, `send(text:)` moves it. cwd-follow needs
-/// both halves and nothing more. A second conformer would satisfy the whole feature —
-/// path-insert, `cd Here`, and sidebar-follows-shell — by answering just these two,
-/// reading its cwd from the engine's own pwd delegate instead of from `proc_pidinfo`.
+/// both halves and nothing more.
 ///
 /// `FileViewerPane` must still never conform. That was true when this protocol had one
 /// member and the second makes it more true, not less: a file viewer asked for a working
@@ -71,9 +66,7 @@ protocol ShellHosting: SpaceDocument {
     /// line the caller stops crossing: `SpaceViewController+Delegates.swift` used to
     /// call `pane.view.send(txt:)` — a SwiftTerm-concrete API reached through a
     /// concrete pane's concrete view — which meant the file-tree feature was coupled
-    /// to the emulator, not to the idea of a shell (plan §2, "Note also that
-    /// `pane.view.send(txt:)` is a **SwiftTerm-concrete** call"). A second engine-backed
-    /// conformer would satisfy this through the engine's own text-write API instead.
+    /// to the emulator, not to the idea of a shell. This protocol is what decouples it.
     ///
     /// No newline is implied — the caller decides whether the text is submitted or
     /// left on the prompt for editing. The one caller today deliberately leaves it
@@ -206,8 +199,7 @@ extension SpaceViewController {
     /// `SpaceDocument?` here would let the file tree inject a filesystem path into a
     /// text-editor buffer as though the user had typed it — silent corruption of a
     /// document the user is editing, not a cosmetic miss. `ShellHosting` keeps the
-    /// fallback total over shells only, which is exactly what the feature means
-    /// (`libghostty-swap-sequencing-2026-07-28.md` §2; `next-sequencing-2026-07-28.md` §1).
+    /// fallback total over shells only, which is exactly what the feature means.
     var focusedShellHost: ShellHosting? {
         // In a split, check whether the first responder lives in any peer's view.
         // Walk all split documents (main peer + any sub-split peers) so that focus
