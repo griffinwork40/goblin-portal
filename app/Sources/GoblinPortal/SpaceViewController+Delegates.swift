@@ -43,6 +43,24 @@ extension SpaceViewController: DocumentTabStripDelegate {
     func tabStripDidRequestNewDocument(_ strip: DocumentTabStrip) {
         addTerminalDocument()
     }
+
+    func tabStrip(_ strip: DocumentTabStrip, didReorder finalIndex: Int) {
+        // The strip already reordered its items array during the drag. Map each
+        // strip item back to a document by title+symbol match (O(N²), N ≤ ~20,
+        // once per completed drag), then hand the new order to the container.
+        let stripItems = strip.items
+        var reordered: [SpaceDocument] = []
+        var remaining = documents
+        for item in stripItems {
+            if let idx = remaining.firstIndex(where: {
+                $0.documentTitle == item.title && $0.documentSymbolName == item.symbolName
+            }) {
+                reordered.append(remaining.remove(at: idx))
+            }
+        }
+        reordered.append(contentsOf: remaining)
+        applyDocumentOrder(reordered, landedAt: finalIndex)
+    }
 }
 
 // MARK: - SpaceDocumentDelegate

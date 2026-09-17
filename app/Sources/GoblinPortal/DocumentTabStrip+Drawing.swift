@@ -33,20 +33,19 @@ import AppKit
 extension DocumentTabStrip {
     // MARK: - Drawing
 
-    /// The corner radius for pill-shaped tab fills (active and hover).
+    /// The corner radius for pill-shaped tab fills, sourced from `drawingStyle`.
     ///
-    /// 8pt is chosen to read as a deliberate pill on a 30pt strip without collapsing
-    /// into a lozenge at the 56pt `minTabWidth` floor: at 56×30 the flat zone is
-    /// 40×14pt, which still reads as a tab rather than a capsule. For reference,
-    /// macOS 26 system tabs use 16–20pt on a taller bar; iTerm2's PSMTahoeTabStyle
-    /// uses a similar 36pt bar with proportionally larger radii. 8pt on 30pt is the
-    /// equivalent proportion.
+    /// On macOS 26: 8pt — a deliberate pill on a 30pt strip without collapsing into a
+    /// lozenge at the 56pt `minTabWidth` floor (40×14pt flat zone). For reference,
+    /// macOS 26 system tabs use 16–20pt on a taller bar; 8pt on 30pt is the equivalent
+    /// proportion. On pre-26: 4pt — gentle rounding, not a full pill.
     ///
-    /// The radius is applied to ALL four corners, not just the top two. A tab with
-    /// rounded top corners and square bottom corners looks like a tombstone; full
-    /// rounding makes it a proper pill and is what every reference implementation
-    /// (Safari, Terminal.app, iTerm2 Tahoe) ships.
-    static let tabCornerRadius: CGFloat = 8
+    /// The radius is applied to ALL four corners. A tab with rounded top corners and
+    /// square bottom corners looks like a tombstone; full rounding makes it a proper
+    /// pill and is what every reference implementation (Safari, Terminal.app, iTerm2
+    /// Tahoe) ships. When the radius is 0 (hypothetical), the drawing falls back to
+    /// plain `rect.fill()`.
+    private var tabCornerRadius: CGFloat { drawingStyle.tabCornerRadius }
 
     /// Perceptual darkness of the terminal background, used to decide which way to
     /// push the rail and the inactive text. Falls back to "dark" because a nil
@@ -97,8 +96,8 @@ extension DocumentTabStrip {
         if let activeRect = tabRect(activeIndex, layout) {
             NSGraphicsContext.saveGraphicsState()
             let pill = NSBezierPath(
-                roundedRect: activeRect, xRadius: Self.tabCornerRadius,
-                yRadius: Self.tabCornerRadius)
+                roundedRect: activeRect, xRadius: tabCornerRadius,
+                yRadius: tabCornerRadius)
             let clip = NSBezierPath(rect: bounds)
             clip.append(pill)
             clip.windingRule = .evenOdd
@@ -112,9 +111,15 @@ extension DocumentTabStrip {
     }
 
     private func drawTab(_ index: Int, _ layout: Layout) {
-        guard let rect = tabRect(index, layout) else { return }
+        guard var rect = tabRect(index, layout) else { return }
         let isActive = index == activeIndex
-        let cr = Self.tabCornerRadius
+        let cr = tabCornerRadius
+
+        // During a drag, offset the dragged tab to follow the cursor.
+        let isDragging = dragState?.dragIndex == index
+        if isDragging, let state = dragState {
+            rect = rect.offsetBy(dx: state.offsetX, dy: 0)
+        }
 
         if isActive {
             // Pill fill: the active tab merges with the terminal content below.

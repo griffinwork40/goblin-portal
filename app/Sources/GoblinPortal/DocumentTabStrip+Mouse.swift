@@ -35,7 +35,23 @@ extension DocumentTabStrip {
                 owner: self))
     }
 
+    override func mouseDragged(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        dragUpdate(locationX: point.x)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if dragState != nil {
+            dragEnd()
+        } else if dragCandidate != nil {
+            // Threshold was never exceeded — treat as a click.
+            dragCandidate = nil
+        }
+    }
+
     override func mouseMoved(with event: NSEvent) {
+        // Suppress hover updates during a drag — the dragged tab owns the visual.
+        guard dragState == nil else { return }
         let point = convert(event.locationInWindow, from: nil)
         let layout = self.layout
         let tab = tabIndex(at: point, layout)
@@ -86,7 +102,12 @@ extension DocumentTabStrip {
         if (index == activeIndex || hoveredTab == index), closeRect(rect).contains(point) {
             delegate?.tabStrip(self, didRequestClose: index)
         } else {
+            // Select immediately, then start tracking a potential drag. If the
+            // user releases without exceeding the threshold, mouseUp clears the
+            // candidate silently. If they drag past 4pt, +Drag promotes it to a
+            // live drag.
             delegate?.tabStrip(self, didSelect: index)
+            dragBegin(index: index, locationX: point.x)
         }
     }
 

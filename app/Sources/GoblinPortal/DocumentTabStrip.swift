@@ -25,6 +25,10 @@ protocol DocumentTabStripDelegate: AnyObject {
     func tabStrip(_ strip: DocumentTabStrip, didSelect index: Int)
     func tabStrip(_ strip: DocumentTabStrip, didRequestClose index: Int)
     func tabStripDidRequestNewDocument(_ strip: DocumentTabStrip)
+    /// The user finished dragging a tab to a new position. `finalIndex` is where
+    /// the tab landed in the strip's own items array (already reordered during the
+    /// drag). The delegate must reorder its document list to match.
+    func tabStrip(_ strip: DocumentTabStrip, didReorder finalIndex: Int)
 }
 
 @MainActor
@@ -82,8 +86,12 @@ final class DocumentTabStrip: NSView {
     // reading files (drawing, accessibility) must never mutate them. `private(set)`
     // makes that *mechanical* rather than a convention — the drawn strip, the spoken
     // strip and the hit-tested strip cannot drift apart because only one path assigns.
-    private(set) var items: [Item] = []
-    private(set) var activeIndex: Int = 0
+    // why not `private(set)`: `reload` below is the primary writer, but
+    // `+Drag.swift`'s `swapItems` also mutates both during a drag-to-reorder.
+    // Two writers in two files is the minimum for drag support; drawing and
+    // accessibility still only read.
+    var items: [Item] = []
+    var activeIndex: Int = 0
     // why plain internal and not `private(set)`: hover is written by `mouseMoved` /
     // `mouseExited`, which moved to `DocumentTabStrip+Mouse.swift`. A `private(set)`
     // here would not compile for that file, and routing four flags through a setter
@@ -99,6 +107,13 @@ final class DocumentTabStrip: NSView {
     // are its only reader and writer, and they need write access from that file.
     var middleClickCandidate: Int?
 
+    // MARK: - Drag-to-reorder state
+    // why internal: written by `+Drag.swift`, read by `+Drawing.swift` and `+Mouse.swift`.
+    // The candidate is a pending drag (mouseDown captured, threshold not yet exceeded).
+    // The state is a live drag in progress.
+    var dragCandidate: (index: Int, startX: CGFloat)?
+    var dragState: TabDragState?
+
     /// Colours are pushed in from the resolved config rather than read from a
     /// global: a nil theme leaves SwiftTerm on its own defaults (black), and the
     /// strip has to agree with whatever the terminal actually rendered or the two
@@ -112,6 +127,10 @@ final class DocumentTabStrip: NSView {
     /// Accent colour for the active-tab indicator line. Sourced from `effectiveAccent`
     /// in `Config+Chrome.swift` — see its doc comment for the sourcing rationale.
     private(set) var contentAccent: NSColor = .controlAccentColor
+    /// Glass-conditional drawing tokens. Resolved once per window in
+    /// `SpaceWindowController.init` and pushed here alongside colours.
+    /// Drawing reads `drawingStyle.tabCornerRadius` rather than a hardcoded static.
+    private(set) var drawingStyle: GlassDrawingStyle = .resolved()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
