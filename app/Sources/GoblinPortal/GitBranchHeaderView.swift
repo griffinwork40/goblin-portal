@@ -75,7 +75,15 @@ final class GitBranchHeaderView: NSView {
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             // Fixed height rather than derived from the label, so the tree below it does
             // not shift by a point when a branch name's glyphs happen to be taller.
-            heightAnchor.constraint(equalToConstant: 22),
+            // 26pt rather than 22pt: the extra 4pt acts as bottom spacing between the
+            // branch line and the file tree, so the two don't run together visually.
+            // This is inside the header's own height rather than stack spacing because
+            // NSStackView drops hidden views *and their spacing* from layout — if the
+            // gap were `setCustomSpacing(4, after: gitHeader)` it would vanish with
+            // the header, which is correct, but putting it in the height means the
+            // header's own visual weight includes its own breathing room. Either works;
+            // this avoids a second `setCustomSpacing` call site.
+            heightAnchor.constraint(equalToConstant: 26),
         ])
 
         // Hidden until told otherwise. The alternative — visible and empty until the first
