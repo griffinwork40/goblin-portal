@@ -8,7 +8,7 @@ Produces a PNG at the given WxH with:
   - "Drag to Applications" rendered in San Francisco / Helvetica Neue
 
 Usage:
-  python3 generate-dmg-background.py <output.png> <width> <height>
+  python3 generate-dmg-background.py <output.png> <width> <height> <app_x> <apps_x> <icon_y>
 
 Called by make-dmg.sh at build time — no committed binary assets.
 Requires: Python 3, Pillow (PIL). Falls back to a pure-stdlib PNG encoder
@@ -20,6 +20,8 @@ import struct
 import sys
 import zlib
 
+if len(sys.argv) != 7:
+    sys.exit('usage: generate-dmg-background.py <output.png> <width> <height> <app_x> <apps_x> <icon_y>')
 path, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 
 # Palette
@@ -27,10 +29,10 @@ BG      = (0x52, 0x44, 0x3A)   # warm umber — ~30% luminance, legible labels
 ACCENT  = (0xC8, 0xB8, 0xA4)   # warm cream, high contrast on the background
 GREEN   = (0x6F, 0xFF, 0x56)   # acid-green portal bloom — used for the arrow tip
 
-# Icon layout (must match make-dmg.sh APP_X / APPS_X / ICON_Y values).
-APP_X   = 160
-APPS_X  = 480
-ICON_Y  = 190   # vertical center of both icons
+# Icon layout — passed in from make-dmg.sh so the values are defined once.
+APP_X   = int(sys.argv[4])
+APPS_X  = int(sys.argv[5])
+ICON_Y  = int(sys.argv[6])   # vertical center of both icons
 
 # Arrow geometry
 SHAFT_X0    = APP_X  + 72   # just right of the app icon (128px wide → edge at 224, gap to 232)
@@ -39,6 +41,8 @@ SHAFT_HALF  = 2              # half-height of the thin shaft in pixels
 HEAD_X0     = SHAFT_X1
 HEAD_X1     = APPS_X - 62   # arrowhead tip; leaves gap before the Applications icon
 HEAD_HALF   = 13             # half-height of arrowhead at its widest point
+
+assert HEAD_X1 > HEAD_X0, f"HEAD_X1 ({HEAD_X1}) must be > HEAD_X0 ({HEAD_X0}) — check APP_X/APPS_X constants"
 
 # Text layout
 TEXT        = "Drag to Applications"
@@ -132,7 +136,7 @@ def _fallback_stdlib() -> None:
 
     text_pixels: set = set()
     glyph_w, glyph_h, gap = 5, 9, 1
-    text_w_px = len(TEXT) * (glyph_w + gap) * SCALE
+    text_w_px = (len(TEXT) * (glyph_w + gap) - gap) * SCALE
     text_x0   = (w - text_w_px) // 2
     text_y0   = int(h * TEXT_Y_FRAC)
     for ci, ch in enumerate(TEXT):
@@ -147,27 +151,28 @@ def _fallback_stdlib() -> None:
                             text_pixels.add((px, py))
 
     rows = []
+    _dy_abs = abs  # local alias for speed
     for y in range(h):
         row = bytearray(b'\x00')  # PNG filter byte: None
         for x in range(w):
             r = BG
             # Shaft
-            if SHAFT_X0 <= x <= SHAFT_X1 and abs(y - ICON_Y) <= SHAFT_HALF:
+            if SHAFT_X0 <= x <= SHAFT_X1 and _dy_abs(y - ICON_Y) <= SHAFT_HALF:
                 r = ACCENT
             # Arrowhead
             elif HEAD_X0 < x <= HEAD_X1:
                 spread = int(HEAD_HALF * (HEAD_X1 - x) / (HEAD_X1 - HEAD_X0))
-                if abs(y - ICON_Y) <= spread:
+                if _dy_abs(y - ICON_Y) <= spread:
                     r = ACCENT
             # Arrowhead tip: acid-green diamond
             elif HEAD_X1 < x <= HEAD_X1 + 4:
                 spread = 4 - (x - HEAD_X1)
-                if abs(y - ICON_Y) <= spread:
+                if _dy_abs(y - ICON_Y) <= spread:
                     r = GREEN
             # Text
             if (x, y) in text_pixels:
                 r = ACCENT
-            row.extend((*r, 0xFF))
+            row += bytes((*r, 0xFF))
         rows.append(bytes(row))
 
     raw = b''.join(rows)

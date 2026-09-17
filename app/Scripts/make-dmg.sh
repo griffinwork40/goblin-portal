@@ -57,7 +57,7 @@ echo "==> creating DMG background"
 # cost of being upscaled on Retina; Pillow's anti-aliasing minimises the blur.
 BG_DIR="$(mktemp -d)"
 BG="$BG_DIR/background.png"
-python3 "$(dirname "$0")/generate-dmg-background.py" "$BG" "$WIN_W" "$WIN_H"
+python3 "$(dirname "$0")/generate-dmg-background.py" "$BG" "$WIN_W" "$WIN_H" "$APP_X" "$APPS_X" "$APP_Y"
 
 echo "==> assembling DMG contents"
 
