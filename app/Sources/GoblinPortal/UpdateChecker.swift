@@ -21,6 +21,11 @@
 import AppKit
 import Foundation
 
+/// NSAlert response for the fourth button ("Skip This Version").
+/// NSApplication.ModalResponse values are 1000-based: first = 1000, second = 1001,
+/// third = 1002, fourth = 1003.
+private let alertFourthButtonReturn = NSApplication.ModalResponse(rawValue: 1003)
+
 /// One-file update checker against GitHub Releases.
 ///
 /// Usage from `AppDelegate`:
@@ -198,7 +203,7 @@ final class UpdateChecker {
             case .alertSecondButtonReturn:
                 // View on GitHub
                 NSWorkspace.shared.open(release.url)
-            case NSApplication.ModalResponse(rawValue: 1003) where !isManual:
+            case alertFourthButtonReturn where !isManual:
                 UserDefaults.standard.set(
                     release.version, forKey: Self.skippedVersionKey
                 )

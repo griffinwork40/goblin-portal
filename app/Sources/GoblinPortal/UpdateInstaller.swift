@@ -6,7 +6,8 @@
 //    1. Download the zip asset to a temporary directory.
 //    2. Extract with `ditto -x -k` (preserves extended attributes and code
 //       signatures -- plain `unzip` does not).
-//    3. Verify the extracted .app exists and contains an executable.
+//    3. Verify the extracted .app exists, has the expected bundle identifier,
+//       and contains an executable.
 //    4. Launch a trampoline script that waits for this process to exit, swaps
 //       the old bundle for the new one with `mv`, and relaunches.
 //    5. Call `NSApp.terminate` to hand off to the trampoline.
@@ -18,8 +19,8 @@
 //
 //  The trampoline is `install-update.sh`, bundled as a `.copy` resource. It
 //  receives four arguments: the PID to wait on, the path to the new .app, the
-//  path to the installed .app, and the path to the installed executable (for
-//  relaunch). It is the only file that touches /Applications.
+//  path to the installed .app, and the temp directory to clean up after. It is
+//  the only file that touches /Applications.
 //
 
 import AppKit
@@ -139,10 +140,12 @@ final class UpdateInstaller {
             ditto.waitUntilExit()
             guard ditto.terminationStatus == 0 else {
                 fail("Failed to extract the update (ditto exit \(ditto.terminationStatus)).")
+                cleanup(tempDir)
                 return
             }
         } catch {
             fail("Failed to extract the update: \(error.localizedDescription)")
+            cleanup(tempDir)
             return
         }
 
@@ -150,6 +153,23 @@ final class UpdateInstaller {
         // (ditto --keepParent). Find the .app inside the extraction.
         guard let appBundle = findAppBundle(in: extractDir) else {
             fail("The downloaded archive did not contain a valid app bundle.")
+            cleanup(tempDir)
+            return
+        }
+
+        // Verify that the extracted bundle has the expected bundle identifier
+        // before touching the installed copy. findAppBundle matches by extension
+        // alone, so a malformed archive could slip through without this check.
+        let infoPlistURL = appBundle.appendingPathComponent("Contents/Info.plist")
+        if let plist = NSDictionary(contentsOf: infoPlistURL),
+           let bundleID = plist["CFBundleIdentifier"] as? String {
+            guard bundleID == "com.griffinlong.goblin-portal" else {
+                fail("The downloaded archive contains an unexpected app (\(bundleID)).")
+                cleanup(tempDir)
+                return
+            }
+        } else {
+            fail("The downloaded archive is missing a valid Info.plist.")
             cleanup(tempDir)
             return
         }
@@ -227,8 +247,6 @@ final class UpdateInstaller {
         }
 
         let pid = ProcessInfo.processInfo.processIdentifier
-        let relaunchPath = installedApp
-            .appendingPathComponent("Contents/MacOS/GoblinPortal").path
 
         let trampoline = Process()
         trampoline.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -237,12 +255,13 @@ final class UpdateInstaller {
             "\(pid)",
             newApp.path,
             installedApp.path,
-            relaunchPath,
             tempDir.path
         ]
 
-        // Detach from the parent process group so the trampoline survives
-        // NSApp.terminate.
+        // NSApp.terminate calls exit() on the parent process. POSIX does not
+        // deliver a signal to child processes on parent exit -- they are
+        // re-parented to launchd and keep running. The trampoline's open file
+        // descriptors also keep it alive until it finishes the swap.
         trampoline.qualityOfService = .userInitiated
 
         do {
