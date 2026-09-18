@@ -111,6 +111,16 @@ check_b() {
     fi
 }
 
+# Stub osascript and open for all B-cases. B.2 and B.3 already used a local
+# FAKE_BIN; defining it here covers B.1 too (which previously called real open
+# on the test machine, breaking the gate's isolation claim).
+FAKE_BIN="$WORK/fakebin"
+mkdir -p "$FAKE_BIN"
+printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/osascript"
+chmod +x "$FAKE_BIN/osascript"
+printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/open"
+chmod +x "$FAKE_BIN/open"
+
 # ── B.1: happy path -- dead PID, new content lands at installed path ──────────
 printf '\nB.1 — happy path: new bundle moved into place, backup cleaned up\n'
 
@@ -151,7 +161,14 @@ codesign --sign - --force "$NEWAPP" 2>/dev/null || true
 DEAD_PID=$!
 wait "$DEAD_PID" 2>/dev/null || true
 
-/bin/sh "$TRAMPOLINE" "$DEAD_PID" "$NEWAPP" "$INSTALLED" "$TMPDIR_B1" 2>/dev/null
+set +e
+PATH="$FAKE_BIN:$PATH" /bin/sh "$TRAMPOLINE" "$DEAD_PID" "$NEWAPP" "$INSTALLED" "$TMPDIR_B1" 2>/dev/null
+TRAMPOLINE_EXIT_B1=$?
+set -e
+
+check_b "trampoline exits 0 on happy path" \
+    "$([ "$TRAMPOLINE_EXIT_B1" -eq 0 ] && echo 0 || echo 1)" \
+    "exit=$TRAMPOLINE_EXIT_B1"
 
 # The new content must be at the installed path.
 # The new executable prints "new-version" when run.
@@ -190,14 +207,6 @@ NONEXISTENT_APP="$WORK/nonexistent/GoblinPortal.app"
 mkdir -p "$INSTALLED_B2/Contents/MacOS" "$TMPDIR_B2"
 printf '#!/bin/sh\necho original\n' > "$INSTALLED_B2/Contents/MacOS/GoblinPortal"
 chmod +x "$INSTALLED_B2/Contents/MacOS/GoblinPortal"
-
-# Stub osascript so the trampoline's error alert does not block on a headless
-# CI runner without a window server. B.3 uses the same FAKE_BIN pattern;
-# define it here so B.2 benefits too.
-FAKE_BIN="$WORK/fakebin"
-mkdir -p "$FAKE_BIN"
-printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/osascript"
-chmod +x "$FAKE_BIN/osascript"
 
 # Disable set -e so a failed trampoline does not abort the test script.
 set +e
@@ -238,9 +247,8 @@ printf '\nB.3 — codesign failure: bad bundle removed, backup restored\n'
 INSTALLED_B3="$WORK/installed_b3/GoblinPortal.app"
 NEWAPP_B3="$WORK/new_b3/GoblinPortal.app"
 TMPDIR_B3="$WORK/tmp_b3"
-FAKE_BIN="$WORK/fakebin"
 
-mkdir -p "$INSTALLED_B3/Contents/MacOS" "$NEWAPP_B3/Contents/MacOS" "$TMPDIR_B3" "$FAKE_BIN"
+mkdir -p "$INSTALLED_B3/Contents/MacOS" "$NEWAPP_B3/Contents/MacOS" "$TMPDIR_B3"
 printf '#!/bin/sh\necho original-b3\n' > "$INSTALLED_B3/Contents/MacOS/GoblinPortal"
 chmod +x "$INSTALLED_B3/Contents/MacOS/GoblinPortal"
 printf '#!/bin/sh\necho new-bad-b3\n' > "$NEWAPP_B3/Contents/MacOS/GoblinPortal"
@@ -255,14 +263,9 @@ printf '<?xml version="1.0" encoding="UTF-8"?>
 
 # Shadow codesign with a stub that always fails. The trampoline runs codesign
 # after the mv, so this makes the codesign-failure restore branch fire.
+# osascript and open stubs are already in FAKE_BIN (created before B.1).
 printf '#!/bin/sh\nexit 1\n' > "$FAKE_BIN/codesign"
 chmod +x "$FAKE_BIN/codesign"
-# Also stub osascript (display alert blocks without a window server -- hangs in CI)
-# and open (no-op -- do not actually launch an app from the test harness).
-printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/osascript"
-chmod +x "$FAKE_BIN/osascript"
-printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/open"
-chmod +x "$FAKE_BIN/open"
 
 set +e
 (exit 0) &

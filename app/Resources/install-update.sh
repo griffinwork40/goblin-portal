@@ -48,7 +48,7 @@ while kill -0 "$PID" 2>/dev/null; do
     sleep 0.2
     waited=$((waited + 1))
     if [ "$waited" -ge 150 ]; then
-        osascript -e 'display alert "Update failed" message "Goblin Portal did not quit in time. Please quit the app and try again."'
+        osascript -e 'display alert "Update failed" message "Goblin Portal did not quit in time. Please quit the app and try again."' || true
         rm -rf "$TEMP_DIR"
         exit 1
     fi
