@@ -69,6 +69,11 @@ extension UpdateInstaller {
                     hashSession.dataTask(with: hashReq) { d, r, e in cont.resume(returning: (d, r, e)) }
                         .resume()
                 }
+                // F2 -- invalidate the session once the single dataTask has
+                // delivered its result. Without this, the URLSession (and its
+                // delegate) are never freed, leaking one session object per
+                // update attempt for the lifetime of the process.
+                hashSession.finishTasksAndInvalidate()
                 guard hashErr == nil,
                       let hashData,
                       (hashResp as? HTTPURLResponse)?.statusCode == 200,
@@ -86,7 +91,7 @@ extension UpdateInstaller {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .split(separator: " ", omittingEmptySubsequences: true)
                     .first
-                    .map(String.init) ?? ""
+                    .map { String($0).lowercased() } ?? ""
                 guard !expectedHex.isEmpty else {
                     await MainActor.run {
                         self.fail("The SHA-256 checksum file for this release is malformed.")

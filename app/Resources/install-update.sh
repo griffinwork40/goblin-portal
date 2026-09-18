@@ -27,6 +27,17 @@ for _arg in "$PID" "$NEW_APP" "$INSTALLED_APP" "$TEMP_DIR"; do
     [ -n "$_arg" ] || { printf 'install-update.sh: empty argument\n' >&2; exit 2; }
 done
 
+# S-1 -- reject relative paths for the three filesystem arguments. A relative
+# path would be interpreted against the trampoline's cwd (launchd's root or
+# whatever the parent inherited), not the caller's intent. All three must begin
+# with '/' -- the PID argument is a decimal integer and is exempt.
+for _path in "$NEW_APP" "$INSTALLED_APP" "$TEMP_DIR"; do
+    case "$_path" in
+        /*) ;;
+        *) printf 'install-update.sh: path must be absolute: %s\n' "$_path" >&2; exit 2 ;;
+    esac
+done
+
 # Item 7 -- validate PID is a positive decimal integer. Without this, a
 # non-numeric or negative PID reaches `kill -0` where it is interpreted as
 # a process group (negative) or causes an error suppressed by 2>/dev/null

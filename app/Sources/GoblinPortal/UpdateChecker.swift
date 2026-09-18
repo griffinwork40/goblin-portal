@@ -240,7 +240,12 @@ final class UpdateChecker {
         // "Install Update" is available when the release has a downloadable zip
         // asset AND the app is running from a writable location (not a DMG or
         // swift run). Otherwise fall back to the browser download path.
-        let canInstallInPlace = release.zipURL != nil && canSelfUpdate()
+        // S-3 -- require both the zip asset AND the hash sidecar before offering
+        // in-place install. Without the sidecar the integrity check in
+        // extractAndInstall is skipped, so a release without a .sha256 asset must
+        // fall back to the browser-download path instead of installing silently
+        // unverified.
+        let canInstallInPlace = release.zipURL != nil && release.zipHashURL != nil && canSelfUpdate()
         if canInstallInPlace {
             alert.addButton(withTitle: "Install Update")
         }
