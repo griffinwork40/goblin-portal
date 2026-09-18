@@ -219,6 +219,69 @@ fi
 check_b "temp dir cleaned up after failed mv" \
     "$([ -d "$TMPDIR_B2" ] && echo 1 || echo 0)"
 
+# ── B.3: codesign-failure path -- trampoline removes bad bundle, restores ──
+# Stub codesign via a PATH shadow so the trampoline's codesign --verify fails.
+# This exercises the restore branch that the review found was broken before the
+# rm -rf fix: POSIX mv nests the backup INSIDE an existing directory target
+# instead of replacing it. The fix is rm -rf $INSTALLED_APP before the restore
+# mv, and this case proves the restore now works end to end.
+printf '\nB.3 — codesign failure: bad bundle removed, backup restored\n'
+
+INSTALLED_B3="$WORK/installed_b3/GoblinPortal.app"
+NEWAPP_B3="$WORK/new_b3/GoblinPortal.app"
+TMPDIR_B3="$WORK/tmp_b3"
+FAKE_BIN="$WORK/fakebin"
+
+mkdir -p "$INSTALLED_B3/Contents/MacOS" "$NEWAPP_B3/Contents/MacOS" "$TMPDIR_B3" "$FAKE_BIN"
+printf '#!/bin/sh\necho original-b3\n' > "$INSTALLED_B3/Contents/MacOS/GoblinPortal"
+chmod +x "$INSTALLED_B3/Contents/MacOS/GoblinPortal"
+printf '#!/bin/sh\necho new-bad-b3\n' > "$NEWAPP_B3/Contents/MacOS/GoblinPortal"
+chmod +x "$NEWAPP_B3/Contents/MacOS/GoblinPortal"
+printf '<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.test.goblinportal-update-gate</string>
+</dict></plist>
+' > "$NEWAPP_B3/Contents/Info.plist"
+# Do NOT sign the new bundle -- codesign --verify will fail on it.
+
+# Shadow codesign with a stub that always fails. The trampoline runs codesign
+# after the mv, so this makes the codesign-failure restore branch fire.
+printf '#!/bin/sh\nexit 1\n' > "$FAKE_BIN/codesign"
+chmod +x "$FAKE_BIN/codesign"
+# Also stub osascript (display alert blocks without a window server -- hangs in CI)
+# and open (no-op -- do not actually launch an app from the test harness).
+printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/osascript"
+chmod +x "$FAKE_BIN/osascript"
+printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/open"
+chmod +x "$FAKE_BIN/open"
+
+set +e
+(exit 0) &
+DEAD_PID3=$!
+wait "$DEAD_PID3" 2>/dev/null || true
+PATH="$FAKE_BIN:$PATH" /bin/sh "$TRAMPOLINE" "$DEAD_PID3" "$NEWAPP_B3" "$INSTALLED_B3" "$TMPDIR_B3" 2>/dev/null
+TRAMPOLINE_EXIT_B3=$?
+set -e
+
+check_b "trampoline exits non-zero on codesign failure" \
+    "$([ "$TRAMPOLINE_EXIT_B3" -ne 0 ] && echo 0 || echo 1)" \
+    "exit=$TRAMPOLINE_EXIT_B3"
+
+# The original content must have been restored (not nested inside the bad bundle).
+if [ -x "$INSTALLED_B3/Contents/MacOS/GoblinPortal" ]; then
+    restored_b3="$("$INSTALLED_B3/Contents/MacOS/GoblinPortal" 2>/dev/null)"
+    check_b "original version restored after codesign failure" \
+        "$([ "$restored_b3" = 'original-b3' ] && echo 0 || echo 1)" \
+        "got: $restored_b3"
+else
+    check_b "original version restored after codesign failure" 1 \
+        "GoblinPortal executable missing after codesign-failure restore"
+fi
+
+check_b "temp dir cleaned up after codesign failure" \
+    "$([ -d "$TMPDIR_B3" ] && echo 1 || echo 0)"
+
 # ── Part B summary ────────────────────────────────────────────────────────────
 printf '\n'
 if [ "$part_b_failures" -eq 0 ]; then

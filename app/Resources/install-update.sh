@@ -20,6 +20,13 @@ NEW_APP="$2"
 INSTALLED_APP="$3"
 TEMP_DIR="$4"
 
+# Item 6 -- reject missing or empty arguments. Without this, an empty
+# $INSTALLED_APP yields a relative .bak path that mv applies in cwd.
+[ $# -eq 4 ] || { printf 'install-update.sh: expected 4 arguments, got %d\n' "$#" >&2; exit 2; }
+for _arg in "$PID" "$NEW_APP" "$INSTALLED_APP" "$TEMP_DIR"; do
+    [ -n "$_arg" ] || { printf 'install-update.sh: empty argument\n' >&2; exit 2; }
+done
+
 # Item 3 -- guarantee cleanup of TEMP_DIR on any exit path (normal, early-return,
 # or signal). The explicit rm -rf calls in error branches below are kept: they are
 # idempotent and make the intent clear at each failure point without adding risk.
@@ -54,7 +61,8 @@ if ! mv "$NEW_APP" "$INSTALLED_APP"; then
     if mv "$BACKUP" "$INSTALLED_APP"; then
         osascript -e 'display alert "Update failed" message "Could not install the new version. The previous version has been restored."'
     else
-        osascript -e "display alert \"Update failed\" message \"Could not install the new version and the restore also failed. Your previous version is at: $BACKUP\""
+        SAFE_BACKUP=$(printf '%s' "$BACKUP" | sed 's/"/\\"/g')
+        osascript -e "display alert \"Update failed\" message \"Could not install the new version and the restore also failed. Your previous version is at: $SAFE_BACKUP\""
     fi
     rm -rf "$TEMP_DIR"
     exit 1
@@ -69,11 +77,17 @@ fi
 # would make Gatekeeper trust it. See: codesign(1) --verify semantics.
 set +e
 if ! codesign --verify --deep --strict "$INSTALLED_APP" 2>/dev/null; then
-    # Bundle is structurally invalid. Restore the backup.
+    # Bundle is structurally invalid. Remove the bad bundle BEFORE restoring
+    # the backup. Without this rm, POSIX mv moves the backup INSIDE the
+    # existing $INSTALLED_APP directory (because the target is a directory)
+    # instead of replacing it -- the backup nests at
+    # $INSTALLED_APP/GoblinPortal.app.bak-XXXX/ while the bad bundle stays.
+    rm -rf "$INSTALLED_APP"
     if mv "$BACKUP" "$INSTALLED_APP"; then
         osascript -e 'display alert "Update failed" message "The downloaded update failed code-signature verification. The previous version has been restored."'
     else
-        osascript -e "display alert \"Update failed\" message \"Code-signature verification failed and the restore also failed. Your previous version is at: $BACKUP\""
+        SAFE_BACKUP=$(printf '%s' "$BACKUP" | sed 's/"/\\"/g')
+        osascript -e "display alert \"Update failed\" message \"Code-signature verification failed and the restore also failed. Your previous version is at: $SAFE_BACKUP\""
     fi
     rm -rf "$TEMP_DIR"
     exit 1
@@ -95,5 +109,9 @@ rm -rf "$TEMP_DIR"
 # strip only happens on a bundle we have positively verified (Item 2).
 xattr -dr com.apple.quarantine "$INSTALLED_APP" 2>/dev/null || true
 
-# Relaunch.
-open "$INSTALLED_APP"
+# Relaunch. Wrap in an error handler -- NSApp.terminate already ran, so a
+# failed open leaves the user with no running app and no error message.
+if ! open "$INSTALLED_APP"; then
+    osascript -e 'display alert "Relaunch failed" message "The update was installed but Goblin Portal could not be relaunched. Open it from /Applications."'
+    exit 1
+fi
