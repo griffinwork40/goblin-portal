@@ -29,6 +29,7 @@
 //
 
 import AppKit
+import CryptoKit
 import Foundation
 
 // MARK: - Redirect-refusing URLSession delegate
@@ -37,7 +38,12 @@ import Foundation
 /// URLSession follows redirects by default with no callback; without this
 /// delegate a compromised CDN redirect could deliver arbitrary content from
 /// a non-allowlisted host. The allowlist matches UpdateChecker.findZipAsset.
-private final class DownloadRedirectDelegate: NSObject, URLSessionTaskDelegate {
+///
+/// `internal` (not `private`) so UpdateInstaller+Install.swift can create a
+/// second instance for the SHA-256 sidecar fetch (S2). Private is file-scoped
+/// in Swift and invisible to the extension file. Same access pattern as
+/// fail() and cleanup() in UpdateInstaller.swift.
+final class DownloadRedirectDelegate: NSObject, URLSessionTaskDelegate {
     static let allowedHosts: Set<String> = [
         "objects.githubusercontent.com",
         "github.com",
@@ -81,10 +87,16 @@ final class UpdateInstaller {
 
     // MARK: - Public API
 
-    /// Download the zip at `zipURL`, extract it, and replace the running app.
-    /// Shows a progress window during download. On any failure, shows an alert
-    /// and returns to the idle state -- never leaves the app in a broken state.
-    func install(zipURL: URL, releaseName: String) {
+    /// Download the zip at `zipURL`, verify its SHA-256 (if `zipHashURL` is
+    /// non-nil), extract it, and replace the running app. Shows a progress
+    /// window during download. On any failure, shows an alert and returns to
+    /// the idle state -- never leaves the app in a broken state.
+    ///
+    /// S2 -- `zipHashURL` is the URL of the companion `.sha256` sidecar asset
+    /// uploaded alongside the zip by the release workflow. When nil (old
+    /// releases, private repos), verification is skipped and the update
+    /// proceeds using the existing HTTPS + codesign trust chain.
+    func install(zipURL: URL, zipHashURL: URL?, releaseName: String) {
         guard !isInstalling else { return }
         isInstalling = true
         showProgressWindow(releaseName: releaseName)
@@ -104,7 +116,7 @@ final class UpdateInstaller {
                 self?.cleanup(tempDir)
                 return
             }
-            self.extractAndInstall(zipPath: zipPath, tempDir: tempDir)
+            self.extractAndInstall(zipPath: zipPath, zipHashURL: zipHashURL, tempDir: tempDir)
         }
     }
 

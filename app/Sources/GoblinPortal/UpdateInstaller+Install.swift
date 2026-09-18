@@ -21,6 +21,7 @@
 //
 
 import AppKit
+import CryptoKit
 import Foundation
 
 @MainActor
@@ -30,7 +31,13 @@ extension UpdateInstaller {
 
     /// Entry point called by the download completion handler (on @MainActor).
     /// Immediately moves blocking work off the main thread via Task.detached.
-    func extractAndInstall(zipPath: URL, tempDir: URL) {
+    ///
+    /// S2 -- `zipHashURL` is the companion `.sha256` sidecar URL. When non-nil,
+    /// the hash is fetched over the same redirect-refusing session as the zip,
+    /// compared against CryptoKit.SHA256 of the zip bytes, and the update is
+    /// aborted on mismatch. When nil, verification is skipped (graceful
+    /// degradation for old releases and private repos without sidecar assets).
+    func extractAndInstall(zipPath: URL, zipHashURL: URL?, tempDir: URL) {
         // Item 5 -- ditto and FileManager calls in this function are blocking.
         // Wrapping in Task.detached(priority: .userInitiated) moves them to a
         // cooperative thread pool thread so the main run loop stays responsive
@@ -42,6 +49,73 @@ extension UpdateInstaller {
                 try? FileManager.default.removeItem(at: tempDir)
                 return
             }
+
+            // S2 -- Verify the zip against the SHA-256 sidecar before extraction.
+            // Reading the zip fully into memory is acceptable: the release bundle
+            // is ~50 MB, well within macOS virtual memory limits. We hash the
+            // bytes rather than the file path so the check is on the actual
+            // content that ditto will see, not a filename that could be swapped.
+            if let hashURL = zipHashURL {
+                // Reuse the redirect-refusing delegate from the zip download so
+                // a tampered CDN redirect cannot serve a forged matching hash.
+                let delegate = DownloadRedirectDelegate()
+                let hashSession = URLSession(
+                    configuration: .default, delegate: delegate, delegateQueue: nil
+                )
+                var hashReq = URLRequest(url: hashURL)
+                hashReq.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+                let (hashData, hashResp, hashErr) = await withCheckedContinuation {
+                    (cont: CheckedContinuation<(Data?, URLResponse?, Error?), Never>) in
+                    hashSession.dataTask(with: hashReq) { d, r, e in cont.resume(returning: (d, r, e)) }
+                        .resume()
+                }
+                guard hashErr == nil,
+                      let hashData,
+                      (hashResp as? HTTPURLResponse)?.statusCode == 200,
+                      let hashText = String(data: hashData, encoding: .utf8) else {
+                    await MainActor.run {
+                        self.fail("Could not fetch the SHA-256 checksum for this release. "
+                                  + "Try again or download manually from GitHub.")
+                        self.cleanup(tempDir)
+                    }
+                    return
+                }
+                // The sidecar format is either "<hex>  <filename>\n" (shasum -a 256)
+                // or just "<hex>\n". Take the first whitespace-delimited token.
+                let expectedHex = hashText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .split(separator: " ", omittingEmptySubsequences: true)
+                    .first
+                    .map(String.init) ?? ""
+                guard !expectedHex.isEmpty else {
+                    await MainActor.run {
+                        self.fail("The SHA-256 checksum file for this release is malformed.")
+                        self.cleanup(tempDir)
+                    }
+                    return
+                }
+                guard let zipData = try? Data(contentsOf: zipPath) else {
+                    await MainActor.run {
+                        self.fail("Could not read the downloaded zip for integrity verification.")
+                        self.cleanup(tempDir)
+                    }
+                    return
+                }
+                let digest = SHA256.hash(data: zipData)
+                let actualHex = digest.map { String(format: "%02x", $0) }.joined()
+                guard actualHex == expectedHex else {
+                    await MainActor.run {
+                        self.fail("SHA-256 mismatch — the downloaded update does not match "
+                                  + "the checksum published in the release. "
+                                  + "The file may have been corrupted in transit. "
+                                  + "Please try again.")
+                        self.cleanup(tempDir)
+                    }
+                    return
+                }
+                // Hash verified -- extraction proceeds.
+            }
+
             let extractDir = tempDir.appendingPathComponent("extracted")
 
             // ditto preserves extended attributes and code signatures. Plain

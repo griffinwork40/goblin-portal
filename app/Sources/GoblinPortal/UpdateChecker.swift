@@ -92,6 +92,11 @@ final class UpdateChecker {
         let url: URL          // release page on GitHub
         let name: String      // release title
         let zipURL: URL?      // direct download URL for the .zip asset, if any
+        // S2 -- SHA-256 sidecar asset URL, e.g. "GoblinPortal-v0.3.0.zip.sha256".
+        // nil when the release predates hash publishing or is from a private repo
+        // where assets are not visible. UpdateInstaller skips verification gracefully
+        // when this is nil -- it only blocks on a mismatch, never on absence.
+        let zipHashURL: URL?
     }
 
     /// Fetches the latest release from GitHub. The completion is always called on
@@ -124,11 +129,15 @@ final class UpdateChecker {
             // Find the .zip asset in the release's assets array. The release
             // workflow uploads GoblinPortal-vX.Y.Z.zip as the installable
             // artifact (ditto-compressed, code-signed, notarised).
+            // S2 -- Also extract the companion .sha256 sidecar when present.
+            // findHashAsset is kept separate from findZipAsset so the existing
+            // belt-and-suspenders .sha256 exclusion in findZipAsset is unchanged.
             let zipURL = Self.findZipAsset(in: json)
+            let zipHashURL = Self.findHashAsset(in: json)
 
             let release = Release(
                 version: version, tag: tag, url: pageURL,
-                name: name, zipURL: zipURL
+                name: name, zipURL: zipURL, zipHashURL: zipHashURL
             )
             DispatchQueue.main.async { completion(release) }
         }.resume()
@@ -165,6 +174,37 @@ final class UpdateChecker {
                   let url = URL(string: downloadURL),
                   url.scheme == "https",                  // Item 4: reject non-HTTPS
                   let host = url.host,                   // Item 4: host allowlist
+                  allowedHosts.contains(host)
+            else { continue }
+            return url
+        }
+        return nil
+    }
+
+    /// S2 -- Extracts the `.sha256` sidecar asset URL that matches the zip asset
+    /// (e.g. "GoblinPortal-v0.3.0.zip.sha256"). Returns `nil` when no sidecar
+    /// is present (old releases, private repos) -- UpdateInstaller proceeds
+    /// without verification in that case (graceful degradation).
+    ///
+    /// Applies the same host allowlist and HTTPS requirement as findZipAsset
+    /// so a tampered release JSON cannot redirect the hash fetch to an
+    /// attacker-controlled host and serve a matching forged hash.
+    nonisolated private static func findHashAsset(
+        in json: [String: Any]
+    ) -> URL? {
+        let allowedHosts: Set<String> = [
+            "objects.githubusercontent.com",
+            "github.com",
+        ]
+        guard let assets = json["assets"] as? [[String: Any]] else { return nil }
+        for asset in assets {
+            guard let assetName = asset["name"] as? String,
+                  assetName.hasSuffix(".zip.sha256"),
+                  assetName.hasPrefix("GoblinPortal-"),
+                  let downloadURL = asset["browser_download_url"] as? String,
+                  let url = URL(string: downloadURL),
+                  url.scheme == "https",
+                  let host = url.host,
                   allowedHosts.contains(host)
             else { continue }
             return url
@@ -215,9 +255,12 @@ final class UpdateChecker {
         if canInstallInPlace {
             switch response {
             case .alertFirstButtonReturn:
-                // Install Update
+                // Install Update -- S2: pass zipHashURL so the installer can
+                // verify the download before extraction. nil = skip gracefully.
                 UpdateInstaller.shared.install(
-                    zipURL: release.zipURL!, releaseName: release.name
+                    zipURL: release.zipURL!,
+                    zipHashURL: release.zipHashURL,
+                    releaseName: release.name
                 )
             case .alertSecondButtonReturn:
                 // View on GitHub

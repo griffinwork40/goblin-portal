@@ -68,6 +68,32 @@ func findZipAsset(in json: [String: Any]) -> URL? {
     return nil
 }
 
+// ── findHashAsset -- extracted verbatim from UpdateChecker.swift ──────────────
+// nonisolated private static func findHashAsset(in json: [String: Any]) -> URL?
+// Promoted to top-level. Tests verify: correct .zip.sha256 suffix match,
+// prefix guard, host allowlist, and that the .zip itself is NOT returned.
+
+func findHashAsset(in json: [String: Any]) -> URL? {
+    let allowedHosts: Set<String> = [
+        "objects.githubusercontent.com",
+        "github.com",
+    ]
+    guard let assets = json["assets"] as? [[String: Any]] else { return nil }
+    for asset in assets {
+        guard let assetName = asset["name"] as? String,
+              assetName.hasSuffix(".zip.sha256"),
+              assetName.hasPrefix("GoblinPortal-"),
+              let downloadURL = asset["browser_download_url"] as? String,
+              let url = URL(string: downloadURL),
+              url.scheme == "https",
+              let host = url.host,
+              allowedHosts.contains(host)
+        else { continue }
+        return url
+    }
+    return nil
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // isNewer cases
 // ────────────────────────────────────────────────────────────────────────────
@@ -206,6 +232,66 @@ let sha256GoodPrefix: [String: Any] = [
 ]
 check("GoblinPortal- prefix + .sha256 suffix is still excluded",
       findZipAsset(in: sha256GoodPrefix) == nil)
+
+// ────────────────────────────────────────────────────────────────────────────
+// findHashAsset cases (S2)
+// ────────────────────────────────────────────────────────────────────────────
+print("findHashAsset — .sha256 sidecar selection (S2)")
+
+let goodHashURL = "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1234/GoblinPortal-v0.3.0.zip.sha256"
+
+// No assets key → nil.
+check("no assets key returns nil (hash)",
+      findHashAsset(in: [:]) == nil)
+
+// Valid .zip.sha256 sidecar on CDN.
+let hashAssetValid: [String: Any] = [
+    "assets": [
+        ["name": "GoblinPortal-v0.3.0.zip.sha256", "browser_download_url": goodHashURL]
+    ]
+]
+let foundHashURL = findHashAsset(in: hashAssetValid)
+check("valid .zip.sha256 sidecar returns non-nil",
+      foundHashURL != nil, foundHashURL?.absoluteString ?? "nil")
+
+// Plain .zip is NOT returned by findHashAsset (different concern from findZipAsset).
+let zipOnlyForHash: [String: Any] = [
+    "assets": [
+        ["name": "GoblinPortal-v0.3.0.zip", "browser_download_url": goodCDN]
+    ]
+]
+check(".zip asset is NOT returned by findHashAsset",
+      findHashAsset(in: zipOnlyForHash) == nil)
+
+// Both zip and sidecar present: findHashAsset returns the sidecar URL.
+let bothAssets: [String: Any] = [
+    "assets": [
+        ["name": "GoblinPortal-v0.3.0.zip",        "browser_download_url": goodCDN],
+        ["name": "GoblinPortal-v0.3.0.zip.sha256",  "browser_download_url": goodHashURL],
+    ]
+]
+let hashFromBoth = findHashAsset(in: bothAssets)
+check("sidecar returned when both zip and sha256 present",
+      hashFromBoth?.absoluteString == goodHashURL, hashFromBoth?.absoluteString ?? "nil")
+
+// Host allowlist: foreign host rejected for hash sidecar too.
+let foreignHash: [String: Any] = [
+    "assets": [
+        ["name": "GoblinPortal-v0.3.0.zip.sha256",
+         "browser_download_url": "https://evil.example.com/GoblinPortal-v0.3.0.zip.sha256"]
+    ]
+]
+check("foreign host rejected for hash sidecar",
+      findHashAsset(in: foreignHash) == nil)
+
+// Name prefix guard: sidecar without GoblinPortal- prefix rejected.
+let badPrefixHash: [String: Any] = [
+    "assets": [
+        ["name": "Other-v1.0.zip.sha256", "browser_download_url": goodHashURL]
+    ]
+]
+check("sidecar without GoblinPortal- prefix rejected",
+      findHashAsset(in: badPrefixHash) == nil)
 
 // ────────────────────────────────────────────────────────────────────────────
 // Summary
