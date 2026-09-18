@@ -35,7 +35,10 @@ let package = Package(
             // never sourced. The path is relative to the target's `path`
             // ("Sources/GoblinPortal"), so two levels up to the package root, then into
             // Resources/.
-            resources: [.copy("../../Resources/shell-integration.zsh")]
+            resources: [
+                .copy("../../Resources/shell-integration.zsh"),
+                .copy("../../Resources/install-update.sh"),
+            ]
         ),
         // Standalone CLI binary that enables `EDITOR='goblin-portal --wait'` workflows.
         // No dependency on the GoblinPortal target or SwiftTerm — it communicates with
