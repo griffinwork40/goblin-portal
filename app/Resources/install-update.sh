@@ -61,8 +61,9 @@ if ! mv "$NEW_APP" "$INSTALLED_APP"; then
     if mv "$BACKUP" "$INSTALLED_APP"; then
         osascript -e 'display alert "Update failed" message "Could not install the new version. The previous version has been restored."'
     else
-        SAFE_BACKUP=$(printf '%s' "$BACKUP" | sed 's/"/\\"/g')
-        osascript -e "display alert \"Update failed\" message \"Could not install the new version and the restore also failed. Your previous version is at: $SAFE_BACKUP\""
+        osascript -e 'on run argv' \
+            -e 'display alert "Update failed" message ("Could not install the new version and the restore also failed. Your previous version is at: " & item 1 of argv)' \
+            -e 'end run' -- "$BACKUP"
     fi
     rm -rf "$TEMP_DIR"
     exit 1
@@ -73,8 +74,10 @@ fi
 # --strict checks structural integrity (all nested bundles signed, no resource
 # file tampering). It does NOT require a Developer ID certificate -- ad-hoc
 # signed local builds pass here because what it verifies is internal consistency,
-# not identity. A corrupted or tampered download fails before the quarantine strip
-# would make Gatekeeper trust it. See: codesign(1) --verify semantics.
+# not identity. It catches structurally malformed or post-signing-tampered
+# archives; it does NOT authenticate the signer against a trusted anchor (an
+# ad-hoc signed malicious payload passes). The security guarantee is delegated
+# to HTTPS transport (GitHub CDN + ATS) and GitHub account integrity.
 set +e
 if ! codesign --verify --deep --strict "$INSTALLED_APP" 2>/dev/null; then
     # Bundle is structurally invalid. Remove the bad bundle BEFORE restoring
@@ -86,8 +89,9 @@ if ! codesign --verify --deep --strict "$INSTALLED_APP" 2>/dev/null; then
     if mv "$BACKUP" "$INSTALLED_APP"; then
         osascript -e 'display alert "Update failed" message "The downloaded update failed code-signature verification. The previous version has been restored."'
     else
-        SAFE_BACKUP=$(printf '%s' "$BACKUP" | sed 's/"/\\"/g')
-        osascript -e "display alert \"Update failed\" message \"Code-signature verification failed and the restore also failed. Your previous version is at: $SAFE_BACKUP\""
+        osascript -e 'on run argv' \
+            -e 'display alert "Update failed" message ("Code-signature verification failed and the restore also failed. Your previous version is at: " & item 1 of argv)' \
+            -e 'end run' -- "$BACKUP"
     fi
     rm -rf "$TEMP_DIR"
     exit 1

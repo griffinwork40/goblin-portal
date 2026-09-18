@@ -34,7 +34,7 @@ import Foundation
 /// Downloads a release zip and installs it over the running app bundle.
 ///
 /// Usage from `UpdateChecker`:
-///   `UpdateInstaller.shared.install(zipURL:appName:)`
+///   `UpdateInstaller.shared.install(zipURL:releaseName:)`
 @MainActor
 final class UpdateInstaller {
     static let shared = UpdateInstaller()
@@ -68,7 +68,10 @@ final class UpdateInstaller {
         }
 
         download(zipURL, to: tempDir) { [weak self] zipPath in
-            guard let self, let zipPath else { return }
+            guard let self, let zipPath else {
+                self?.cleanup(tempDir)
+                return
+            }
             self.extractAndInstall(zipPath: zipPath, tempDir: tempDir)
         }
     }

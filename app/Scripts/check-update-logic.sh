@@ -191,12 +191,20 @@ mkdir -p "$INSTALLED_B2/Contents/MacOS" "$TMPDIR_B2"
 printf '#!/bin/sh\necho original\n' > "$INSTALLED_B2/Contents/MacOS/GoblinPortal"
 chmod +x "$INSTALLED_B2/Contents/MacOS/GoblinPortal"
 
+# Stub osascript so the trampoline's error alert does not block on a headless
+# CI runner without a window server. B.3 uses the same FAKE_BIN pattern;
+# define it here so B.2 benefits too.
+FAKE_BIN="$WORK/fakebin"
+mkdir -p "$FAKE_BIN"
+printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/osascript"
+chmod +x "$FAKE_BIN/osascript"
+
 # Disable set -e so a failed trampoline does not abort the test script.
 set +e
 (exit 0) &
 DEAD_PID2=$!
 wait "$DEAD_PID2" 2>/dev/null || true
-/bin/sh "$TRAMPOLINE" "$DEAD_PID2" "$NONEXISTENT_APP" "$INSTALLED_B2" "$TMPDIR_B2" 2>/dev/null
+PATH="$FAKE_BIN:$PATH" /bin/sh "$TRAMPOLINE" "$DEAD_PID2" "$NONEXISTENT_APP" "$INSTALLED_B2" "$TMPDIR_B2" 2>/dev/null
 TRAMPOLINE_EXIT=$?
 set -e
 
