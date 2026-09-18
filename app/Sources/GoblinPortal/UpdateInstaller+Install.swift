@@ -152,19 +152,30 @@ extension UpdateInstaller {
     nonisolated private static func findAppBundle(in dir: URL) -> URL? {
         guard let enumerator = FileManager.default.enumerator(
             at: dir,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
             options: [.skipsHiddenFiles]
         ) else { return nil }
 
-        let dirPrefix = dir.standardizedFileURL.path + "/"
+        // resolvingSymlinksInPath (realpath(3)) resolves symlinks, unlike
+        // standardizedFileURL which only removes . and .. components. Without
+        // this, a crafted zip containing a directory symlink
+        // (e.g. Evil.app -> /Applications/X.app) passes the prefix check
+        // because the symlink's own path is inside extractDir while the
+        // resolved target is not.
+        let dirPrefix = dir.resolvingSymlinksInPath().path + "/"
         for case let fileURL as URL in enumerator {
             if fileURL.pathExtension == "app" {
-                let isDir = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-                // Containment guard: reject symlinks or paths that resolve
-                // outside the extraction directory. A crafted zip could plant
-                // a symlink (e.g. SomeDir.app -> /Applications) that escapes.
-                guard isDir,
-                      fileURL.standardizedFileURL.path.hasPrefix(dirPrefix)
+                let vals = try? fileURL.resourceValues(
+                    forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+                )
+                let isDir = vals?.isDirectory ?? false
+                let isSymlink = vals?.isSymbolicLink ?? false
+                // Containment guard: reject symlinks unconditionally (a
+                // symlink to a directory inside the tree is not a bundle) and
+                // reject paths whose resolved location escapes the extraction
+                // directory.
+                guard isDir, !isSymlink,
+                      fileURL.resolvingSymlinksInPath().path.hasPrefix(dirPrefix)
                 else { continue }
                 return fileURL
             }

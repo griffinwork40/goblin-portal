@@ -56,7 +56,9 @@ done
 
 # Always move the old bundle aside first so we have a guaranteed rollback path.
 # If this mv fails (e.g. permission error) set -e aborts before we touch anything.
-BACKUP="${INSTALLED_APP}.bak-$(date +%s)"
+# Append the trampoline's own PID ($$) to the epoch timestamp so two
+# concurrent invocations within the same second produce distinct paths.
+BACKUP="${INSTALLED_APP}.bak-$(date +%s)-$$"
 mv "$INSTALLED_APP" "$BACKUP"
 
 # Move the new bundle into place.
