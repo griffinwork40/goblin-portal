@@ -38,7 +38,10 @@ extension UpdateInstaller {
         // NSApp.terminate, fail(), and cleanup() hop back to MainActor via
         // await MainActor.run { } before touching any AppKit state.
         Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                try? FileManager.default.removeItem(at: tempDir)
+                return
+            }
             let extractDir = tempDir.appendingPathComponent("extracted")
 
             // ditto preserves extended attributes and code signatures. Plain

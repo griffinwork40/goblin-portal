@@ -31,6 +31,38 @@
 import AppKit
 import Foundation
 
+// MARK: - Redirect-refusing URLSession delegate
+
+/// Refuses HTTP redirects to hosts outside the GitHub download allowlist.
+/// URLSession follows redirects by default with no callback; without this
+/// delegate a compromised CDN redirect could deliver arbitrary content from
+/// a non-allowlisted host. The allowlist matches UpdateChecker.findZipAsset.
+private final class DownloadRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    static let allowedHosts: Set<String> = [
+        "objects.githubusercontent.com",
+        "github.com",
+    ]
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        if let host = request.url?.host,
+           Self.allowedHosts.contains(host),
+           request.url?.scheme == "https" {
+            completionHandler(request)
+        } else {
+            // Refuse the redirect -- the download task receives the redirect
+            // response as its final response and the completion handler sees
+            // a non-200 status, which download() handles as a failure.
+            completionHandler(nil)
+        }
+    }
+}
+
 /// Downloads a release zip and installs it over the running app bundle.
 ///
 /// Usage from `UpdateChecker`:
@@ -81,7 +113,12 @@ final class UpdateInstaller {
     private func download(_ url: URL, to dir: URL,
                           completion: @escaping @MainActor (URL?) -> Void) {
         let destination = dir.appendingPathComponent("update.zip")
-        let task = URLSession.shared.downloadTask(with: url) {
+        // Use a dedicated session with a redirect-refusing delegate so the
+        // download never silently follows a redirect to a non-allowlisted host.
+        // URLSession.shared follows all redirects by default.
+        let delegate = DownloadRedirectDelegate()
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        let task = session.downloadTask(with: url) {
             [weak self] tempURL, response, error in
             DispatchQueue.main.async {
                 guard let self else { return }

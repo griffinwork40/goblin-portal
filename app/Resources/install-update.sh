@@ -55,11 +55,13 @@ while kill -0 "$PID" 2>/dev/null; do
 done
 
 # Always move the old bundle aside first so we have a guaranteed rollback path.
-# If this mv fails (e.g. permission error) set -e aborts before we touch anything.
 # Append the trampoline's own PID ($$) to the epoch timestamp so two
 # concurrent invocations within the same second produce distinct paths.
 BACKUP="${INSTALLED_APP}.bak-$(date +%s)-$$"
-mv "$INSTALLED_APP" "$BACKUP"
+if ! mv "$INSTALLED_APP" "$BACKUP"; then
+    osascript -e 'display alert "Update failed" message "Could not prepare the update -- no changes were made. Check disk permissions and try again."' || true
+    exit 1
+fi
 
 # Move the new bundle into place.
 if ! mv "$NEW_APP" "$INSTALLED_APP"; then
@@ -127,6 +129,6 @@ xattr -dr com.apple.quarantine "$INSTALLED_APP" 2>/dev/null || true
 # Relaunch. Wrap in an error handler -- NSApp.terminate already ran, so a
 # failed open leaves the user with no running app and no error message.
 if ! open "$INSTALLED_APP"; then
-    osascript -e 'display alert "Relaunch failed" message "The update was installed but Goblin Portal could not be relaunched. Open it from /Applications."'
+    osascript -e 'display alert "Relaunch failed" message "The update was installed but Goblin Portal could not be relaunched. Open it from /Applications."' || true
     exit 1
 fi
