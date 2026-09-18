@@ -22,6 +22,11 @@
 //  path to the installed .app, and the temp directory to clean up after. It is
 //  the only file that touches /Applications.
 //
+//  Item 5 -- the extraction and install concern (ditto, bundle verification,
+//  trampoline launch) lives in UpdateInstaller+Install.swift. This file owns
+//  the public API, the download path, the progress UI, and the error helpers
+//  that the install extension calls back into via MainActor.run.
+//
 
 import AppKit
 import Foundation
@@ -124,159 +129,6 @@ final class UpdateInstaller {
         }
     }
 
-    // MARK: - Extract & Install
-
-    private func extractAndInstall(zipPath: URL, tempDir: URL) {
-        let extractDir = tempDir.appendingPathComponent("extracted")
-
-        // ditto preserves extended attributes and code signatures. Plain
-        // unzip strips them, which breaks Gatekeeper on notarised bundles.
-        let ditto = Process()
-        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        ditto.arguments = ["-x", "-k", zipPath.path, extractDir.path]
-
-        do {
-            try ditto.run()
-            ditto.waitUntilExit()
-            guard ditto.terminationStatus == 0 else {
-                fail("Failed to extract the update (ditto exit \(ditto.terminationStatus)).")
-                cleanup(tempDir)
-                return
-            }
-        } catch {
-            fail("Failed to extract the update: \(error.localizedDescription)")
-            cleanup(tempDir)
-            return
-        }
-
-        // The zip from release.yml wraps GoblinPortal.app at the top level
-        // (ditto --keepParent). Find the .app inside the extraction.
-        guard let appBundle = findAppBundle(in: extractDir) else {
-            fail("The downloaded archive did not contain a valid app bundle.")
-            cleanup(tempDir)
-            return
-        }
-
-        // Verify that the extracted bundle has the expected bundle identifier
-        // before touching the installed copy. findAppBundle matches by extension
-        // alone, so a malformed archive could slip through without this check.
-        let infoPlistURL = appBundle.appendingPathComponent("Contents/Info.plist")
-        if let plist = NSDictionary(contentsOf: infoPlistURL),
-           let bundleID = plist["CFBundleIdentifier"] as? String {
-            guard bundleID == "com.griffinlong.goblin-portal" else {
-                fail("The downloaded archive contains an unexpected app (\(bundleID)).")
-                cleanup(tempDir)
-                return
-            }
-        } else {
-            fail("The downloaded archive is missing a valid Info.plist.")
-            cleanup(tempDir)
-            return
-        }
-
-        // Verify the extracted app has an executable.
-        let executable = appBundle.appendingPathComponent("Contents/MacOS/GoblinPortal")
-        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-            fail("The extracted app bundle is incomplete -- no executable found.")
-            cleanup(tempDir)
-            return
-        }
-
-        // Where is the running app installed?
-        guard let installedURL = runningAppURL() else {
-            fail("Could not determine the installed app location. "
-                 + "Update manually by dragging GoblinPortal.app to /Applications.")
-            cleanup(tempDir)
-            return
-        }
-
-        // Verify the installed location is writable. If the user launched from
-        // a read-only DMG mount this would fail silently without this check.
-        guard FileManager.default.isWritableFile(atPath: installedURL.deletingLastPathComponent().path) else {
-            fail("Goblin Portal does not have permission to write to "
-                 + "\(installedURL.deletingLastPathComponent().path). "
-                 + "Move the app to /Applications and try again.")
-            cleanup(tempDir)
-            return
-        }
-
-        launchTrampoline(
-            newApp: appBundle,
-            installedApp: installedURL,
-            tempDir: tempDir
-        )
-    }
-
-    /// Walk the extraction directory for a `.app` bundle.
-    private func findAppBundle(in dir: URL) -> URL? {
-        guard let enumerator = FileManager.default.enumerator(
-            at: dir,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-
-        for case let fileURL as URL in enumerator {
-            if fileURL.pathExtension == "app" {
-                let isDir = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-                if isDir { return fileURL }
-            }
-        }
-        return nil
-    }
-
-    /// The URL of the running app bundle, or nil when running via `swift run`.
-    private func runningAppURL() -> URL? {
-        let bundle = Bundle.main
-        // Bundle.main.bundleURL for a .app is e.g.
-        //   /Applications/GoblinPortal.app
-        // Under `swift run` it points into .build/ and has no Info.plist.
-        guard bundle.infoDictionary?["CFBundleIdentifier"] != nil else { return nil }
-        return bundle.bundleURL
-    }
-
-    // MARK: - Trampoline
-
-    /// Launch the shell trampoline to swap bundles after this process exits.
-    private func launchTrampoline(newApp: URL, installedApp: URL, tempDir: URL) {
-        guard let scriptPath = Bundle.main.path(
-            forResource: "install-update", ofType: "sh"
-        ) else {
-            fail("Update script missing from the app bundle. Reinstall Goblin Portal.")
-            cleanup(tempDir)
-            return
-        }
-
-        let pid = ProcessInfo.processInfo.processIdentifier
-
-        let trampoline = Process()
-        trampoline.executableURL = URL(fileURLWithPath: "/bin/sh")
-        trampoline.arguments = [
-            scriptPath,
-            "\(pid)",
-            newApp.path,
-            installedApp.path,
-            tempDir.path
-        ]
-
-        // NSApp.terminate calls exit() on the parent process. POSIX does not
-        // deliver a signal to child processes on parent exit -- they are
-        // re-parented to launchd and keep running. The trampoline's open file
-        // descriptors also keep it alive until it finishes the swap.
-        trampoline.qualityOfService = .userInitiated
-
-        do {
-            try trampoline.run()
-        } catch {
-            fail("Could not launch the update installer: \(error.localizedDescription)")
-            cleanup(tempDir)
-            return
-        }
-
-        // Hand off to the trampoline. The next thing the user sees is the
-        // relaunched app at the new version.
-        NSApp.terminate(nil)
-    }
-
     // MARK: - UI
 
     private func showProgressWindow(releaseName: String) {
@@ -316,7 +168,7 @@ final class UpdateInstaller {
         self.statusLabel = label
     }
 
-    private func dismissProgress() {
+    func dismissProgress() {
         progressWindow?.close()
         progressWindow = nil
         progressIndicator = nil
@@ -324,8 +176,11 @@ final class UpdateInstaller {
     }
 
     // MARK: - Error handling
+    // `internal` so UpdateInstaller+Install.swift can call back into these from
+    // MainActor.run blocks inside the detached Task (Item 5). `private` would be
+    // file-scoped in Swift and invisible to the extension file.
 
-    private func fail(_ message: String) {
+    func fail(_ message: String) {
         dismissProgress()
         isInstalling = false
 
@@ -337,7 +192,7 @@ final class UpdateInstaller {
         alert.runModal()
     }
 
-    private func cleanup(_ dir: URL) {
+    func cleanup(_ dir: URL) {
         try? FileManager.default.removeItem(at: dir)
     }
 }

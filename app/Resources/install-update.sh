@@ -20,6 +20,11 @@ NEW_APP="$2"
 INSTALLED_APP="$3"
 TEMP_DIR="$4"
 
+# Item 3 -- guarantee cleanup of TEMP_DIR on any exit path (normal, early-return,
+# or signal). The explicit rm -rf calls in error branches below are kept: they are
+# idempotent and make the intent clear at each failure point without adding risk.
+trap 'rm -rf "$TEMP_DIR"' EXIT
+
 # Wait for the running app to exit. Poll every 200ms for up to 30 seconds.
 # If it does not exit in time, abort -- never swap under a running process.
 waited=0
@@ -43,11 +48,37 @@ if ! mv "$NEW_APP" "$INSTALLED_APP"; then
     # Restore the backup on failure. Disable set -e so a restore failure does
     # not silently exit without showing the alert.
     set +e
-    mv "$BACKUP" "$INSTALLED_APP"
-    osascript -e 'display alert "Update failed" message "Could not install the new version. The previous version has been restored."'
+    # Item 1 -- branch on the restore result and show a distinct alert if the
+    # backup move itself failed. Without this check, a failed restore exits
+    # silently and leaves the user with neither version in place.
+    if mv "$BACKUP" "$INSTALLED_APP"; then
+        osascript -e 'display alert "Update failed" message "Could not install the new version. The previous version has been restored."'
+    else
+        osascript -e "display alert \"Update failed\" message \"Could not install the new version and the restore also failed. Your previous version is at: $BACKUP\""
+    fi
     rm -rf "$TEMP_DIR"
     exit 1
 fi
+
+# Item 2 -- verify internal code-signature consistency AFTER the bundle is in
+# its final location but BEFORE clearing quarantine. codesign --verify --deep
+# --strict checks structural integrity (all nested bundles signed, no resource
+# file tampering). It does NOT require a Developer ID certificate -- ad-hoc
+# signed local builds pass here because what it verifies is internal consistency,
+# not identity. A corrupted or tampered download fails before the quarantine strip
+# would make Gatekeeper trust it. See: codesign(1) --verify semantics.
+set +e
+if ! codesign --verify --deep --strict "$INSTALLED_APP" 2>/dev/null; then
+    # Bundle is structurally invalid. Restore the backup.
+    if mv "$BACKUP" "$INSTALLED_APP"; then
+        osascript -e 'display alert "Update failed" message "The downloaded update failed code-signature verification. The previous version has been restored."'
+    else
+        osascript -e "display alert \"Update failed\" message \"Code-signature verification failed and the restore also failed. Your previous version is at: $BACKUP\""
+    fi
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+set -e
 
 # Optionally move the backup to the Trash (recoverable). If trash is not
 # available, remove it. Either way, clean up the temp dir.
@@ -60,7 +91,8 @@ rm -rf "$TEMP_DIR"
 
 # Clear quarantine on the new bundle -- GitHub downloads are quarantined by
 # macOS, and the user should not see a Gatekeeper dialog for an app they
-# already trusted enough to auto-update.
+# already trusted enough to auto-update. Runs AFTER codesign --verify so the
+# strip only happens on a bundle we have positively verified (Item 2).
 xattr -dr com.apple.quarantine "$INSTALLED_APP" 2>/dev/null || true
 
 # Relaunch.

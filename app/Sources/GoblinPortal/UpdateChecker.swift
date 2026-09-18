@@ -137,16 +137,34 @@ final class UpdateChecker {
     /// Extracts the `.zip` asset download URL from the release JSON's `assets`
     /// array. Returns `nil` if there is no zip asset (pre-automation releases
     /// that only have a DMG, or private repos where assets are not visible).
+    ///
+    /// Item 4 -- Two additional guards beyond the original `.zip` suffix check:
+    ///   • Name prefix: only accept "GoblinPortal-*.zip". A malicious or
+    ///     mis-tagged release that happens to include a foreign zip cannot be
+    ///     installed in place of GoblinPortal.
+    ///   • Host allowlist: the download URL's host must be
+    ///     objects.githubusercontent.com (CDN) or github.com (direct). Any
+    ///     other host would mean the release JSON was tampered with or the API
+    ///     returned an unexpected redirect target.
+    ///   The existing `.sha256` exclusion is kept as belt-and-suspenders.
     nonisolated private static func findZipAsset(
         in json: [String: Any]
     ) -> URL? {
+        // Item 4: allowed CDN/release hosts for GitHub asset downloads.
+        let allowedHosts: Set<String> = [
+            "objects.githubusercontent.com",
+            "github.com",
+        ]
         guard let assets = json["assets"] as? [[String: Any]] else { return nil }
         for asset in assets {
             guard let assetName = asset["name"] as? String,
                   assetName.hasSuffix(".zip"),
-                  !assetName.hasSuffix(".sha256"),
+                  !assetName.hasSuffix(".sha256"),       // belt-and-suspenders
+                  assetName.hasPrefix("GoblinPortal-"),  // Item 4: name prefix guard
                   let downloadURL = asset["browser_download_url"] as? String,
-                  let url = URL(string: downloadURL)
+                  let url = URL(string: downloadURL),
+                  let host = url.host,                   // Item 4: host allowlist
+                  allowedHosts.contains(host)
             else { continue }
             return url
         }
