@@ -290,6 +290,43 @@ fi
 check_b "temp dir cleaned up after codesign failure" \
     "$([ -d "$TMPDIR_B3" ] && echo 1 || echo 0)"
 
+# ── B.4: PID validation -- non-numeric and negative PIDs rejected (Item 7) ────
+printf '\nB.4 — PID validation: non-numeric and non-positive PIDs rejected\n'
+
+TMPDIR_B4="$WORK/tmp_b4"
+
+# B.4a: non-numeric PID must be rejected with exit 2.
+mkdir -p "$TMPDIR_B4"
+set +e
+/bin/sh "$TRAMPOLINE" "abc" "/dev/null" "/dev/null" "$TMPDIR_B4" 2>/dev/null
+B4A_EXIT=$?
+set -e
+check_b "non-numeric PID rejected (exit 2)" \
+    "$([ "$B4A_EXIT" -eq 2 ] && echo 0 || echo 1)" \
+    "exit=$B4A_EXIT"
+
+# B.4b: negative PID must be rejected with exit 2.
+TMPDIR_B4B="$WORK/tmp_b4b"
+mkdir -p "$TMPDIR_B4B"
+set +e
+/bin/sh "$TRAMPOLINE" "-1" "/dev/null" "/dev/null" "$TMPDIR_B4B" 2>/dev/null
+B4B_EXIT=$?
+set -e
+check_b "negative PID rejected (exit 2)" \
+    "$([ "$B4B_EXIT" -eq 2 ] && echo 0 || echo 1)" \
+    "exit=$B4B_EXIT"
+
+# B.4c: zero PID must be rejected with exit 2.
+TMPDIR_B4C="$WORK/tmp_b4c"
+mkdir -p "$TMPDIR_B4C"
+set +e
+/bin/sh "$TRAMPOLINE" "0" "/dev/null" "/dev/null" "$TMPDIR_B4C" 2>/dev/null
+B4C_EXIT=$?
+set -e
+check_b "zero PID rejected (exit 2)" \
+    "$([ "$B4C_EXIT" -eq 2 ] && echo 0 || echo 1)" \
+    "exit=$B4C_EXIT"
+
 # ── Part B summary ────────────────────────────────────────────────────────────
 printf '\n'
 if [ "$part_b_failures" -eq 0 ]; then

@@ -156,10 +156,17 @@ extension UpdateInstaller {
             options: [.skipsHiddenFiles]
         ) else { return nil }
 
+        let dirPrefix = dir.standardizedFileURL.path + "/"
         for case let fileURL as URL in enumerator {
             if fileURL.pathExtension == "app" {
                 let isDir = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-                if isDir { return fileURL }
+                // Containment guard: reject symlinks or paths that resolve
+                // outside the extraction directory. A crafted zip could plant
+                // a symlink (e.g. SomeDir.app -> /Applications) that escapes.
+                guard isDir,
+                      fileURL.standardizedFileURL.path.hasPrefix(dirPrefix)
+                else { continue }
+                return fileURL
             }
         }
         return nil

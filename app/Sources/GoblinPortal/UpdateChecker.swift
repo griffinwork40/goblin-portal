@@ -163,6 +163,7 @@ final class UpdateChecker {
                   assetName.hasPrefix("GoblinPortal-"),  // Item 4: name prefix guard
                   let downloadURL = asset["browser_download_url"] as? String,
                   let url = URL(string: downloadURL),
+                  url.scheme == "https",                  // Item 4: reject non-HTTPS
                   let host = url.host,                   // Item 4: host allowlist
                   allowedHosts.contains(host)
             else { continue }

@@ -59,6 +59,7 @@ func findZipAsset(in json: [String: Any]) -> URL? {
               assetName.hasPrefix("GoblinPortal-"),
               let downloadURL = asset["browser_download_url"] as? String,
               let url = URL(string: downloadURL),
+              url.scheme == "https",
               let host = url.host,
               allowedHosts.contains(host)
         else { continue }
@@ -186,6 +187,16 @@ let badNameAsset: [String: Any] = [
 ]
 check("zip without GoblinPortal- prefix is rejected (Item 4)",
       findZipAsset(in: badNameAsset) == nil)
+
+// Item 4: http:// scheme rejected even on an allowed host.
+let httpURL = "http://objects.githubusercontent.com/github-production-release-asset-2e65be/1234/GoblinPortal-v0.3.0.zip"
+let httpAsset: [String: Any] = [
+    "assets": [
+        ["name": "GoblinPortal-v0.3.0.zip", "browser_download_url": httpURL]
+    ]
+]
+check("http:// scheme is rejected even on allowed host (Item 4)",
+      findZipAsset(in: httpAsset) == nil)
 
 // Belt-and-suspenders: sha256 with GoblinPortal- prefix is still excluded.
 let sha256GoodPrefix: [String: Any] = [

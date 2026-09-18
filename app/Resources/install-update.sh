@@ -27,6 +27,15 @@ for _arg in "$PID" "$NEW_APP" "$INSTALLED_APP" "$TEMP_DIR"; do
     [ -n "$_arg" ] || { printf 'install-update.sh: empty argument\n' >&2; exit 2; }
 done
 
+# Item 7 -- validate PID is a positive decimal integer. Without this, a
+# non-numeric or negative PID reaches `kill -0` where it is interpreted as
+# a process group (negative) or causes an error suppressed by 2>/dev/null
+# (non-numeric), letting the script proceed to swap without waiting.
+case "$PID" in
+    *[!0-9]*) printf 'install-update.sh: PID must be a positive integer\n' >&2; exit 2 ;;
+esac
+[ "$PID" -gt 0 ] 2>/dev/null || { printf 'install-update.sh: PID must be positive\n' >&2; exit 2; }
+
 # Item 3 -- guarantee cleanup of TEMP_DIR on any exit path (normal, early-return,
 # or signal). The explicit rm -rf calls in error branches below are kept: they are
 # idempotent and make the intent clear at each failure point without adding risk.
