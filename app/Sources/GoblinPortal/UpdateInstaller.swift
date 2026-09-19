@@ -133,6 +133,12 @@ final class UpdateInstaller {
         let task = session.downloadTask(with: url) {
             [weak self] tempURL, response, error in
             DispatchQueue.main.async {
+                // M-1 -- invalidate the download session on every exit path.
+                // Without this, the URLSession (and its delegate) are never
+                // freed, leaking one session per update attempt. Mirrors the
+                // F2 fix applied to hashSession in UpdateInstaller+Install.swift.
+                session.finishTasksAndInvalidate()
+
                 guard let self else { return }
 
                 if let error {
