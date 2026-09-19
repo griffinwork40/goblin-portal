@@ -36,8 +36,11 @@ extension SpaceViewController {
             config: config, frame: frame, workingDirectory: peerDir)
         (peer as? any SpaceDocumentReporting)?.documentDelegate = self
 
-        splitPeers[ObjectIdentifier(primary)] = SplitEntry(
-            document: peer, direction: outerDir)
+        var entry = SplitEntry(document: peer, direction: outerDir)
+        // Mirror the saved ratio into the entry so that splitSnapshot reads the
+        // correct value even for a tab that is not currently displayed (Item 1).
+        entry.outerDividerRatio = CGFloat(snapshot.outerRatio)
+        splitPeers[ObjectIdentifier(primary)] = entry
         peer.start()
 
         documentArea.presentSplit(

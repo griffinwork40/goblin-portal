@@ -41,8 +41,12 @@ final class SplitContainerView: NSView {
 
     /// Fraction of the container given to the primary pane, 0…1. Clamped so
     /// each pane has at least minPaneSize points. Updated by dragging the divider.
-    /// `internal(set)` so `+Persistence.swift` can read and write it for save/restore.
-    var dividerRatio: CGFloat = 0.5
+    /// Explicitly `internal(set)`: the setter is accessible to the whole module
+    /// (the drag handler here and `applyDividerRatio` in `+Persistence.swift`),
+    /// but any caller that writes `container.dividerRatio = x` directly bypasses
+    /// the `layout()` call that must follow. Prefer `applyDividerRatio(_:)` for
+    /// all external write sites.
+    internal(set) var dividerRatio: CGFloat = 0.5
 
     /// 1px divider view, coloured to hint at the split without drawing a heavy chrome.
     private let dividerView = NSView()

@@ -85,6 +85,16 @@ extension SpaceViewController {
     func installDividerDragCallback() {
         documentArea.container.onDividerDragEnd = { [weak self] in
             guard let self else { return }
+            // Snapshot the live container ratio into the active entry before persisting.
+            // `splitSnapshot` reads entry.outerDividerRatio; without this update the
+            // persisted value would lag one drag behind the container.
+            if let active = self.activeDocument {
+                let key = ObjectIdentifier(active)
+                if self.splitPeers[key] != nil {
+                    self.splitPeers[key]!.outerDividerRatio =
+                        self.documentArea.container.currentDividerRatio
+                }
+            }
             self.persistSplitState(for: self.root)
         }
     }
