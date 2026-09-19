@@ -315,7 +315,10 @@ extension UpdateInstaller {
         }
 
         // Hand off to the trampoline. The next thing the user sees is the
-        // relaunched app at the new version.
+        // relaunched app at the new version. Reset isInstalling so that if
+        // applicationShouldTerminate cancels the quit (e.g. unsaved editor
+        // content), the installer is not permanently locked for the session.
+        isInstalling = false
         NSApp.terminate(nil)
     }
 }
