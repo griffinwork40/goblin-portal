@@ -98,6 +98,17 @@ else
   echo "==> warning: $SHELL_INT_SRC missing; shell-integration will not be available" >&2
 fi
 
+# Update installer trampoline. Bundled in Resources/ so UpdateInstaller.swift can
+# locate it via Bundle.main.path(forResource:ofType:) and launch it as a detached
+# process that swaps the .app bundle after the running process exits.
+UPDATE_SH_SRC="$ROOT/Resources/install-update.sh"
+if [[ -f "$UPDATE_SH_SRC" ]]; then
+  cp "$UPDATE_SH_SRC" "$APP/Contents/Resources/install-update.sh"
+  chmod +x "$APP/Contents/Resources/install-update.sh"
+else
+  echo "==> warning: $UPDATE_SH_SRC missing; in-place updates will not be available" >&2
+fi
+
 # App icon. Resources/GoblinPortal.icns is committed so a build needs no Python or
 # Pillow; regenerate it with Scripts/make-icon.py --icns when the design changes.
 ICON_SRC="$ROOT/Resources/$APP_NAME.icns"
