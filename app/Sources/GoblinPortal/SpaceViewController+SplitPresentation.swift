@@ -80,6 +80,25 @@ extension SpaceViewController {
         }
     }
 
+    /// Install the divider-drag-end callback on the outer container so the split
+    /// state is persisted whenever the user finishes dragging a divider.
+    func installDividerDragCallback() {
+        documentArea.container.onDividerDragEnd = { [weak self] in
+            guard let self else { return }
+            // Snapshot the live container ratio into the active entry before persisting.
+            // `splitSnapshot` reads entry.outerDividerRatio; without this update the
+            // persisted value would lag one drag behind the container.
+            if let active = self.activeDocument {
+                let key = ObjectIdentifier(active)
+                if self.splitPeers[key] != nil {
+                    self.splitPeers[key]!.outerDividerRatio =
+                        self.documentArea.container.currentDividerRatio
+                }
+            }
+            self.persistSplitState(for: self.root)
+        }
+    }
+
     /// Install the click callback on the outer container and any nested containers.
     ///
     /// Each callback re-runs `updateSplitDimming` so a mouse click on an unfocused

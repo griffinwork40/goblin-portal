@@ -183,6 +183,9 @@ final class SpaceViewController: NSSplitViewController {
 
     func selectDocument(at index: Int) {
         guard documents.indices.contains(index) else { return }
+        // Capture the outgoing tab's live divider ratio before the container is
+        // repurposed for the incoming tab. Method lives in +Splits.swift.
+        snapshotOutgoingDividerRatio()
         activeIndex = index
         let document = documents[index]
 
@@ -223,6 +226,7 @@ final class SpaceViewController: NSSplitViewController {
     /// Apply a reordered document list and select `landedAt`. Called from
     /// `+Delegates.swift` after a drag-to-reorder completes.
     func applyDocumentOrder(_ newOrder: [SpaceDocument], landedAt: Int) {
+        snapshotOutgoingDividerRatio()
         documents = newOrder
         activeIndex = landedAt
         syncDocumentChrome()

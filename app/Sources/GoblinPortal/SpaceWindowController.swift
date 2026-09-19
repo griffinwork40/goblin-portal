@@ -249,6 +249,11 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
     private func openFirstDocument() {
         space.view.layoutSubtreeIfNeeded()
         space.addTerminalDocument()
+        // Restore saved split arrangement after the first terminal has geometry.
+        if let snapshots = SplitStateStore.snapshots(for: root),
+           let first = snapshots.first {
+            space.restoreSplit(from: first)
+        }
     }
 
     /// Present this Space for `--wait` mode: show the window but open `url`
@@ -324,5 +329,11 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // `isTerminating` inside `persistOpenRoots`, so ⌘Q tearing down N windows
         // cannot be read as the user closing N Spaces.
         Self.persistOpenRoots()
+        // A closed Space's splits should not be restored next launch. Gated on
+        // `isTerminating` the same way -- ⌘Q should preserve the split state so
+        // relaunch can restore it. Only an explicit Space close clears it.
+        if !Self.isTerminating {
+            SplitStateStore.removeSnapshots(for: root)
+        }
     }
 }

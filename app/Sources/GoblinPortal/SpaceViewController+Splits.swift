@@ -60,7 +60,9 @@ extension SpaceViewController {
             direction: direction)
 
         installClickCallback(primary: primary)
+        installDividerDragCallback()
         updateSplitDimming(for: primary)
+        persistSplitState(for: root)
     }
 
     /// Case 2: Sub-split the focused pane inside an existing outer split.
@@ -103,14 +105,20 @@ extension SpaceViewController {
 
         newPeer.start()
 
-        // Install click callbacks on the nested container too.
+        // Install click and drag callbacks on the nested container.
         let capturedPrimary = primary
         nested.didReceiveClickInChild = { [weak self] _ in
             guard let self else { return }
             self.updateSplitDimming(for: capturedPrimary)
         }
+        nested.onDividerDragEnd = { [weak self] in
+            guard let self else { return }
+            self.snapshotSubSplitRatio(container: nested, primary: capturedPrimary)
+            self.persistSplitState(for: self.root)
+        }
 
         updateSplitDimming(for: primary)
+        persistSplitState(for: root)
     }
 
     // MARK: - Split closing
@@ -133,6 +141,7 @@ extension SpaceViewController {
             collapseSubSplit(primary: primary, entry: &entry, side: .peer)
             splitPeers[ObjectIdentifier(primary)] = entry
             updateSplitDimming(for: primary)
+            persistSplitState(for: root)
             return
         }
         if let sub = entry.primarySubSplit,
@@ -140,6 +149,7 @@ extension SpaceViewController {
             collapseSubSplit(primary: primary, entry: &entry, side: .primary)
             splitPeers[ObjectIdentifier(primary)] = entry
             updateSplitDimming(for: primary)
+            persistSplitState(for: root)
             return
         }
 
@@ -152,6 +162,7 @@ extension SpaceViewController {
         documentArea.container.didReceiveClickInChild = nil
         documentArea.container.setFocusedChild(nil, opacity: 1.0)
         primary.documentDidBecomeActive()
+        persistSplitState(for: root)
     }
 
     private enum SubSplitSide { case primary, peer }
@@ -227,11 +238,13 @@ extension SpaceViewController {
             if entry.primarySubSplit?.document === document {
                 collapseSubSplit(primary: primary, entry: &entry, side: .primary)
                 splitPeers[ObjectIdentifier(primary)] = entry
+                persistSplitState(for: root)
                 return
             }
             if entry.peerSubSplit?.document === document {
                 collapseSubSplit(primary: primary, entry: &entry, side: .peer)
                 splitPeers[ObjectIdentifier(primary)] = entry
+                persistSplitState(for: root)
                 return
             }
 
@@ -244,6 +257,7 @@ extension SpaceViewController {
             documentArea.container.didReceiveClickInChild = nil
             documentArea.container.setFocusedChild(nil, opacity: 1.0)
             primary.documentDidBecomeActive()
+            persistSplitState(for: root)
             return
         }
     }
@@ -257,6 +271,14 @@ extension SpaceViewController {
         documentArea.dismissSplit()
         documentArea.container.didReceiveClickInChild = nil
         documentArea.container.setFocusedChild(nil, opacity: 1.0)
+        // C-6: do NOT persist during quit teardown. `applicationShouldTerminate` has
+        // already flushed all splits before setting `isTerminating = true`; if AppKit
+        // then delivers `windowWillClose` we would write cleared state on top of the
+        // correct flush and erase the saved arrangement. Mirror the same guard that
+        // `SpaceWindowController.persistOpenRoots()` / `persistOpenRoots` uses.
+        if !SpaceWindowController.isTerminating {
+            persistSplitState(for: root)
+        }
     }
 
     /// Close all sub-split peers in an entry. Called before tearing down the outer split.
@@ -282,6 +304,9 @@ extension SpaceViewController {
         }
     }
 
+    // Tab-switch ratio capture, snapshot building, and persistSplitState live in
+    // SpaceViewController+SplitRestore.swift — the persistence concern.
+    //
     // Presentation, dimming, and click callbacks live in
     // SpaceViewController+SplitPresentation.swift — extracted at the 350-LOC ceiling.
 }
