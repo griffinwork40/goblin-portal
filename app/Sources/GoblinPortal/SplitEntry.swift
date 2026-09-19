@@ -45,6 +45,13 @@ struct SplitEntry {
         let document: SpaceDocument
         let container: SplitContainerView
         let direction: SplitContainerView.Direction
+
+        /// Last-known divider ratio for the nested `SplitContainerView` (0…1).
+        /// Mirrors `SplitEntry.outerDividerRatio` one level down: updated on
+        /// every nested divider drag end and on tab switch away; read by
+        /// `splitSnapshot(for:)` so an off-screen tab's sub-split ratio is
+        /// correct regardless of what the live container currently shows.
+        var storedRatio: CGFloat = 0.5
     }
 
     /// Every peer document in this entry (the main peer + any sub-split documents).

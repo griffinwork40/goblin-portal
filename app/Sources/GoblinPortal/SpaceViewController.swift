@@ -226,6 +226,7 @@ final class SpaceViewController: NSSplitViewController {
     /// Apply a reordered document list and select `landedAt`. Called from
     /// `+Delegates.swift` after a drag-to-reorder completes.
     func applyDocumentOrder(_ newOrder: [SpaceDocument], landedAt: Int) {
+        snapshotOutgoingDividerRatio()
         documents = newOrder
         activeIndex = landedAt
         syncDocumentChrome()

@@ -1,14 +1,20 @@
 //
 //  SpaceViewController+SplitRestore.swift
-//  Restoring split pane arrangements from a persisted snapshot.
+//  The whole persistence concern for split panes: snapshotting, restoring, and
+//  the ratio-capture discipline that keeps off-screen tabs correct.
 //
-//  Its own file because restoration is a distinct concern from split creation
-//  (+Splits.swift) and presentation (+SplitPresentation.swift). It reads a
-//  `SplitSnapshot`, constructs the same view hierarchy `makeSplit` would, and
-//  applies saved divider ratios -- driven from data instead of user events.
+//  Three sub-concerns live here:
+//  1. Restore: replaying a `SplitSnapshot` into the view hierarchy at launch.
+//  2. Snapshot: building a `SplitSnapshot` from the live `SplitEntry` state.
+//  3. Ratio capture: keeping `outerDividerRatio` and `SubSplit.storedRatio` in
+//     sync on every drag-end and tab-switch, so an off-screen tab's ratios
+//     survive `presentSplitEntry`'s `addSplit` (which resets `dividerRatio`
+//     to 0.5).
 //
-//  Called from `SpaceWindowController.openFirstDocument()` after geometry is
-//  settled, so `SplitContainerView.layout()` has real bounds to clamp against.
+//  Called from `SpaceWindowController.openFirstDocument()` (restore),
+//  `+Splits.swift` (persist on every create/close/terminate), and
+//  `SpaceViewController.selectDocument(at:)` / `applyDocumentOrder` (ratio
+//  capture on tab switch).
 //
 
 import AppKit
@@ -94,8 +100,11 @@ extension SpaceViewController {
         nested.addSplit(newPeer.documentView, direction: subDir)
         nested.applyDividerRatio(CGFloat(subSnap.ratio))
 
-        let subSplit = SplitEntry.SubSplit(
+        var subSplit = SplitEntry.SubSplit(
             document: newPeer, container: nested, direction: subDir)
+        // Mirror the saved ratio so splitSnapshot reads the correct value
+        // even when this tab is off-screen (same discipline as outerDividerRatio).
+        subSplit.storedRatio = CGFloat(subSnap.ratio)
         switch side {
         case .primary: entry.primarySubSplit = subSplit
         case .peer:    entry.peerSubSplit = subSplit
@@ -112,8 +121,80 @@ extension SpaceViewController {
         }
         nested.onDividerDragEnd = { [weak self] in
             guard let self else { return }
+            self.snapshotSubSplitRatio(container: nested, primary: capturedPrimary)
             self.persistSplitState(for: self.root)
         }
+    }
+
+    // MARK: - Tab-switch ratio capture
+
+    /// Save the outgoing tab's live divider ratios (outer + sub-splits) before
+    /// the container is repurposed for the incoming tab. Called from
+    /// `selectDocument(at:)` and `applyDocumentOrder`.
+    func snapshotOutgoingDividerRatio() {
+        guard let outgoing = activeDocument else { return }
+        let key = ObjectIdentifier(outgoing)
+        guard splitPeers[key] != nil else { return }
+        splitPeers[key]!.outerDividerRatio =
+            documentArea.container.currentDividerRatio
+        // Sub-split containers are live only while this tab is displayed;
+        // `presentSplitEntry` resets them to 0.5 via `addSplit`. Capture now.
+        if let sub = splitPeers[key]!.primarySubSplit {
+            splitPeers[key]!.primarySubSplit!.storedRatio =
+                sub.container.currentDividerRatio
+        }
+        if let sub = splitPeers[key]!.peerSubSplit {
+            splitPeers[key]!.peerSubSplit!.storedRatio =
+                sub.container.currentDividerRatio
+        }
+    }
+
+    /// Update the stored ratio on whichever sub-split owns `container`.
+    /// Called from the nested `onDividerDragEnd` callback.
+    func snapshotSubSplitRatio(
+        container: SplitContainerView, primary: SpaceDocument
+    ) {
+        let key = ObjectIdentifier(primary)
+        guard splitPeers[key] != nil else { return }
+        if splitPeers[key]!.primarySubSplit?.container === container {
+            splitPeers[key]!.primarySubSplit!.storedRatio =
+                container.currentDividerRatio
+        } else if splitPeers[key]!.peerSubSplit?.container === container {
+            splitPeers[key]!.peerSubSplit!.storedRatio =
+                container.currentDividerRatio
+        }
+    }
+
+    // MARK: - Snapshot
+
+    /// Build a snapshot of the active document's split state, or nil if unsplit.
+    /// Called from `persistSplitState()` to serialize the current arrangement.
+    func splitSnapshot(for primary: SpaceDocument) -> SplitSnapshot? {
+        guard let entry = splitPeers[ObjectIdentifier(primary)] else { return nil }
+        // Read the per-entry stored ratio rather than the live container. The container
+        // holds only the currently-displayed tab's ratio; off-screen tabs would silently
+        // read whatever the active tab has, losing their divider position on persist.
+        let outerRatio = entry.outerDividerRatio
+
+        let primarySub: SubSplitSnapshot? = entry.primarySubSplit.map {
+            SubSplitSnapshot(
+                direction: $0.direction.persistedName,
+                ratio: Double($0.storedRatio),
+                cwd: ($0.document as? ShellHosting)?.currentDirectory?.path)
+        }
+        let peerSub: SubSplitSnapshot? = entry.peerSubSplit.map {
+            SubSplitSnapshot(
+                direction: $0.direction.persistedName,
+                ratio: Double($0.storedRatio),
+                cwd: ($0.document as? ShellHosting)?.currentDirectory?.path)
+        }
+
+        return SplitSnapshot(
+            outerDirection: entry.direction.persistedName,
+            outerRatio: Double(outerRatio),
+            peerCwd: (entry.document as? ShellHosting)?.currentDirectory?.path,
+            primarySubSplit: primarySub,
+            peerSubSplit: peerSub)
     }
 
     // MARK: - Persist

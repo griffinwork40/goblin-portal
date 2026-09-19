@@ -113,6 +113,7 @@ extension SpaceViewController {
         }
         nested.onDividerDragEnd = { [weak self] in
             guard let self else { return }
+            self.snapshotSubSplitRatio(container: nested, primary: capturedPrimary)
             self.persistSplitState(for: self.root)
         }
 
@@ -296,51 +297,9 @@ extension SpaceViewController {
         }
     }
 
-    // MARK: - Tab-switch ratio capture
-
-    /// Save the outgoing tab's live divider ratio before the container is
-    /// repurposed for the incoming tab. Called from `selectDocument(at:)`.
-    func snapshotOutgoingDividerRatio() {
-        guard let outgoing = activeDocument else { return }
-        let key = ObjectIdentifier(outgoing)
-        if splitPeers[key] != nil {
-            splitPeers[key]!.outerDividerRatio =
-                documentArea.container.currentDividerRatio
-        }
-    }
-
-    // MARK: - Persistence
-
-    /// Build a snapshot of the active document's split state, or nil if unsplit.
-    /// Called from `persistSplitState()` to serialize the current arrangement.
-    func splitSnapshot(for primary: SpaceDocument) -> SplitSnapshot? {
-        guard let entry = splitPeers[ObjectIdentifier(primary)] else { return nil }
-        // Read the per-entry stored ratio rather than the live container. The container
-        // holds only the currently-displayed tab's ratio; off-screen tabs would silently
-        // read whatever the active tab has, losing their divider position on persist.
-        let outerRatio = entry.outerDividerRatio
-
-        let primarySub: SubSplitSnapshot? = entry.primarySubSplit.map {
-            SubSplitSnapshot(
-                direction: $0.direction.persistedName,
-                ratio: Double($0.container.currentDividerRatio),
-                cwd: ($0.document as? ShellHosting)?.currentDirectory?.path)
-        }
-        let peerSub: SubSplitSnapshot? = entry.peerSubSplit.map {
-            SubSplitSnapshot(
-                direction: $0.direction.persistedName,
-                ratio: Double($0.container.currentDividerRatio),
-                cwd: ($0.document as? ShellHosting)?.currentDirectory?.path)
-        }
-
-        return SplitSnapshot(
-            outerDirection: entry.direction.persistedName,
-            outerRatio: Double(outerRatio),
-            peerCwd: (entry.document as? ShellHosting)?.currentDirectory?.path,
-            primarySubSplit: primarySub,
-            peerSubSplit: peerSub)
-    }
-
+    // Tab-switch ratio capture, snapshot building, and persistSplitState live in
+    // SpaceViewController+SplitRestore.swift — the persistence concern.
+    //
     // Presentation, dimming, and click callbacks live in
     // SpaceViewController+SplitPresentation.swift — extracted at the 350-LOC ceiling.
 }
