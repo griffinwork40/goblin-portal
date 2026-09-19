@@ -48,6 +48,7 @@ extension SpaceViewController {
         // Apply the saved outer divider ratio.
         documentArea.container.applyDividerRatio(CGFloat(snapshot.outerRatio))
         installClickCallback(primary: primary)
+        installDividerDragCallback()
 
         // Restore sub-splits, if any.
         if let subSnap = snapshot.primarySubSplit {
@@ -100,11 +101,15 @@ extension SpaceViewController {
 
         newPeer.start()
 
-        // Install click callback on the nested container.
+        // Install click and drag callbacks on the nested container.
         let capturedPrimary = primary
         nested.didReceiveClickInChild = { [weak self] _ in
             guard let self else { return }
             self.updateSplitDimming(for: capturedPrimary)
+        }
+        nested.onDividerDragEnd = { [weak self] in
+            guard let self else { return }
+            self.persistSplitState(for: self.root)
         }
     }
 

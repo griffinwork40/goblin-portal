@@ -26,6 +26,12 @@ import Foundation
 
 /// Serializable snapshot of one sub-split (a nested split inside one half of the
 /// outer split).
+///
+/// **Schema rule:** new fields must be `Optional` (or decoded via `init(from:)`
+/// with a default). A non-optional addition silently invalidates every snapshot
+/// written by older versions — `JSONDecoder` throws on a missing key, the
+/// `try?` in `SplitStateStore` converts that to `nil`, and the user's saved
+/// splits are wiped on upgrade.
 struct SubSplitSnapshot: Codable {
     let direction: String   // "horizontal" or "vertical"
     let ratio: Double       // 0...1, the nested container's dividerRatio
@@ -33,6 +39,9 @@ struct SubSplitSnapshot: Codable {
 }
 
 /// Serializable snapshot of one tab's split arrangement.
+///
+/// **Schema rule:** new fields must be `Optional` (or decoded via `init(from:)`
+/// with a default). See `SubSplitSnapshot` for rationale.
 struct SplitSnapshot: Codable {
     let outerDirection: String          // "horizontal" or "vertical"
     let outerRatio: Double              // 0...1, outer container's dividerRatio
