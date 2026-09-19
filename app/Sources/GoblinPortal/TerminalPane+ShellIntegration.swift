@@ -109,7 +109,17 @@ extension TerminalPane {
     /// identical inputs.
     func registerShellIntegration() {
         let terminal = view.getTerminal()
-        let state = ShellIntegration.register(on: terminal) { [weak self] exitCode, nanos in
+        let state = ShellIntegration.register(
+            on: terminal,
+            onCommandStart: { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.status = .running
+                    self.documentDelegate?.documentDidChangeStatus(self)
+                    termDiag("OSC 133 C -> .running")
+                }
+            }
+        ) { [weak self] exitCode, nanos in
             // This closure is called by SwiftTerm on the main thread (all SwiftTerm
             // callbacks are main-thread). `MainActor.assumeIsolated` asserts that
             // rather than hopping through a `Task`, keeping it synchronous and ordered
@@ -158,7 +168,13 @@ extension TerminalPane {
         switch outcome {
         case .failed:    status = .failed
         case .succeeded: status = .succeeded
-        case .ignore:    break  // leave status exactly as it is — the .ignore contract
+        case .ignore:
+            // Clear `.running` back to idle when the command finishes without earning
+            // a status (fast success on the active tab, or missing exit code). Without
+            // this, a quick `ls` would leave the running dot stuck on the tab until the
+            // next command. Other states (.failed, .succeeded, .attention) are left alone
+            // — .ignore means "this command has nothing to say", not "erase prior news".
+            if status == .running { status = .idle }
         }
     }
 

@@ -38,8 +38,8 @@ extension DocumentStatus {
         case .idle:
             return nil
         case .running:
-            // Unreachable today — see the enum. A running command is the *least*
-            // remarkable non-idle state, hence the dimmest treatment.
+            // A running command is the *least* remarkable non-idle state, hence
+            // the dimmest treatment. Wired from ShellIntegration.State.onCommandStart.
             return fallback.withAlphaComponent(isActive ? 0.55 : 0.45)
         case .succeeded:
             return fallback.withAlphaComponent(isActive ? 0.9 : 0.8)
