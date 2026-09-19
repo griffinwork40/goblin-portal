@@ -41,21 +41,17 @@ final class SplitContainerView: NSView {
 
     /// Fraction of the container given to the primary pane, 0…1. Clamped so
     /// each pane has at least minPaneSize points. Updated by dragging the divider.
-    private var dividerRatio: CGFloat = 0.5
+    /// `internal(set)` so `+Persistence.swift` can read and write it for save/restore.
+    var dividerRatio: CGFloat = 0.5
 
     /// 1px divider view, coloured to hint at the split without drawing a heavy chrome.
     private let dividerView = NSView()
 
-    /// Called when a mouse-down event lands inside one of the child panes — reports
-    /// which child received the click so the owner can update focus-dependent state
-    /// (e.g. split-pane dimming). Fired BEFORE the event reaches the child, so the
-    /// owner can update alpha before the pane renders the caret blink.
-    ///
-    /// Not part of the layout concern this view owns, but there is no clean place to
-    /// intercept a click that lands on a child without sitting at this level: NSView
-    /// event routing delivers mouseDown to the deepest hit-tested descendant, and the
-    /// child pane does not report upward. A closure here costs nothing when nil (the
-    /// unsplit case and any owner that does not set it).
+    /// Called when a divider drag ends so the owner can persist the new ratio.
+    var onDividerDragEnd: (() -> Void)?
+
+    /// Called when a mouse-down lands inside a child pane so the owner can update
+    /// focus-dependent state (e.g. dimming). Fired BEFORE the event reaches the child.
     var didReceiveClickInChild: ((_ child: NSView) -> Void)?
 
     /// Drag bookkeeping — nil when no drag is in progress.
@@ -318,7 +314,9 @@ final class SplitContainerView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        let wasDragging = dragStartPoint != nil
         dragStartPoint = nil
+        if wasDragging { onDividerDragEnd?() }
         super.mouseUp(with: event)
     }
 
