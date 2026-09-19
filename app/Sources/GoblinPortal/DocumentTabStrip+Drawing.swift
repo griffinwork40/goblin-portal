@@ -1,27 +1,52 @@
 //
 //  DocumentTabStrip+Drawing.swift
-//  Every mark the strip puts on screen: the rail, each tab, the unsaved/status dot,
-//  the ×, the "+" and the overflow chevron.
+//  The strip's draw pass: the rail, each tab (as a pill or a rectangle), the
+//  hairline, and dispatch to the affordance helpers in `+Affordances.swift`.
 //
-//  Its own file because painting is the strip's largest concern and the one that
-//  changes for purely visual reasons, while the layout arithmetic next door in
-//  `DocumentTabStrip.swift` must not change casually — hit-testing reads the same
-//  rects (see that file's "MARK: - Geometry" note). Separating them is what keeps a
-//  colour tweak out of the file where a wrong number closes the tab beside the one
-//  you clicked. Nothing here computes a position: every rect comes from `layout`,
-//  `tabRect`, `closeRect`, `newButtonRect` or `overflowButtonRect`, so there stays
-//  exactly one definition of where a thing is.
+//  The pill-tab rework (2026-09) changed the active tab and the hover state from
+//  sharp rectangles to rounded pills (8pt corner radius). Three drawing-layer
+//  consequences had to be addressed simultaneously:
 //
-//  This file only READS strip state — `item(_:)`, `activeIndex`, the four hover
-//  flags, the two content colours. The writers are `reload`/`apply` in the core file
-//  and the hover tracking in `DocumentTabStrip+Mouse.swift`; drawing never writes,
-//  which is why those properties are `private(set)` wherever a single writer exists.
+//  1. **Accent line clipping.** The 2px accent line at the active tab's bottom was
+//     a plain `NSRect.fill()`. With a pill, the line must be clipped to the pill
+//     path or it bleeds past the rounded bottom corners into the rail.
+//
+//  2. **Hairline seam exclusion.** The old `slices(excluding:)` carved the hairline
+//     around the active tab's *rectangular* bounds. A pill's bottom corners leave
+//     gaps. The fix: clip the hairline drawing to the inverse of the pill path
+//     using even-odd winding, so the hairline is excluded exactly where the pill
+//     is — corners included.
+//
+//  3. **Tab separators.** The 1px separator between inactive tabs sat at `rect.minX`,
+//     which falls inside the void left by an adjacent pill's rounded corner. With
+//     pills the shape itself creates the visual boundary, so separators are removed
+//     entirely — matching Safari, iTerm2's Tahoe style, and every other pill-tab UI.
+//
+//  The affordance drawings (dots, close glyph, buttons) moved to
+//  `DocumentTabStrip+Affordances.swift` in the same commit — they are self-contained
+//  helpers that paint INTO rects this file hands them, with no position logic of
+//  their own. See that file's header for the split rationale.
 //
 
 import AppKit
 
 extension DocumentTabStrip {
     // MARK: - Drawing
+
+    /// The corner radius for pill-shaped tab fills (active and hover).
+    ///
+    /// 8pt is chosen to read as a deliberate pill on a 30pt strip without collapsing
+    /// into a lozenge at the 56pt `minTabWidth` floor: at 56×30 the flat zone is
+    /// 40×14pt, which still reads as a tab rather than a capsule. For reference,
+    /// macOS 26 system tabs use 16–20pt on a taller bar; iTerm2's PSMTahoeTabStyle
+    /// uses a similar 36pt bar with proportionally larger radii. 8pt on 30pt is the
+    /// equivalent proportion.
+    ///
+    /// The radius is applied to ALL four corners, not just the top two. A tab with
+    /// rounded top corners and square bottom corners looks like a tombstone; full
+    /// rounding makes it a proper pill and is what every reference implementation
+    /// (Safari, Terminal.app, iTerm2 Tahoe) ships.
+    static let tabCornerRadius: CGFloat = 8
 
     /// Perceptual darkness of the terminal background, used to decide which way to
     /// push the rail and the inactive text. Falls back to "dark" because a nil
@@ -39,7 +64,7 @@ extension DocumentTabStrip {
         return contentBackground.blended(withFraction: 0.07, of: toward) ?? contentBackground
     }
 
-    private var hoverBackground: NSColor {
+    var hoverBackground: NSColor {
         let toward: NSColor = contentIsDark ? .white : .black
         return contentBackground.blended(withFraction: 0.13, of: toward) ?? contentBackground
     }
@@ -48,9 +73,6 @@ extension DocumentTabStrip {
         railBackground.setFill()
         bounds.fill()
 
-        // Resolve once per paint and pass it down: recomputing `layout` per tab would
-        // be correct but would re-derive the window N times for no reason, and it is
-        // the same value that hit-testing will use.
         let layout = self.layout
         for index in layout.visible {
             drawTab(index, layout)
@@ -60,50 +82,71 @@ extension DocumentTabStrip {
         }
         drawNewButton(layout)
 
-        // Hairline under the *inactive* stretch only. Running it under the active
-        // tab too would draw a line between the tab and its own content, which is
-        // precisely the seam this design removes.
+        // Hairline under the strip, excluded under the active tab's pill path.
+        //
+        // The old code used `NSRect.slices(excluding:)` which carved around the
+        // tab's rectangular bounds. A pill's bottom corners leave gaps that the
+        // rect-based exclusion cannot follow. The fix: draw the hairline full-width,
+        // then clip it to the INVERSE of the active tab's pill path using even-odd
+        // winding. The hairline is excluded exactly where the pill is — rounded
+        // corners included — so the seam-removal contract ("no line between the
+        // active tab and its content") holds for the pill shape.
         contentForeground.withAlphaComponent(0.12).setFill()
         let hairline = NSRect(x: 0, y: 0, width: bounds.width, height: 1)
-        // `?? .zero` covers the active tab having been windowed out; `slices` treats
-        // an empty exclusion as "no exclusion", so the hairline simply runs the full
-        // width — correct, because in that state no tab on screen owns the content.
-        let active = tabRect(activeIndex, layout) ?? .zero
-        for slice in hairline.slices(excluding: active) {
-            slice.fill()
+
+        if let activeRect = tabRect(activeIndex, layout) {
+            NSGraphicsContext.saveGraphicsState()
+            let pill = NSBezierPath(
+                roundedRect: activeRect, xRadius: Self.tabCornerRadius,
+                yRadius: Self.tabCornerRadius)
+            let clip = NSBezierPath(rect: bounds)
+            clip.append(pill)
+            clip.windingRule = .evenOdd
+            clip.addClip()
+            hairline.fill()
+            NSGraphicsContext.restoreGraphicsState()
+        } else {
+            // No active tab on screen (windowed out) — hairline runs full width.
+            hairline.fill()
         }
     }
 
     private func drawTab(_ index: Int, _ layout: Layout) {
         guard let rect = tabRect(index, layout) else { return }
         let isActive = index == activeIndex
+        let cr = Self.tabCornerRadius
 
         if isActive {
+            // Pill fill: the active tab merges with the terminal content below.
+            let pill = NSBezierPath(roundedRect: rect, xRadius: cr, yRadius: cr)
             contentBackground.setFill()
-            rect.fill()
+            pill.fill()
 
-            // 2px accent line at the very bottom of the active tab — the same
-            // "you are here" signal Ghostty and VS Code use. Drawn after the fill
-            // so it sits on top, and bounded horizontally to the tab rect so it
-            // never bleeds into a neighbour or the rail gap. The colour is
-            // `contentAccent` (the theme's cursor colour, or the system accent),
-            // chosen because the cursor is already the most salient per-theme
-            // colour — visually coherent with the caret the eye tracks in the
-            // terminal below. Height is 2pt; at 1pt it disappears on non-Retina.
-            let accentLine = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 2)
+            // 2px accent line at the bottom of the pill, clipped to the pill path
+            // so it follows the rounded corners instead of bleeding into the rail.
+            // The colour is `contentAccent` (the theme's cursor colour, or the
+            // system accent) — see `Config+Chrome.swift:effectiveAccent`.
+            NSGraphicsContext.saveGraphicsState()
+            pill.addClip()
+            let accentLine = NSRect(
+                x: rect.minX, y: rect.minY, width: rect.width, height: 2)
             contentAccent.setFill()
             accentLine.fill()
+            NSGraphicsContext.restoreGraphicsState()
         } else if hoveredTab == index {
+            // Hover pill: same radius, lighter fill.
+            let pill = NSBezierPath(
+                roundedRect: rect.insetBy(dx: 2, dy: 3), xRadius: cr - 1,
+                yRadius: cr - 1)
             hoverBackground.setFill()
-            rect.fill()
+            pill.fill()
         }
 
-        // Separator between adjacent inactive tabs. Skipped next to the active tab
-        // because the active tab's own fill already provides the edge.
-        if !isActive && index != activeIndex + 1 && index > 0 {
-            contentForeground.withAlphaComponent(0.10).setFill()
-            NSRect(x: rect.minX, y: 6, width: 1, height: rect.height - 12).fill()
-        }
+        // Separators between inactive tabs are REMOVED with pill tabs. The pill
+        // shape itself creates natural visual gaps between tabs — adding a 1px line
+        // inside the gap left by adjacent rounded corners looks like a floating
+        // artifact rather than a boundary. This matches Safari, iTerm2 Tahoe, and
+        // Terminal.app on macOS 26, none of which draw separators between pill tabs.
 
         // 0.72 for inactive, not the 0.55 this shipped with until 2026-08-03. At 0.55 the
         // composite of the theme foreground over `railBackground` measured APCA Lc 37.3
@@ -157,19 +200,12 @@ extension DocumentTabStrip {
         // every tab turns a quiet rail into a row of buttons.
         //
         // An edited tab shows a dot in that same box until you hover it, at which
-        // point the × takes over — Safari's and VS Code's arrangement. Sharing the
-        // box rather than adding a second affordance is deliberate: the dot has to
-        // be visible on *inactive* tabs (that is the whole point of an unsaved
-        // marker) and the close box is the only slot already reserved on those.
+        // point the × takes over — Safari's and VS Code's arrangement.
         //
-        // Status joins the SAME box on the SAME rule rather than getting a slot of its
-        // own. Two dots on one tab is a row of indicator lights, and at the 56pt floor
-        // there is no room for a second reserved slot at all: `minTabWidth`'s own
-        // derivation above accounts for exactly one 15pt close box inside 48pt of fixed
-        // furniture, so a second box would push the floor to ~71pt and undo the
-        // compression PR #5 added. When a tab is both edited and asking for attention,
-        // status wins the box: unsaved work is still there in a minute, whereas a
-        // prompt waiting for input is blocking.
+        // Status joins the SAME box on the SAME rule. Two dots on one tab is a row
+        // of indicator lights, and at the 56pt floor there is no room for a second
+        // reserved slot. When a tab is both edited and asking for attention, status
+        // wins the box.
         let statusDot = item(index).status.dotColour(
             fallback: contentForeground, isActive: isActive)
         if let statusDot, hoveredTab != index {
@@ -179,118 +215,5 @@ extension DocumentTabStrip {
         } else if isActive || hoveredTab == index {
             drawCloseGlyph(in: closeRect(rect), emphasised: hoveredClose == index)
         }
-    }
-
-    private func drawEditedDot(in box: NSRect) {
-        let side: CGFloat = 7
-        let dot = NSRect(
-            x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
-        contentForeground.withAlphaComponent(0.75).setFill()
-        NSBezierPath(ovalIn: dot).fill()
-    }
-
-    /// The status dot: same geometry as the unsaved dot so the two never disagree about
-    /// where that affordance lives, but coloured, and given a soft halo on inactive tabs.
-    ///
-    /// The halo is on the INACTIVE tab, not the active one. That is the whole design
-    /// argument: you are already looking at the active document, so a marker there is
-    /// telling you something you can see — the signal is worth its ink precisely on the
-    /// tabs you are not reading. Inactive tabs also draw their title at 0.55 alpha, so
-    /// without the halo a coloured dot on a dim tab is the quietest thing in the strip
-    /// rather than the loudest.
-    ///
-    /// Survives PR #5's compression unchanged, and that is a property of `box`, not
-    /// luck: both the dot and the halo are measured from `closeRect`, whose 15pt side
-    /// is fixed furniture that `minTabWidth`'s derivation reserves in full at the 56pt
-    /// floor — the title is what gets elided there, never this box. So the 7pt dot
-    /// inside a 12pt halo reads identically on a 56pt tab and a 210pt one; the tab
-    /// around it is narrower, which if anything raises the marker's share of the ink.
-    private func drawStatusDot(in box: NSRect, colour: NSColor, isActive: Bool) {
-        if !isActive {
-            colour.withAlphaComponent(0.22).setFill()
-            NSBezierPath(ovalIn: box.insetBy(dx: 1.5, dy: 1.5)).fill()
-        }
-        let side: CGFloat = 7
-        let dot = NSRect(
-            x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
-        // Full opacity on both, unlike the title. A status the eye has to hunt for is a
-        // status that does not work.
-        colour.setFill()
-        NSBezierPath(ovalIn: dot).fill()
-    }
-
-    private func drawCloseGlyph(in box: NSRect, emphasised: Bool) {
-        if emphasised {
-            contentForeground.withAlphaComponent(0.16).setFill()
-            NSBezierPath(roundedRect: box, xRadius: 3, yRadius: 3).fill()
-        }
-        let inset = box.insetBy(dx: 4.5, dy: 4.5)
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: inset.minX, y: inset.minY))
-        path.line(to: NSPoint(x: inset.maxX, y: inset.maxY))
-        path.move(to: NSPoint(x: inset.minX, y: inset.maxY))
-        path.line(to: NSPoint(x: inset.maxX, y: inset.minY))
-        path.lineWidth = 1.2
-        path.lineCapStyle = .round
-        contentForeground.withAlphaComponent(emphasised ? 0.95 : 0.6).setStroke()
-        path.stroke()
-    }
-
-    private func drawNewButton(_ layout: Layout) {
-        let rect = newButtonRect(layout)
-        if isHoveringNewButton {
-            hoverBackground.setFill()
-            rect.fill()
-        }
-        let arm: CGFloat = 4.5
-        let centre = NSPoint(x: rect.midX, y: rect.midY)
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: centre.x - arm, y: centre.y))
-        path.line(to: NSPoint(x: centre.x + arm, y: centre.y))
-        path.move(to: NSPoint(x: centre.x, y: centre.y - arm))
-        path.line(to: NSPoint(x: centre.x, y: centre.y + arm))
-        path.lineWidth = 1.3
-        path.lineCapStyle = .round
-        contentForeground.withAlphaComponent(isHoveringNewButton ? 0.95 : 0.55).setStroke()
-        path.stroke()
-    }
-
-    /// A downward chevron, matching the disclosure shape AppKit uses for
-    /// "there is more here than fits" (NSPopUpButton's pull-down arrow). Drawn as a
-    /// path rather than an SF Symbol for the same reason the × is: the symbol would
-    /// need the tint-by-sourceAtop dance in `drawTab` for two strokes.
-    private func drawOverflowButton(in rect: NSRect) {
-        if isHoveringOverflowButton {
-            hoverBackground.setFill()
-            rect.fill()
-        }
-        let halfWidth: CGFloat = 4
-        let halfHeight: CGFloat = 2.5
-        let centre = NSPoint(x: rect.midX, y: rect.midY)
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: centre.x - halfWidth, y: centre.y + halfHeight))
-        path.line(to: NSPoint(x: centre.x, y: centre.y - halfHeight))
-        path.line(to: NSPoint(x: centre.x + halfWidth, y: centre.y + halfHeight))
-        path.lineWidth = 1.3
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
-        contentForeground.withAlphaComponent(isHoveringOverflowButton ? 0.95 : 0.55).setStroke()
-        path.stroke()
-    }
-}
-
-private extension NSRect {
-    /// The parts of `self` left over once `excluded` is removed horizontally.
-    /// Used to draw the strip's baseline everywhere except under the active tab.
-    func slices(excluding excluded: NSRect) -> [NSRect] {
-        guard !excluded.isEmpty, excluded.maxX > minX, excluded.minX < maxX else { return [self] }
-        var result: [NSRect] = []
-        if excluded.minX > minX {
-            result.append(NSRect(x: minX, y: minY, width: excluded.minX - minX, height: height))
-        }
-        if excluded.maxX < maxX {
-            result.append(NSRect(x: excluded.maxX, y: minY, width: maxX - excluded.maxX, height: height))
-        }
-        return result
     }
 }

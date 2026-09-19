@@ -135,7 +135,12 @@ final class FileTreeViewController: NSViewController {
         let stack = NSStackView(views: [gitHeader, scrollView])
         stack.orientation = .vertical
         stack.spacing = 0
-        stack.edgeInsets = NSEdgeInsets(top: 2, left: 6, bottom: 0, right: 6)
+        // Breathing room between the sidebar's top edge (glass pane on macOS 26,
+        // opaque strip on earlier) and the first content. 4pt rather than 2pt so the
+        // branch header does not crowd the titlebar; not 8pt, because `edgeInsets.top`
+        // is stack-level and always applied — a Space opened on ~/Documents (no repo,
+        // header hidden) would show dead space above the tree at larger values.
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 0, right: 6)
         // The header keeps its 22pt; the scroll view takes everything left over. Without
         // this the stack splits the space between them and the tree ends up half-height.
         gitHeader.setContentHuggingPriority(.required, for: .vertical)
