@@ -34,6 +34,12 @@ extension SpaceViewController: FileViewerPaneDelegate {
 extension SpaceViewController: DocumentTabStripDelegate {
     func tabStrip(_ strip: DocumentTabStrip, didSelect index: Int) {
         selectDocument(at: index)
+        // Auto-reveal: after switching tabs, scroll the sidebar to the new file
+        // without taking focus from the editor or terminal. Only runs for
+        // FileViewerPane documents — terminals have no single corresponding file.
+        // Gated on `config.sidebarAutoReveal` so it can be disabled in config.json
+        // via `"sidebar": { "autoReveal": false }`.
+        revealActiveFileInTree()
     }
 
     func tabStrip(_ strip: DocumentTabStrip, didRequestClose index: Int) {
@@ -199,5 +205,26 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
         } else {
             host.documentDidBecomeActive()
         }
+    }
+}
+
+// MARK: - Auto-reveal helper
+
+extension SpaceViewController {
+    /// If the active document is a `FileViewerPane` and `sidebar.autoReveal` is
+    /// enabled, tell the file tree to scroll to and select that file.
+    ///
+    /// Defined here — not in `SpaceViewController.swift`, which is at the 350-LOC
+    /// ceiling — because this is inbound plumbing: "the active document changed, so
+    /// tell the sidebar". It belongs beside the other "something changed, update the
+    /// tree" callbacks rather than in the container's core flow.
+    ///
+    /// Focus is NOT taken. `FileTreeViewController.reveal(_:)` scrolls and selects
+    /// the row but never calls `makeFirstResponder`, so the editor or terminal keeps
+    /// the cursor.
+    func revealActiveFileInTree() {
+        guard config.sidebarAutoReveal else { return }
+        guard let viewer = activeDocument as? FileViewerPane else { return }
+        fileTree.reveal(viewer.url)
     }
 }

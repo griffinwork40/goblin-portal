@@ -19,11 +19,18 @@ import AppKit
 
 extension FileTreeViewController: NSOutlineViewDataSource {
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        node(for: item).children?.count ?? 0
+        // When a filter is active, `filteredChildren(of:)` returns only the visible
+        // subset — files that match the query plus their ancestor directories.
+        // `filteredChildren` is defined in `FileTreeViewController+Filter.swift`.
+        filteredChildren(of: node(for: item)).count
     }
 
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        node(for: item).children?[index] ?? root
+        // Same filter delegation as `numberOfChildrenOfItem` — the indices must be
+        // consistent between the two callbacks or the outline view will crash.
+        let children = filteredChildren(of: node(for: item))
+        guard children.indices.contains(index) else { return root }
+        return children[index]
     }
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {

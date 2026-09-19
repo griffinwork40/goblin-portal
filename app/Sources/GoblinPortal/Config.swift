@@ -78,6 +78,13 @@ struct ConfigFile: Decodable {
     }
     var editor: EditorSpec?
 
+    /// `"sidebar": { "autoReveal": true }` — when the active document changes,
+    /// scroll to and select its file in the tree without stealing focus.
+    struct SidebarSpec: Decodable {
+        var autoReveal: Bool?
+    }
+    var sidebar: SidebarSpec?
+
     // `padding` accepts two forms:
     //   "padding": 4               → uniform 4px on all sides
     //   "padding": { "x": 8, "y": 4 } → separate horizontal / vertical
@@ -192,6 +199,10 @@ struct AppConfig {
     /// Clamped to 0.0–1.0 on load; out-of-range values degrade to 1.0 with a warning.
     /// Affects the ENTIRE pane view (terminal chrome included), not just the text surface.
     var unfocusedPaneOpacity: Double
+    /// When true, switching to a `FileViewerPane` document scrolls to and selects
+    /// its file in the sidebar tree — without stealing keyboard focus from the editor.
+    /// Default: true. Configured via `"sidebar": { "autoReveal": true }`.
+    var sidebarAutoReveal: Bool
 
     /// Non-nil when the user has configured `"preset": "auto"`. Holds the two resolved
     /// palettes so the appearance observer can switch between them without re-parsing the
@@ -268,7 +279,8 @@ struct AppConfig {
             showTrailingWhitespace: true,
             stickyScroll: true,
             terminalPadding: (x: 4, y: 4),
-            unfocusedPaneOpacity: 1.0
+            unfocusedPaneOpacity: 1.0,
+            sidebarAutoReveal: true
         )
     }
 

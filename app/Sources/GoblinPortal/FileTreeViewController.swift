@@ -87,6 +87,21 @@ final class FileTreeViewController: NSViewController {
     /// belongs on screen.
     let gitHeader = GitBranchHeaderView()
 
+    // MARK: - Filter state (written by FileTreeViewController+Filter.swift)
+
+    /// The NSSearchField injected between the branch header and the tree.
+    /// Stored here because Swift extensions cannot add stored properties; all
+    /// behaviour lives in `FileTreeViewController+Filter.swift`.
+    let filterField = NSSearchField()
+
+    /// The current filter query. Empty string = no filter.
+    /// Written only by `applyFilter(_:)` in the filter extension.
+    var filterQuery: String = ""
+
+    /// When non-nil, the data source returns only children whose URLs appear here.
+    /// Nil means "no filter — show everything". Written by `applyFilter(_:)`.
+    var visibleURLs: Set<URL>?
+
     init(root url: URL) {
         self.root = FileNode(url: url, isDirectory: true)
         super.init(nibName: nil, bundle: nil)
@@ -150,6 +165,12 @@ final class FileTreeViewController: NSViewController {
         // The split view sizes this controller's root view by frame, as it did when that
         // root was the scroll view itself; inside the stack, its children use constraints.
         stack.autoresizingMask = [.width, .height]
+
+        // Splice the filter field between the branch header and the tree.
+        // Logic, state, and the NSSearchFieldDelegate conformance are in
+        // `FileTreeViewController+Filter.swift` — only the layout call lives here
+        // because the stack is a local variable in this method.
+        addFilterField(to: stack)
 
         root.reloadChildren()
         view = stack
@@ -253,5 +274,62 @@ final class FileTreeViewController: NSViewController {
         } else {
             delegate?.fileTree(self, didActivate: node.url)
         }
+    }
+
+    // MARK: - Auto-reveal
+
+    /// Scroll to and select the node for `url` without stealing keyboard focus.
+    ///
+    /// Called from `SpaceViewController+Delegates.swift` when the active document
+    /// changes (tab-switch). Only `FileViewerPane` documents carry a file URL that
+    /// maps to a tree node; terminal tabs are deliberately skipped at the call site
+    /// (`SpaceViewController+Delegates.swift`).
+    ///
+    /// The method walks the tree lazily — expanding and loading directories as it
+    /// descends — so it works even if the user has never opened the containing folder.
+    /// If the URL is outside the current root, the method silently returns without
+    /// moving the root: the sidebar only shows files under the Space's root, and
+    /// moving the root to follow an unrelated file would be disorienting.
+    ///
+    /// Focus is deliberately NOT taken: `view.window?.makeFirstResponder(outlineView)`
+    /// would yank the cursor out of the editor, which is the last thing a user wants
+    /// while typing. The sidebar updates its selection in the background.
+    func reveal(_ url: URL) {
+        // Guard: URL must be inside the current tree root.
+        let rootPath = root.url.resolvingSymlinksInPath().path
+        let targetPath = url.resolvingSymlinksInPath().path
+        guard targetPath.hasPrefix(rootPath) else { return }
+
+        // Walk the path components between root and target, expanding each directory
+        // as we go so the child nodes are loaded before we try to show them.
+        let components = url.pathComponents
+        let rootComponents = root.url.pathComponents
+        guard components.count > rootComponents.count else { return }
+
+        var current: FileNode = root
+        // Skip the root's own components; descend through the remainder.
+        let descendantComponents = components.dropFirst(rootComponents.count)
+        for (index, component) in descendantComponents.enumerated() {
+            // Ensure children are loaded at this level.
+            if current.children == nil { current.reloadChildren() }
+            let isLastComponent = index == descendantComponents.count - 1
+            guard let child = current.children?.first(where: { $0.name == component }) else {
+                return  // File not found in tree — outside root or filtered out
+            }
+            if !isLastComponent {
+                // Expand intermediate directories so their children are visible.
+                outlineView.expandItem(child)
+            }
+            current = child
+        }
+
+        // `current` is now the target node. Select it and scroll it visible.
+        // `row(forItem:)` returns -1 when the item is not currently in the outline
+        // (e.g. its parent directory was never expanded). After the walk above it
+        // should be present, but guard defensively.
+        let row = outlineView.row(forItem: current)
+        guard row >= 0 else { return }
+        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        outlineView.scrollRowToVisible(row)
     }
 }
