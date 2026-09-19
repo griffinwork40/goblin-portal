@@ -220,6 +220,14 @@ final class SpaceViewController: NSSplitViewController {
         selectDocument(at: next)
     }
 
+    /// Apply a reordered document list and select `landedAt`. Called from
+    /// `+Delegates.swift` after a drag-to-reorder completes.
+    func applyDocumentOrder(_ newOrder: [SpaceDocument], landedAt: Int) {
+        documents = newOrder
+        activeIndex = landedAt
+        syncDocumentChrome()
+    }
+
     func closeDocument(at index: Int) {
         guard documents.indices.contains(index) else { return }
         // Every close path in the app — ⌘W, the tab's ×, closing the Space, quitting —

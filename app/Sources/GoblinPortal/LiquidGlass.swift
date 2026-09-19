@@ -46,6 +46,47 @@ import AppKit
 /// Keeping them here rather than inlining the `#available` blocks means a single
 /// file to update when the glass API evolves — and a single file to read when
 /// asking "what does Goblin Portal do differently on Tahoe?"
+
+/// Drawing-style tokens that vary between macOS 26+ (Liquid Glass) and earlier.
+///
+/// Each drawing site initialises its own instance via `.resolved()` at declaration
+/// time — `DocumentTabStrip.drawingStyle` and `FileTreeViewController.viewDidLoad`
+/// are the two current call sites. Both resolve once (not per-frame) and read the
+/// same two constants, so in practice they always agree; the factory is cheap enough
+/// that a single shared instance is unnecessary.
+///
+/// This lives here — not beside the drawing code — because `LiquidGlass.swift` is
+/// the stated single answer to "what does Goblin Portal do differently on Tahoe?"
+/// Scattering version-conditional numbers across `+Drawing.swift` and
+/// `FileTreeViewController.swift` would break that promise the first time a second
+/// glass tweak lands.
+@MainActor
+struct GlassDrawingStyle {
+    /// Corner radius for pill-shaped tab fills (active and hover). 8pt on macOS 26
+    /// produces a proportional pill on the 30pt strip; 4pt on earlier systems adds
+    /// gentle rounding without the full Tahoe pill shape (the visual design roadmap's
+    /// original suggestion). 0pt would restore sharp rectangles.
+    let tabCornerRadius: CGFloat
+
+    /// Top inset on the sidebar's NSStackView. 4pt on macOS 26 gives breathing room
+    /// under the glass titlebar; 2pt on earlier systems is the original tight spacing
+    /// that worked well with the opaque titlebar strip.
+    let sidebarTopInset: CGFloat
+
+    /// macOS 26+: Liquid Glass era. Pill tabs, roomier sidebar.
+    static let liquidGlass = GlassDrawingStyle(tabCornerRadius: 8, sidebarTopInset: 4)
+
+    /// Pre-macOS 26: gentle rounding, tight sidebar. The 4pt tab radius was the
+    /// visual design roadmap's proposal before the Tahoe pill research raised it.
+    static let classic = GlassDrawingStyle(tabCornerRadius: 4, sidebarTopInset: 2)
+
+    /// Resolve the style for the running OS. Called once per window.
+    static func resolved() -> GlassDrawingStyle {
+        if #available(macOS 26, *) { return .liquidGlass }
+        return .classic
+    }
+}
+
 @available(macOS 26.0, *)
 @MainActor
 enum LiquidGlass {
