@@ -49,7 +49,7 @@ final class SplitContainerView: NSView {
     internal(set) var dividerRatio: CGFloat = 0.5
 
     /// 1px divider view, coloured to hint at the split without drawing a heavy chrome.
-    private let dividerView = NSView()
+    let dividerView = NSView()  // internal (not private) — +Appearance.swift needs it
 
     /// Called when a divider drag ends so the owner can persist the new ratio.
     var onDividerDragEnd: (() -> Void)?
@@ -75,10 +75,8 @@ final class SplitContainerView: NSView {
         // Divider auto-layout off: layout() positions it every frame.
         dividerView.autoresizingMask = []
         dividerView.wantsLayer = true
-        // 20% opaque neutral grey — visible against any terminal theme without
-        // drawing attention away from the content. Matches the "theme foreground at
-        // 20% opacity" guidance in the design doc; using a fixed neutral grey means
-        // no theme dependency and no color lookup in this layout-only view.
+        // Placeholder grey — immediately replaced by applyDividerColor() in +Appearance.swift
+        // once the theme is known. Keeps the divider visible during the brief init window.
         dividerView.layer?.backgroundColor = NSColor.gray.withAlphaComponent(0.4).cgColor
         addSubview(dividerView)
     }

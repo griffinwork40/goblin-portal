@@ -56,17 +56,12 @@ enum ShellIntegration {
         /// Feeds directly into `CommandOutcome.of`, which is shared across engine paths.
         let callback: (Int?, UInt64) -> Void
 
-        /// Called when 'C' arrives — the user pressed Return and a command is running.
-        /// Defaults to a no-op so callers that only care about completion are unbroken.
-        /// The caller (`TerminalPane+ShellIntegration`) uses this to set `.running`
-        /// status on the tab, giving the strip a subtle "command in flight" indicator.
-        let onCommandStart: () -> Void
+        /// Called with no arguments when 'C' arrives (command started).
+        /// Lets the pane set `status = .running` so the tab shows a spinner/dot
+        /// while a command is in flight. Optional — nil means no start notification.
+        var onCommandStarted: (() -> Void)?
 
-        init(
-            onCommandStart: @escaping () -> Void = {},
-            callback: @escaping (Int?, UInt64) -> Void
-        ) {
-            self.onCommandStart = onCommandStart
+        init(callback: @escaping (Int?, UInt64) -> Void) {
             self.callback = callback
         }
     }
@@ -91,7 +86,8 @@ enum ShellIntegration {
         onCommandStart: @escaping () -> Void = {},
         callback: @escaping (Int?, UInt64) -> Void
     ) -> State {
-        let state = State(onCommandStart: onCommandStart, callback: callback)
+        let state = State(callback: callback)
+        state.onCommandStarted = onCommandStart
         terminal.registerOscHandler(code: 133) { data in
             ShellIntegration.handle(data: data, state: state)
         }
@@ -117,8 +113,11 @@ enum ShellIntegration {
 
         case UInt8(ascii: "C"):
             // Command start — user pressed Return on a non-empty command line.
+            // Fire `onCommandStarted` so the pane can set status = .running immediately.
+            // The tab strip shows the dot before 'D' arrives — correct behaviour when a
+            // command takes seconds or minutes. 'D' clears it via applyCommandOutcome.
             state.commandStartTime = Date()
-            state.onCommandStart()
+            state.onCommandStarted?()
 
         case UInt8(ascii: "D"):
             // Command end. A D with no preceding C (commandStartTime == nil) is

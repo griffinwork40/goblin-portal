@@ -131,14 +131,14 @@ extension AppConfig {
         }
         if let op = file.unfocusedPaneOpacity {
             // Fail-soft: a value outside [0, 1] is nonsensical (a transparency cannot
-            // be negative or exceed fully-opaque). Report it and keep the default (1.0)
+            // be negative or exceed fully-opaque). Report it and keep the default (0.7)
             // rather than clamping silently — clamping would make a typo ("10" instead
             // of "1.0") look like success.
             if op >= 0.0 && op <= 1.0 {
                 config.unfocusedPaneOpacity = op
             } else {
                 config.warnings.append(
-                    "unfocusedPaneOpacity \(op) is outside 0.0–1.0 — using 1.0 (no dimming)")
+                    "unfocusedPaneOpacity \(op) is outside 0.0–1.0 — using default (0.7)")
             }
         }
         // Sidebar config — fail-soft: bad input keeps the default (true).

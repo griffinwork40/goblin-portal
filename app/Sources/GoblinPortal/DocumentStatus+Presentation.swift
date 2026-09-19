@@ -38,8 +38,9 @@ extension DocumentStatus {
         case .idle:
             return nil
         case .running:
-            // A running command is the *least* remarkable non-idle state, hence
-            // the dimmest treatment. Wired from ShellIntegration.State.onCommandStart.
+            // Set by OSC 133 C (TerminalPane+ShellIntegration.swift). A running command
+            // is the *least* remarkable non-idle state — the dimmest dot, since "a command
+            // is running" is normal and expected; the dot is just a progress indicator.
             return fallback.withAlphaComponent(isActive ? 0.55 : 0.45)
         case .succeeded:
             return fallback.withAlphaComponent(isActive ? 0.9 : 0.8)
