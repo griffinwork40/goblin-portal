@@ -46,13 +46,14 @@ import AppKit
 /// Keeping them here rather than inlining the `#available` blocks means a single
 /// file to update when the glass API evolves — and a single file to read when
 /// asking "what does Goblin Portal do differently on Tahoe?"
+
 /// Drawing-style tokens that vary between macOS 26+ (Liquid Glass) and earlier.
 ///
-/// Resolved once per window in `SpaceWindowController.init` and threaded through
-/// the view hierarchy so every drawing site reads a single source of truth rather
-/// than scattering `#available` checks. On macOS 26+ the tokens match the Tahoe
-/// design language (pill-shaped tabs, roomier sidebar); on earlier systems they
-/// fall back to the pre-pill values.
+/// Each drawing site initialises its own instance via `.resolved()` at declaration
+/// time — `DocumentTabStrip.drawingStyle` and `FileTreeViewController.viewDidLoad`
+/// are the two current call sites. Both resolve once (not per-frame) and read the
+/// same two constants, so in practice they always agree; the factory is cheap enough
+/// that a single shared instance is unnecessary.
 ///
 /// This lives here — not beside the drawing code — because `LiquidGlass.swift` is
 /// the stated single answer to "what does Goblin Portal do differently on Tahoe?"

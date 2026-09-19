@@ -127,8 +127,8 @@ final class DocumentTabStrip: NSView {
     /// Accent colour for the active-tab indicator line. Sourced from `effectiveAccent`
     /// in `Config+Chrome.swift` — see its doc comment for the sourcing rationale.
     private(set) var contentAccent: NSColor = .controlAccentColor
-    /// Glass-conditional drawing tokens. Resolved once per window in
-    /// `SpaceWindowController.init` and pushed here alongside colours.
+    /// Glass-conditional drawing tokens. Self-initialised via `.resolved()` at
+    /// declaration time — not pushed from the window controller.
     /// Drawing reads `drawingStyle.tabCornerRadius` rather than a hardcoded static.
     private(set) var drawingStyle: GlassDrawingStyle = .resolved()
 
