@@ -207,9 +207,21 @@ extension SpaceViewController {
         guard let primary = documents.first,
               let snapshot = splitSnapshot(for: primary) else {
             SplitStateStore.removeSnapshots(for: root)
+            // P-3: log the clear so "split not restored" has a traceable cause.
+            if ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil {
+                FileHandle.standardError.write(Data(
+                    "[goblin-portal] split: root=\(root.path) written=cleared\n".utf8))
+            }
             return
         }
         SplitStateStore.setSnapshots([snapshot], for: root)
+        // P-3: log on every write so divider drags and split create/close are
+        // observable under GOBLIN_PORTAL_DIAG=1 without attaching a debugger.
+        // Follows the pattern from `FileTreeViewController+Git.swift:213`.
+        if ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil {
+            FileHandle.standardError.write(Data(
+                "[goblin-portal] split: root=\(root.path) written=snapshot\n".utf8))
+        }
     }
 
     // MARK: - CWD validation

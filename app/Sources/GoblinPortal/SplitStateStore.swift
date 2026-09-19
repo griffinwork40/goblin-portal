@@ -112,6 +112,28 @@ enum SplitStateStore {
         persist(dict)
     }
 
+    /// Write snapshots for multiple roots in a single JSON encode/write.
+    ///
+    /// C-1: the quit-path flush in `applicationShouldTerminate` iterates every
+    /// open Space. Calling `setSnapshots(_:for:)` N times costs N sequential
+    /// decode–mutate–encode cycles. This batch method reads the dict once,
+    /// applies all updates, and writes once — O(1) encodes regardless of how
+    /// many Spaces are open.
+    ///
+    /// An empty `snapshots` array for an entry removes that root's key, matching
+    /// the behaviour of `setSnapshots([], for:)`.
+    static func setAll(_ entries: [(root: URL, snapshots: [SplitSnapshot])]) {
+        var dict = currentDict()
+        for entry in entries {
+            if entry.snapshots.isEmpty {
+                dict.removeValue(forKey: entry.root.path)
+            } else {
+                dict[entry.root.path] = entry.snapshots
+            }
+        }
+        persist(dict)
+    }
+
     // MARK: - Internal helpers
 
     private static func currentDict() -> [String: [SplitSnapshot]] {
@@ -123,6 +145,13 @@ enum SplitStateStore {
     }
 
     private static func persist(_ dict: [String: [SplitSnapshot]]) {
+        // P-1: the dict grows by one entry per distinct project root that ever had
+        // a split, and is never evicted. Each entry is ~200 bytes (a JSON object
+        // with two or three string fields and two optional sub-objects), so 100
+        // roots ≈ 20 KB — well within UserDefaults budget. Growth is bounded by
+        // the number of distinct roots the user has opened with ⌘O, which is
+        // typically single-digit. No cap is applied, matching `OpenSpaceRoots`'s
+        // 12-entry style only for the restore list, not for this incidental store.
         if dict.isEmpty {
             UserDefaults.standard.removeObject(forKey: key)
         } else if let data = try? JSONEncoder().encode(dict) {

@@ -271,7 +271,14 @@ extension SpaceViewController {
         documentArea.dismissSplit()
         documentArea.container.didReceiveClickInChild = nil
         documentArea.container.setFocusedChild(nil, opacity: 1.0)
-        persistSplitState(for: root)
+        // C-6: do NOT persist during quit teardown. `applicationShouldTerminate` has
+        // already flushed all splits before setting `isTerminating = true`; if AppKit
+        // then delivers `windowWillClose` we would write cleared state on top of the
+        // correct flush and erase the saved arrangement. Mirror the same guard that
+        // `SpaceWindowController.persistOpenRoots()` / `persistOpenRoots` uses.
+        if !SpaceWindowController.isTerminating {
+            persistSplitState(for: root)
+        }
     }
 
     /// Close all sub-split peers in an entry. Called before tearing down the outer split.

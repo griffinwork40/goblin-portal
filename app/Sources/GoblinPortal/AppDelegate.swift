@@ -137,18 +137,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         where controller.space.hasEditedDocuments && !controller.space.spaceShouldClose() {
             return .terminateCancel
         }
-        // Record the final order while every window is still open, then stop
-        // persisting. Both halves matter and they must happen in this order:
-        //   * The write closes a gap nothing else covers — dragging tabs to reorder
-        //     changes no window's open/closed state, so `persistOpenRoots`'s other
-        //     call sites never fire, and a reorder then ⌘Q would restore yesterday's
-        //     order. This is the last moment `tabGroup?.windows` is still accurate.
-        //   * The flag then makes teardown inert: from here a closing window is the
-        //     app exiting, not the user closing that Space, and recording those would
-        //     erase the very list restore needs (`SpaceWindowController.isTerminating`).
-        // Both sit *after* the veto loop, so a cancelled ⌘Q leaves persistence live.
+        // Record the final order while every window is still open, then stop persisting.
+        // Both halves matter and must happen in this order: the write closes a gap
+        // (tab reorder changes no window's open/closed state, so `persistOpenRoots`'s
+        // other call sites never fire — this is the last moment `tabGroup?.windows`
+        // is accurate); the flag then makes teardown inert so closing windows don't
+        // erase the list restore needs. Both sit after the veto loop.
         SpaceWindowController.persistOpenRoots()
-        SpaceWindowController.open.forEach { $0.space.persistSplitState(for: $0.root) }
+        // C-1: one encode instead of N. Tab 0 only; nil snapshot → [] → key cleared.
+        SplitStateStore.setAll(SpaceWindowController.open.map { c in
+            let snap = c.space.documents.first.flatMap { c.space.splitSnapshot(for: $0) }
+            return (root: c.root, snapshots: snap.map { [$0] } ?? [])
+        })
         SpaceWindowController.isTerminating = true
         return .terminateNow
     }
