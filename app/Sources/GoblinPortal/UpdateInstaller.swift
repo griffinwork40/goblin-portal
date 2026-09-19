@@ -78,7 +78,7 @@ final class UpdateInstaller {
     static let shared = UpdateInstaller()
 
     /// True while a download/install is in progress. Prevents double-triggers.
-    private(set) var isInstalling = false
+    internal(set) var isInstalling = false
 
     /// The progress window shown during download, or nil when idle.
     private var progressWindow: NSWindow?
