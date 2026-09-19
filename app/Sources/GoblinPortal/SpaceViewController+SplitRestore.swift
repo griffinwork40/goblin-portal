@@ -202,13 +202,14 @@ extension SpaceViewController {
     /// Write the current split state for this Space's root to UserDefaults.
     /// Called from `SpaceWindowController` on every split change.
     func persistSplitState(for root: URL) {
+        let diag = ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil
         // Tab 0 only -- restore creates one tab per Space, so only the first
         // tab's split is worth saving. If it is unsplit, clear the stored state.
         guard let primary = documents.first,
               let snapshot = splitSnapshot(for: primary) else {
             SplitStateStore.removeSnapshots(for: root)
             // P-3: log the clear so "split not restored" has a traceable cause.
-            if ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil {
+            if diag {
                 FileHandle.standardError.write(Data(
                     "[goblin-portal] split: root=\(root.path) written=cleared\n".utf8))
             }
@@ -218,7 +219,7 @@ extension SpaceViewController {
         // P-3: log on every write so divider drags and split create/close are
         // observable under GOBLIN_PORTAL_DIAG=1 without attaching a debugger.
         // Follows the pattern from `FileTreeViewController+Git.swift:213`.
-        if ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil {
+        if diag {
             FileHandle.standardError.write(Data(
                 "[goblin-portal] split: root=\(root.path) written=snapshot\n".utf8))
         }

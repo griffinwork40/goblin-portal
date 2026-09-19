@@ -66,9 +66,12 @@ func checkEq<T: Equatable>(_ label: String, _ got: T, _ expect: T) {
     }
 }
 
-// Snapshot the real splitState BEFORE this harness writes anything, so the
-// isolation assertion can compare a delta.
-let realSplitStateBefore = UserDefaults.standard.data(forKey: "GoblinPortal.splitState")
+// Snapshot the real app domain's splitState BEFORE this harness writes anything,
+// so the isolation assertion can compare a delta. Reading from the *app's* suite
+// (not UserDefaults.standard, which is the anonymous domain of this bundle-less
+// binary) proves inter-domain isolation — matching check-space-restore.sh:70.
+let appDomain = UserDefaults(suiteName: "com.griffinlong.goblin-portal")
+let realSplitStateBefore = appDomain?.data(forKey: "GoblinPortal.splitState")
 
 let testRoot = URL(fileURLWithPath: "/tmp/goblin-split-check-\(getpid())")
 
@@ -145,11 +148,45 @@ SplitStateStore.setSnapshots([], for: testRoot)
 // After clearing, snapshots(for:) must return nil — not an empty array.
 check("setSnapshots([]): nil after clear", SplitStateStore.snapshots(for: testRoot) == nil)
 
-// ── Isolation: the real app's splitState was not touched ─────────────────────
-// The harness is a bundle-less binary; its UserDefaults domain is NOT
-// com.griffinlong.goblin-portal. This assertion proves the assumption rather than
-// trusting it — matched against the pre-run snapshot.
-let realSplitStateAfter = UserDefaults.standard.data(forKey: "GoblinPortal.splitState")
+// ── Case 6: setAll writes multiple roots in one call ─────────────────────────
+// Covers the quit-path batch method that Phase 1 (review spec item 2) identified
+// as untested. Write two roots, read both back, then clear one selectively.
+let testRoot2 = URL(fileURLWithPath: "/tmp/goblin-split-check-\(getpid())-2")
+let snap2 = SplitSnapshot(
+    outerDirection: "vertical",
+    outerRatio: 0.6,
+    peerCwd: "/tmp/peer2",
+    primarySubSplit: nil,
+    peerSubSplit: nil)
+
+SplitStateStore.setAll([
+    (root: testRoot,  snapshots: [full]),
+    (root: testRoot2, snapshots: [snap2])
+])
+let fromAll1 = SplitStateStore.snapshots(for: testRoot)
+let fromAll2 = SplitStateStore.snapshots(for: testRoot2)
+check("setAll: root 1 present",  fromAll1 != nil)
+check("setAll: root 2 present",  fromAll2 != nil)
+checkEq("setAll: root 1 direction", fromAll1?.first?.outerDirection, "horizontal")
+checkEq("setAll: root 2 direction", fromAll2?.first?.outerDirection, "vertical")
+checkEq("setAll: root 2 ratio",     fromAll2?.first?.outerRatio,     0.6)
+
+// Selective clear: remove root 1, keep root 2.
+SplitStateStore.setAll([
+    (root: testRoot,  snapshots: []),
+    (root: testRoot2, snapshots: [snap2])
+])
+check("setAll selective clear: root 1 nil",     SplitStateStore.snapshots(for: testRoot) == nil)
+check("setAll selective clear: root 2 present", SplitStateStore.snapshots(for: testRoot2) != nil)
+// Clean up root 2.
+SplitStateStore.setSnapshots([], for: testRoot2)
+
+// ── Isolation: the real app domain's splitState was not touched ───────────────
+// The harness is a bundle-less binary; its UserDefaults.standard domain is NOT
+// com.griffinlong.goblin-portal. This assertion reads the app's actual suite
+// domain before and after, proving inter-domain isolation — matching
+// check-space-restore.sh:70's technique.
+let realSplitStateAfter = appDomain?.data(forKey: "GoblinPortal.splitState")
 let isolationHeld: Bool
 if let before = realSplitStateBefore, let after = realSplitStateAfter {
     isolationHeld = before == after
