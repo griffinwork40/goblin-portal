@@ -114,8 +114,8 @@ extension TerminalPane {
             onCommandStart: { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    guard self.status == .idle else { return }
                     self.status = .running
-                    self.documentDelegate?.documentDidChangeStatus(self)
                     termDiag("OSC 133 C -> .running")
                 }
             }
@@ -174,7 +174,10 @@ extension TerminalPane {
             // this, a quick `ls` would leave the running dot stuck on the tab until the
             // next command. Other states (.failed, .succeeded, .attention) are left alone
             // — .ignore means "this command has nothing to say", not "erase prior news".
-            if status == .running { status = .idle }
+            if status == .running {
+                status = .idle
+                termDiag("OSC 133 D -> .ignore (running cleared to idle)")
+            }
         }
     }
 
