@@ -70,6 +70,12 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     /// `AppConfig` so the draw path has one dependency: `self.fontThicken`.
     var fontThicken: Bool = false
 
+    // MARK: - Search highlight overlay
+
+    /// Transparent overlay that draws translucent rects at every search match.
+    /// Lazily created on the first search; removed when the find bar is dismissed.
+    private(set) var searchOverlay: SearchHighlightOverlay?
+
     /// Override `draw(_:)` only to inject font dilation before SwiftTerm's own
     /// glyph pass. Every actual drawing is done by `super.draw(dirtyRect)`.
     ///
@@ -87,6 +93,90 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
             CGContextSetFontSmoothingStyle(ctx, 48)  // 48 = medium dilation (Terminal.app default)
         }
         super.draw(dirtyRect)
+        // Sync overlay geometry after every terminal redraw so scrolling,
+        // new output, and selection changes are reflected without needing
+        // a separate `selectionChanged` override (which has concurrency
+        // issues — Terminal is not Sendable, and the inherited signature
+        // is nonisolated while MacTerminalView is @MainActor).
+        updateSearchOverlayGeometry()
+    }
+
+    // MARK: - Search state callback
+
+    /// Called by SwiftTerm (patch 0009) whenever the find bar's search term or
+    /// options change, or the find bar is dismissed.  Drives the all-match
+    /// highlight overlay so every match is visible, not just the selected one.
+    override func searchStateDidChange(term: String, options: SearchOptions) {
+        if term.isEmpty {
+            searchOverlay?.removeFromSuperview()
+            searchOverlay = nil
+            lastSearchTerm = ""
+            lastSearchOptions = SearchOptions()
+            return
+        }
+
+        lastSearchTerm = term
+        lastSearchOptions = options
+
+        let overlay = ensureSearchOverlay()
+        let matches = findAllMatchPositions(term, options: options)
+        let summary = searchMatchSummary(term, options: options)
+        let terminal = getTerminal()
+
+        overlay.cellSize = terminalCellSize
+        overlay.scrollOffset = terminal.buffer.yDisp
+        overlay.visibleRows = terminal.rows
+        // searchMatchSummary returns 1-based index; convert to 0-based.
+        overlay.activeMatchIndex = summary.index > 0 ? summary.index - 1 : -1
+        overlay.matches = matches  // triggers needsDisplay
+    }
+
+    /// Remembered search state so `updateSearchOverlayGeometry` can refresh
+    /// the active-match index after a scroll without re-querying the term.
+    private var lastSearchTerm: String = ""
+    private var lastSearchOptions: SearchOptions = SearchOptions()
+
+    /// Cell size derived from view bounds and grid dimensions.
+    /// `cellDimension` on `MacTerminalView` is internal, so we compute it.
+    private var terminalCellSize: CGSize {
+        let terminal = getTerminal()
+        guard terminal.cols > 0, terminal.rows > 0 else { return .zero }
+        return CGSize(
+            width: bounds.width / CGFloat(terminal.cols),
+            height: bounds.height / CGFloat(terminal.rows)
+        )
+    }
+
+    /// Update the overlay geometry after a scroll or resize.  The overlay is
+    /// a sibling view drawn independently, so it must be told when the
+    /// viewport moves.  Called by `selectionChanged(source:)` below — which
+    /// fires on every scroll and selection change — and by `layout()`.
+    func updateSearchOverlayGeometry() {
+        guard let overlay = searchOverlay, !overlay.matches.isEmpty else { return }
+        let terminal = getTerminal()
+        overlay.scrollOffset = terminal.buffer.yDisp
+        overlay.visibleRows = terminal.rows
+        overlay.cellSize = terminalCellSize
+        if !lastSearchTerm.isEmpty {
+            let summary = searchMatchSummary(lastSearchTerm, options: lastSearchOptions)
+            overlay.activeMatchIndex = summary.index > 0 ? summary.index - 1 : -1
+        }
+        overlay.frame = bounds
+        overlay.needsDisplay = true
+    }
+
+    override func layout() {
+        super.layout()
+        updateSearchOverlayGeometry()
+    }
+
+    private func ensureSearchOverlay() -> SearchHighlightOverlay {
+        if let existing = searchOverlay { return existing }
+        let overlay = SearchHighlightOverlay(frame: bounds)
+        overlay.autoresizingMask = [.width, .height]
+        addSubview(overlay)
+        searchOverlay = overlay
+        return overlay
     }
 
     // MARK: - Initialisation

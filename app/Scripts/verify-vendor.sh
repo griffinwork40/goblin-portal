@@ -336,4 +336,15 @@ if [[ "$GOT_ATV" != "$WANT_ATV" ]]; then
   exit 3
 fi
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 7 local patches"
+# --- sixth check: is the search-state-changed hook (0009) applied? ---------------
+TVS="$VENDOR/Sources/SwiftTerm/TerminalViewSearch.swift"
+if [ ! -f "$TVS" ]; then err "error: TerminalViewSearch.swift missing."; exit 1; fi
+WANT_TVS="$(pin_value patched_terminal_view_search)"
+GOT_TVS="$(sha256_of "$TVS")"
+if [ "$GOT_TVS" != "$WANT_TVS" ]; then
+  err "error: TerminalViewSearch.swift hash mismatch (expected $WANT_TVS, got $GOT_TVS)."
+  err "  Regenerate: shasum -a 256 $TVS"
+  exit 3
+fi
+
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 9 local patches"
