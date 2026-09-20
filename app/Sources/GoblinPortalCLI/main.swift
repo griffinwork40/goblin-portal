@@ -17,7 +17,7 @@
 //    `com.griffinlong.goblin-portal.openFile` with a userInfo dictionary containing
 //    the absolute file path and, when --wait is requested, a unique Unix
 //    domain socket path the app will write "ok\n" to when the document closes.
-//    If GoblinPortal.app is not running, the CLI launches it first via NSWorkspace
+//    If Goblin Portal.app is not running, the CLI launches it first via NSWorkspace
 //    and waits up to 5 seconds for it to register its notification observer.
 //
 
@@ -76,7 +76,7 @@ guard FileManager.default.fileExists(atPath: resolved) else {
     exit(1)
 }
 
-// MARK: - Ensure GoblinPortal.app is running
+// MARK: - Ensure Goblin Portal.app is running
 
 let bundleID = "com.griffinlong.goblin-portal"
 
@@ -88,7 +88,7 @@ if !isAppRunning() {
     // Launch Goblin Portal. NSWorkspace finds it by bundle ID — no hard-coded path needed.
     // If the app is not installed, the open call fails and we exit early.
     guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
-        fputs("goblin-portal: GoblinPortal.app not found — is it installed in /Applications?\n", stderr)
+        fputs("goblin-portal: Goblin Portal.app not found — is it installed in /Applications?\n", stderr)
         exit(1)
     }
     let config = NSWorkspace.OpenConfiguration()
@@ -105,7 +105,7 @@ if !isAppRunning() {
     }
     sema.wait()
     if let err = launchError {
-        fputs("goblin-portal: could not launch GoblinPortal.app: \(err.localizedDescription)\n", stderr)
+        fputs("goblin-portal: could not launch Goblin Portal.app: \(err.localizedDescription)\n", stderr)
         exit(1)
     }
     // Wait for the app to finish launching and register its notification observer.
@@ -117,7 +117,7 @@ if !isAppRunning() {
         waited += 1
     }
     if !isAppRunning() {
-        fputs("goblin-portal: timed out waiting for GoblinPortal.app to start\n", stderr)
+        fputs("goblin-portal: timed out waiting for Goblin Portal.app to start\n", stderr)
         exit(1)
     }
     // A short additional grace period so the distributed-notification observer is

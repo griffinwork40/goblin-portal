@@ -15,7 +15,7 @@
 #   Goblin Portal sets GOBLIN_PORTAL_INTEGRATION to the path of this script in the shell
 #   environment. If you prefer to source explicitly:
 #
-#     source /path/to/GoblinPortal.app/Contents/Resources/shell-integration.zsh
+#     source "/path/to/Goblin Portal.app/Contents/Resources/shell-integration.zsh"
 #
 # Guard: only activates when TERM_PROGRAM is GoblinPortal. Sourcing in another
 # terminal is a no-op, so this block is safe to leave in your .zshrc

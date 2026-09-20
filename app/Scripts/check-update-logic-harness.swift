@@ -56,7 +56,7 @@ func findZipAsset(in json: [String: Any]) -> URL? {
         guard let assetName = asset["name"] as? String,
               assetName.hasSuffix(".zip"),
               !assetName.hasSuffix(".sha256"),
-              assetName.hasPrefix("GoblinPortal-"),
+              (assetName.hasPrefix("Goblin Portal-") || assetName.hasPrefix("GoblinPortal-")),
               let downloadURL = asset["browser_download_url"] as? String,
               let url = URL(string: downloadURL),
               url.scheme == "https",
@@ -82,7 +82,7 @@ func findHashAsset(in json: [String: Any]) -> URL? {
     for asset in assets {
         guard let assetName = asset["name"] as? String,
               assetName.hasSuffix(".zip.sha256"),
-              assetName.hasPrefix("GoblinPortal-"),
+              (assetName.hasPrefix("Goblin Portal-") || assetName.hasPrefix("GoblinPortal-")),
               let downloadURL = asset["browser_download_url"] as? String,
               let url = URL(string: downloadURL),
               url.scheme == "https",
@@ -204,6 +204,16 @@ let githubDirectAsset: [String: Any] = [
 check("github.com host is allowed (Item 4)",
       findZipAsset(in: githubDirectAsset) != nil)
 
+// New "Goblin Portal-" prefix (v1.3.0+ asset naming).
+let newNameCDN = "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1234/Goblin%20Portal-v1.3.0.zip"
+let newNameAsset: [String: Any] = [
+    "assets": [
+        ["name": "Goblin Portal-v1.3.0.zip", "browser_download_url": newNameCDN]
+    ]
+]
+check("new 'Goblin Portal-' prefix accepted",
+      findZipAsset(in: newNameAsset) != nil)
+
 // Item 4: name prefix — reject zip without GoblinPortal- prefix.
 let badNameURL = "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1234/Malware-v1.0.zip"
 let badNameAsset: [String: Any] = [
@@ -283,6 +293,16 @@ let foreignHash: [String: Any] = [
 ]
 check("foreign host rejected for hash sidecar",
       findHashAsset(in: foreignHash) == nil)
+
+// New "Goblin Portal-" prefix accepted for hash sidecar too.
+let newNameHashURL = "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1234/Goblin%20Portal-v1.3.0.zip.sha256"
+let newNameHashAsset: [String: Any] = [
+    "assets": [
+        ["name": "Goblin Portal-v1.3.0.zip.sha256", "browser_download_url": newNameHashURL]
+    ]
+]
+check("new 'Goblin Portal-' prefix accepted for hash sidecar",
+      findHashAsset(in: newNameHashAsset) != nil)
 
 // Name prefix guard: sidecar without GoblinPortal- prefix rejected.
 let badPrefixHash: [String: Any] = [

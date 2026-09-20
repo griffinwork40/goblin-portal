@@ -10,13 +10,13 @@
 # Usage:
 #   ./Scripts/make-app-bundle.sh [debug|release]
 #
-# Output: build/GoblinPortal.app
+# Output: build/Goblin Portal.app
 #
 set -euo pipefail
 
 CONFIG="${1:-debug}"
-APP_NAME="GoblinPortal"
-DISPLAY_NAME="Goblin Portal"
+BIN_NAME="GoblinPortal"
+APP_NAME="Goblin Portal"
 BUNDLE_ID="com.griffinlong.goblin-portal"
 VERSION="1.3.0"
 
@@ -46,7 +46,7 @@ echo "==> swift build -c $CONFIG (sdk $ACTUAL_SDK_VERSION)"
 swift build -c "$CONFIG" $PLATFORM_VERSION_FLAGS
 
 BIN_DIR="$(swift build -c "$CONFIG" $PLATFORM_VERSION_FLAGS --show-bin-path)"
-BIN="$BIN_DIR/$APP_NAME"
+BIN="$BIN_DIR/$BIN_NAME"
 if [[ ! -x "$BIN" ]]; then
   echo "error: expected executable at $BIN" >&2
   exit 1
@@ -56,16 +56,16 @@ APP="$ROOT/build/$APP_NAME.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
+cp "$BIN" "$APP/Contents/MacOS/$BIN_NAME"
 
 # CLI binary (`goblin-portal`). Installed into the app bundle so it travels with the app
 # and is versioned together with it. The recommended install path for users is
 # /usr/local/bin/goblin-portal, added as a symlink to the bundle's copy so updates to
-# GoblinPortal.app are picked up automatically without re-running any installer:
+# Goblin Portal.app are picked up automatically without re-running any installer:
 #
-#   sudo ln -sf /Applications/GoblinPortal.app/Contents/MacOS/goblin-portal /usr/local/bin/goblin-portal
+#   sudo ln -sf "/Applications/Goblin Portal.app/Contents/MacOS/goblin-portal" /usr/local/bin/goblin-portal
 #
-# We install the binary at Contents/MacOS/goblin-portal (lowercase) alongside GoblinPortal so
+# We install the binary at Contents/MacOS/goblin-portal (lowercase) alongside the main binary so
 # codesign and notarisation treat it as part of the same bundle.
 CLI_BIN="$BIN_DIR/GoblinPortalCLI"
 if [[ -x "$CLI_BIN" ]]; then
@@ -109,7 +109,7 @@ else
   echo "==> warning: $UPDATE_SH_SRC missing; in-place updates will not be available" >&2
 fi
 
-# App icon. Resources/GoblinPortal.icns is committed so a build needs no Python or
+# App icon. Resources/Goblin Portal.icns is committed so a build needs no Python or
 # Pillow; regenerate it with Scripts/make-icon.py --icns when the design changes.
 ICON_SRC="$ROOT/Resources/$APP_NAME.icns"
 if [[ -f "$ICON_SRC" ]]; then
@@ -149,13 +149,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key>
-	<string>$APP_NAME</string>
+	<string>$BIN_NAME</string>
 	<key>CFBundleIdentifier</key>
 	<string>$BUNDLE_ID</string>
 	<key>CFBundleName</key>
-	<string>$DISPLAY_NAME</string>
+	<string>$APP_NAME</string>
 	<key>CFBundleDisplayName</key>
-	<string>$DISPLAY_NAME</string>
+	<string>$APP_NAME</string>
 ${ICON_PLIST_ENTRY}	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -220,7 +220,7 @@ PLIST
 # credentials are also present — submits, waits, and staples in one pass. The ad-hoc
 # path is unchanged: no hardened runtime, no notarisation, works on the local machine.
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
-ENTITLEMENTS="$ROOT/Resources/GoblinPortal.entitlements"
+ENTITLEMENTS="$ROOT/Resources/Goblin Portal.entitlements"
 
 if [[ "$SIGN_IDENTITY" != "-" ]]; then
   # --- Distribution signing: hardened runtime + entitlements ---
@@ -308,7 +308,7 @@ if [[ "$SIGN_IDENTITY" != "-" ]]; then
 
   if [[ "$NOTARIZE" == "true" ]]; then
     echo "==> notarising (this takes 1–5 minutes)"
-    ZIP_TMP="$(mktemp -d)/GoblinPortal-notarize.zip"
+    ZIP_TMP="$(mktemp -d)/Goblin Portal-notarize.zip"
     ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP_TMP"
 
     xcrun notarytool submit "$ZIP_TMP" "${NOTARY_ARGS[@]}" --wait

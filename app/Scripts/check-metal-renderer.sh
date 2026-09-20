@@ -138,16 +138,16 @@ if ! ./Scripts/make-app-bundle.sh >/dev/null 2>&1; then
   echo "error: make-app-bundle.sh failed — cannot check the packaged path." >&2
   exit 2
 fi
-APP_SHADER="$APP_ROOT/build/GoblinPortal.app/Contents/Resources/SwiftTerm_SwiftTerm.bundle/Contents/Resources/Shaders.metal"
+APP_SHADER="$APP_ROOT/build/Goblin Portal.app/Contents/Resources/SwiftTerm_SwiftTerm.bundle/Contents/Resources/Shaders.metal"
 if [[ ! -f "$APP_SHADER" ]]; then
-  echo "✗ FAIL: the shader is in the build products but NOT in GoblinPortal.app." >&2
+  echo "✗ FAIL: the shader is in the build products but NOT in Goblin Portal.app." >&2
   echo "  Expected: ${APP_SHADER#$APP_ROOT/}" >&2
   echo "  make-app-bundle.sh copies \$BIN_DIR/*.bundle into Contents/Resources (:51-53);" >&2
   echo "  if that loop changed, the shipped app has no reachable GPU renderer even though" >&2
   echo "  \`swift run\` does. That divergence is invisible in normal use." >&2
   exit 1
 fi
-say "  ok  shader in GoblinPortal.app/Contents/Resources"
+say "  ok  shader in Goblin Portal.app/Contents/Resources"
 
 failures=0
 

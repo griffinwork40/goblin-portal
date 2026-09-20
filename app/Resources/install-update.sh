@@ -5,7 +5,7 @@
 # Called by UpdateInstaller.swift with four arguments:
 #   $1  PID of the running Goblin Portal process to wait on
 #   $2  Path to the NEW .app bundle (in the extraction temp dir)
-#   $3  Path to the INSTALLED .app bundle (e.g. /Applications/GoblinPortal.app)
+#   $3  Path to the INSTALLED .app bundle (e.g. /Applications/Goblin Portal.app)
 #   $4  Path to the temp directory to clean up after
 #
 # This script outlives the parent process. It waits for the old app to exit,
@@ -108,7 +108,7 @@ if ! codesign --verify --deep --strict "$INSTALLED_APP" 2>/dev/null; then
     # the backup. Without this rm, POSIX mv moves the backup INSIDE the
     # existing $INSTALLED_APP directory (because the target is a directory)
     # instead of replacing it -- the backup nests at
-    # $INSTALLED_APP/GoblinPortal.app.bak-XXXX/ while the bad bundle stays.
+    # $INSTALLED_APP/Goblin Portal.app.bak-XXXX/ while the bad bundle stays.
     rm -rf "$INSTALLED_APP"
     if mv "$BACKUP" "$INSTALLED_APP"; then
         osascript -e 'display alert "Update failed" message "The downloaded update failed code-signature verification. The previous version has been restored."'

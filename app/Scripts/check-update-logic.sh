@@ -8,7 +8,7 @@
 #     @MainActor. Extracted verbatim into check-update-logic-harness.swift and
 #     compiled standalone with swiftc. Tests cover the lexicographic trap in
 #     semver comparison (1.10.0 > 1.9.0), the Item-4 host allowlist, and the
-#     GoblinPortal- name-prefix guard.
+#     Goblin Portal- name-prefix guard.
 #   Part B (shell): The install-update.sh trampoline swap logic. Uses temp dirs
 #     and a verified-dead PID to exercise the mv, restore, and cleanup paths
 #     without touching /Applications or any live process.
@@ -124,8 +124,8 @@ chmod +x "$FAKE_BIN/open"
 # ── B.1: happy path -- dead PID, new content lands at installed path ──────────
 printf '\nB.1 — happy path: new bundle moved into place, backup cleaned up\n'
 
-INSTALLED="$WORK/installed/GoblinPortal.app"
-NEWAPP="$WORK/new/GoblinPortal.app"
+INSTALLED="$WORK/installed/Goblin Portal.app"
+NEWAPP="$WORK/new/Goblin Portal.app"
 TMPDIR_B1="$WORK/tmp_b1"
 
 # Build a properly-structured minimal bundle. codesign --strict requires:
@@ -150,8 +150,10 @@ printf '<?xml version="1.0" encoding="UTF-8"?>
 <key>CFBundleIdentifier</key><string>com.test.goblinportal-update-gate</string>
 </dict></plist>
 ' > "$NEWAPP/Contents/Info.plist"
-# Ad-hoc sign AFTER all files are placed. Only the executable + Info.plist in
-# the bundle, so codesign --strict has nothing unexpected to reject.
+# Ad-hoc sign AFTER all files are placed. Sign the inner executable first
+# (inside-out), then the outer bundle. codesign with --deep does not reliably
+# sign subcomponents when the .app path contains spaces.
+codesign --sign - --force "$NEWAPP/Contents/MacOS/GoblinPortal" 2>/dev/null || true
 codesign --sign - --force "$NEWAPP" 2>/dev/null || true
 
 # Launch a subshell that exits immediately. Its PID is guaranteed dead by the
@@ -182,9 +184,9 @@ else
 fi
 
 # Backup must have been cleaned up (moved to Trash or removed).
-BACKUP_PATTERN="$WORK/installed/GoblinPortal.app.bak-"
+BACKUP_PATTERN="$WORK/installed/Goblin Portal.app.bak-"
 found_backup=0
-for f in "$WORK/installed/GoblinPortal.app.bak-"*; do
+for f in "$WORK/installed/Goblin Portal.app.bak-"*; do
     [ -e "$f" ] && found_backup=1 && break
 done
 check_b "backup cleaned up after success" "$found_backup"
@@ -200,9 +202,9 @@ check_b "temp dir cleaned up after success" "$([ -d "$TMPDIR_B1" ] && echo 1 || 
 # (fails because the path does not exist), then restore backup→installed.
 printf '\nB.2 — failed mv: backup restored to installed path\n'
 
-INSTALLED_B2="$WORK/installed_b2/GoblinPortal.app"
+INSTALLED_B2="$WORK/installed_b2/Goblin Portal.app"
 TMPDIR_B2="$WORK/tmp_b2"
-NONEXISTENT_APP="$WORK/nonexistent/GoblinPortal.app"
+NONEXISTENT_APP="$WORK/nonexistent/Goblin Portal.app"
 
 mkdir -p "$INSTALLED_B2/Contents/MacOS" "$TMPDIR_B2"
 printf '#!/bin/sh\necho original\n' > "$INSTALLED_B2/Contents/MacOS/GoblinPortal"
@@ -244,8 +246,8 @@ check_b "temp dir cleaned up after failed mv" \
 # mv, and this case proves the restore now works end to end.
 printf '\nB.3 — codesign failure: bad bundle removed, backup restored\n'
 
-INSTALLED_B3="$WORK/installed_b3/GoblinPortal.app"
-NEWAPP_B3="$WORK/new_b3/GoblinPortal.app"
+INSTALLED_B3="$WORK/installed_b3/Goblin Portal.app"
+NEWAPP_B3="$WORK/new_b3/Goblin Portal.app"
 TMPDIR_B3="$WORK/tmp_b3"
 
 mkdir -p "$INSTALLED_B3/Contents/MacOS" "$NEWAPP_B3/Contents/MacOS" "$TMPDIR_B3"

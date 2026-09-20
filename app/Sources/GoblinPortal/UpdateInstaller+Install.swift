@@ -149,7 +149,7 @@ extension UpdateInstaller {
                 return
             }
 
-            // The zip from release.yml wraps GoblinPortal.app at the top level
+            // The zip from release.yml wraps Goblin Portal.app at the top level
             // (ditto --keepParent). Find the .app inside the extraction.
             guard let appBundle = Self.findAppBundle(in: extractDir) else {
                 await MainActor.run {
@@ -182,7 +182,7 @@ extension UpdateInstaller {
             }
 
             // Verify the extracted app has an executable.
-            let executable = appBundle.appendingPathComponent("Contents/MacOS/GoblinPortal")
+            let executable = appBundle.appendingPathComponent("Contents/MacOS/GoblinPortal")  // SwiftPM product name (no space)
             guard FileManager.default.isExecutableFile(atPath: executable.path) else {
                 await MainActor.run {
                     self.fail("The extracted app bundle is incomplete -- no executable found.")
@@ -195,7 +195,7 @@ extension UpdateInstaller {
             guard let installedURL = Self.runningAppURL() else {
                 await MainActor.run {
                     self.fail("Could not determine the installed app location. "
-                              + "Update manually by dragging GoblinPortal.app to /Applications.")
+                              + "Update manually by dragging Goblin Portal.app to /Applications.")
                     self.cleanup(tempDir)
                 }
                 return
@@ -269,7 +269,7 @@ extension UpdateInstaller {
     nonisolated private static func runningAppURL() -> URL? {
         let bundle = Bundle.main
         // Bundle.main.bundleURL for a .app is e.g.
-        //   /Applications/GoblinPortal.app
+        //   /Applications/Goblin Portal.app
         // Under `swift run` it points into .build/ and has no Info.plist.
         guard bundle.infoDictionary?["CFBundleIdentifier"] != nil else { return nil }
         return bundle.bundleURL

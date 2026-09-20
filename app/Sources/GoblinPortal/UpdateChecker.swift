@@ -92,7 +92,7 @@ final class UpdateChecker {
         let url: URL          // release page on GitHub
         let name: String      // release title
         let zipURL: URL?      // direct download URL for the .zip asset, if any
-        // S2 -- SHA-256 sidecar asset URL, e.g. "GoblinPortal-v0.3.0.zip.sha256".
+        // S2 -- SHA-256 sidecar asset URL, e.g. "Goblin Portal-v0.3.0.zip.sha256".
         // nil when the release predates hash publishing or is from a private repo
         // where assets are not visible. UpdateInstaller skips verification gracefully
         // when this is nil -- it only blocks on a mismatch, never on absence.
@@ -127,7 +127,7 @@ final class UpdateChecker {
             let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
 
             // Find the .zip asset in the release's assets array. The release
-            // workflow uploads GoblinPortal-vX.Y.Z.zip as the installable
+            // workflow uploads Goblin Portal-vX.Y.Z.zip as the installable
             // artifact (ditto-compressed, code-signed, notarised).
             // S2 -- Also extract the companion .sha256 sidecar when present.
             // findHashAsset is kept separate from findZipAsset so the existing
@@ -148,9 +148,10 @@ final class UpdateChecker {
     /// that only have a DMG, or private repos where assets are not visible).
     ///
     /// Item 4 -- Two additional guards beyond the original `.zip` suffix check:
-    ///   • Name prefix: only accept "GoblinPortal-*.zip". A malicious or
+    ///   • Name prefix: only accept "Goblin Portal-*.zip" (or legacy
+    ///     "GoblinPortal-*.zip" for v1.2.0 transition). A malicious or
     ///     mis-tagged release that happens to include a foreign zip cannot be
-    ///     installed in place of GoblinPortal.
+    ///     installed in place of Goblin Portal.
     ///   • Host allowlist: the download URL's host must be
     ///     objects.githubusercontent.com (CDN) or github.com (direct). Any
     ///     other host would mean the release JSON was tampered with or the API
@@ -169,7 +170,7 @@ final class UpdateChecker {
             guard let assetName = asset["name"] as? String,
                   assetName.hasSuffix(".zip"),
                   !assetName.hasSuffix(".sha256"),       // belt-and-suspenders
-                  assetName.hasPrefix("GoblinPortal-"),  // Item 4: name prefix guard
+                  (assetName.hasPrefix("Goblin Portal-") || assetName.hasPrefix("GoblinPortal-")),  // Item 4: name prefix guard
                   let downloadURL = asset["browser_download_url"] as? String,
                   let url = URL(string: downloadURL),
                   url.scheme == "https",                  // Item 4: reject non-HTTPS
@@ -182,7 +183,7 @@ final class UpdateChecker {
     }
 
     /// S2 -- Extracts the `.sha256` sidecar asset URL that matches the zip asset
-    /// (e.g. "GoblinPortal-v0.3.0.zip.sha256"). Returns `nil` when no sidecar
+    /// (e.g. "Goblin Portal-v0.3.0.zip.sha256"). Returns `nil` when no sidecar
     /// is present (old releases, private repos) -- UpdateInstaller proceeds
     /// without verification in that case (graceful degradation).
     ///
@@ -200,7 +201,7 @@ final class UpdateChecker {
         for asset in assets {
             guard let assetName = asset["name"] as? String,
                   assetName.hasSuffix(".zip.sha256"),
-                  assetName.hasPrefix("GoblinPortal-"),
+                  (assetName.hasPrefix("Goblin Portal-") || assetName.hasPrefix("GoblinPortal-")),
                   let downloadURL = asset["browser_download_url"] as? String,
                   let url = URL(string: downloadURL),
                   url.scheme == "https",
