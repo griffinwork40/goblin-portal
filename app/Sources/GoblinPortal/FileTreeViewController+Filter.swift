@@ -83,13 +83,28 @@ extension FileTreeViewController {
     /// matching directories. Called on every keystroke and on Escape.
     func applyFilter(_ query: String) {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
+        let wasFiltered = !filterQuery.isEmpty
         filterQuery = trimmed
 
         if trimmed.isEmpty {
-            // No filter — restore the full tree.
+            // Filter cleared — restore the pre-filter expansion state if we have
+            // one, so the tree looks exactly as it did before the user started
+            // typing. `reloadData` collapses everything, so restore runs after.
             visibleURLs = nil
             outlineView.reloadData()
+            if let saved = preFilterExpansion {
+                for node in saved { outlineView.expandItem(node) }
+                preFilterExpansion = nil
+            }
             return
+        }
+
+        // Going from no filter to a filter: snapshot which directories are
+        // currently expanded so we can put them back when the filter is cleared.
+        if !wasFiltered {
+            preFilterExpansion = (0..<outlineView.numberOfRows)
+                .compactMap { outlineView.item(atRow: $0) as? FileNode }
+                .filter { outlineView.isItemExpanded($0) }
         }
 
         // Walk the whole tree to build the accepted URL set: every matching leaf
