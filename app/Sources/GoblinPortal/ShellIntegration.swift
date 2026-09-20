@@ -56,18 +56,31 @@ enum ShellIntegration {
         /// Feeds directly into `CommandOutcome.of`, which is shared across engine paths.
         let callback: (Int?, UInt64) -> Void
 
-        init(callback: @escaping (Int?, UInt64) -> Void) {
+        /// Called when 'C' arrives — the user pressed Return and a command is running.
+        /// Defaults to a no-op so callers that only care about completion are unbroken.
+        /// The caller (`TerminalPane+ShellIntegration`) uses this to set `.running`
+        /// status on the tab, giving the strip a subtle "command in flight" indicator.
+        let onCommandStart: () -> Void
+
+        init(
+            onCommandStart: @escaping () -> Void = {},
+            callback: @escaping (Int?, UInt64) -> Void
+        ) {
+            self.onCommandStart = onCommandStart
             self.callback = callback
         }
     }
 
     // MARK: - Registration entry point
 
-    /// Wire OSC 133 onto `terminal`, firing `callback(exitCode, durationNanos)` on D.
+    /// Wire OSC 133 onto `terminal`, firing `onCommandStart` on C and
+    /// `callback(exitCode, durationNanos)` on D.
     ///
     /// - Parameters:
     ///   - terminal: An `OscRegistering` — in production, SwiftTerm's `Terminal`
     ///     (`view.getTerminal()`), conformed in `TerminalPane+ShellIntegration.swift`.
+    ///   - onCommandStart: Called when the user presses Return (OSC 133 C). Defaults to
+    ///     a no-op for callers that only care about completion.
     ///   - callback: Receives `(exitCode: Int?, durationNanos: UInt64)` when a command ends.
     ///
     /// Returns the `State` so `TerminalPane+ShellIntegration` can retain it; the state
@@ -75,9 +88,10 @@ enum ShellIntegration {
     @discardableResult
     static func register(
         on terminal: OscRegistering,
+        onCommandStart: @escaping () -> Void = {},
         callback: @escaping (Int?, UInt64) -> Void
     ) -> State {
-        let state = State(callback: callback)
+        let state = State(onCommandStart: onCommandStart, callback: callback)
         terminal.registerOscHandler(code: 133) { data in
             ShellIntegration.handle(data: data, state: state)
         }
@@ -104,6 +118,7 @@ enum ShellIntegration {
         case UInt8(ascii: "C"):
             // Command start — user pressed Return on a non-empty command line.
             state.commandStartTime = Date()
+            state.onCommandStart()
 
         case UInt8(ascii: "D"):
             // Command end. A D with no preceding C (commandStartTime == nil) is

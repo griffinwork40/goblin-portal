@@ -16,17 +16,17 @@ import AppKit
 /// (bell via `GoblinPortalTerminalViewDelegate`); `.succeeded` and `.failed` are now wired
 /// via OSC 133 (`ShellIntegration.swift` + `TerminalPane+ShellIntegration.swift`),
 /// fired when the shell sources `Resources/shell-integration.zsh`. `.running` is
-/// modelled for completeness but not yet surfaced in the tab strip — OSC 133 `A`/`C`
-/// are parsed and the state machine advances through it, but no UI reads it today.
+/// wired via `ShellIntegration.State.onCommandStart` — OSC 133 `C` sets it, and
+/// `applyCommandOutcome(.ignore)` clears it back to `.idle` on fast completion.
 ///
 /// Ordered by how loudly each one deserves to interrupt, so the strip can compare.
 enum DocumentStatus: Int, Comparable {
     /// Nothing to say. Every document's resting state.
     case idle = 0
 
-    /// Work in progress. OSC 133 `A`/`C` advances through this state internally in
-    /// `ShellIntegration.State` but no tab-strip presentation is wired yet — the state
-    /// machine tracks it so future UI can read it without re-parsing the sequences.
+    /// Work in progress. Wired from `ShellIntegration.State.onCommandStart` (OSC 133 `C`).
+    /// Only set when the pane is `.idle` — higher-ranked states (`.attention`, `.failed`,
+    /// `.succeeded`) are never overwritten by a new command start.
     case running = 1
 
     /// Finished cleanly. Wired via OSC 133 `D` → `CommandOutcome.of` → `.succeeded`

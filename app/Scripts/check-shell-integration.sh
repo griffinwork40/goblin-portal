@@ -115,9 +115,11 @@ if ShellIntegration.parseExitCode(from: asBytes("D;abc")) != nil {
 // ── State machine ──────────────────────────────────────────────────────────────
 
 var received: [(Int?, UInt64)] = []
-let state = ShellIntegration.State { code, nanos in
-    received.append((code, nanos))
-}
+var startCount = 0
+let state = ShellIntegration.State(
+    onCommandStart: { startCount += 1 },
+    callback: { code, nanos in received.append((code, nanos)) }
+)
 
 // 1. D before any C → ignored (first precmd after sourcing)
 ShellIntegration.handle(data: asBytes("D;0"), state: state)
@@ -190,6 +192,41 @@ if !received.isEmpty {
 ShellIntegration.handle(data: asBytes("D;0"), state: state)
 received.removeAll()
 
+// ── onCommandStart (OSC 133 C → .running) ─────────────────────────────────────
+
+// 8. C fires onCommandStart
+let priorStartCount = startCount
+ShellIntegration.handle(data: asBytes("C"), state: state)
+if startCount != priorStartCount + 1 {
+    fail("C-fires-onCommandStart", "expected startCount to increment on C; was \(priorStartCount), now \(startCount)")
+}
+// Clean up: deliver D so state is idle for the next case
+ShellIntegration.handle(data: asBytes("D;0"), state: state)
+received.removeAll()
+
+// 9. A does NOT fire onCommandStart (prompt redraw is not a command)
+let preAStartCount = startCount
+ShellIntegration.handle(data: asBytes("A"), state: state)
+if startCount != preAStartCount {
+    fail("A-no-onCommandStart", "A must not fire onCommandStart; was \(preAStartCount), now \(startCount)")
+}
+
+// 10. D does NOT fire onCommandStart
+ShellIntegration.handle(data: asBytes("C"), state: state)  // prime with a C first
+let preDStartCount = startCount
+ShellIntegration.handle(data: asBytes("D;0"), state: state)
+if startCount != preDStartCount {
+    fail("D-no-onCommandStart", "D must not fire onCommandStart; was \(preDStartCount), now \(startCount)")
+}
+received.removeAll()
+
+// 11. onCommandStart defaults to no-op (backward compat)
+let legacyState = ShellIntegration.State { _, _ in }
+ShellIntegration.handle(data: asBytes("C"), state: legacyState)
+// If the default closure were missing, this would not compile — that is the structural
+// assertion. At runtime, confirm no crash and the callback still fires.
+ShellIntegration.handle(data: asBytes("D;0"), state: legacyState)
+
 // ── parseOsc7Directory ────────────────────────────────────────────────────────
 
 // Basic file://localhost path
@@ -237,11 +274,11 @@ if invalid != nil {
 // ── FALSIFICATION PIN ─────────────────────────────────────────────────────────
 // Remove the `guard let start = state.commandStartTime` guard in handle() and
 // this pin must turn red: D before any C would then fire the callback.
-let falseState = ShellIntegration.State { _, _ in }
+let falseState = ShellIntegration.State(callback: { _, _ in })
 // If the guard is missing, this D would reach the callback — measure by counting
 // calls: falseState has its own callback, so we cannot share `received`.
 var falseCalled = 0
-let falseState2 = ShellIntegration.State { _, _ in falseCalled += 1 }
+let falseState2 = ShellIntegration.State(callback: { _, _ in falseCalled += 1 })
 ShellIntegration.handle(data: asBytes("D;0"), state: falseState2)
 if falseCalled != 0 {
     fail("falsification-pin", "guard removed? D before C fired the callback")
@@ -254,6 +291,7 @@ if bad == 0 {
     print("  ok  state machine: nil exit code on bare D, non-zero exit codes")
     print("  ok  state machine: second D without C ignored (idle reset)")
     print("  ok  unknown bytes (B) silently ignored")
+    print("  ok  onCommandStart: C fires it, A and D do not, default no-op compiles")
     print("  ok  parseOsc7Directory: basic file:// path, percent-encoded UTF-8, spaces, bare path, relative→nil, empty→nil, invalid→nil")
     print("  ok  falsification pin: D-before-C guard confirmed load-bearing")
     print("\nall shell-integration cases passed")

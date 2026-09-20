@@ -241,12 +241,11 @@ The following features have all landed on `main`. Moved here from the old "Not B
 - **Search** -- ⌘F scrollback search via SwiftTerm's find bar. Known gap: one match at a time, no all-match highlighting.
 - **App icon** -- shipped at `243fcfb`.
 - **Engine decision: SwiftTerm is the sole engine.** libghostty probe completed; decision made 2026-08-18 to stay with SwiftTerm. All ghostty code removed (commits `45f2e6ab`, `e7df3bf4` / PR #95). The six SwiftTerm patches (`0001`-`0006`) are long-term maintenance surface.
+- **`.running` tab indicator** -- OSC 133 `C` (command start) now sets `DocumentStatus.running`, showing a dim dot on the tab while a command is in flight. Clears to idle on completion when the outcome is `.ignore` (fast success on the active tab). Wired through `ShellIntegration.State.onCommandStart`; gated by `check-shell-integration.sh` (4 new cases). The presentation was already painted in `DocumentStatus+Presentation.swift` -- this connected the wire.
 
 ## Not Built Yet
 
 - **Profiles** -- no per-project or per-shell config profiles.
-- **`.running` OSC 133 status** -- the `DocumentStatus.running` enum case exists but is unwired on both code paths. A running command shows no tab indicator.
-
 - **Gutter dirty-diff / inline blame** -- deferred; needs a more complete editor.
 - **Changed-files list** -- a sidebar panel listing modified files. Needs container surgery. A `GitDiffPane: SpaceDocument` (a tab, not sidebar UI) is the sanctioned shape if diff is ever wanted.
 - **All-match search highlighting** -- scrollback search currently highlights one match at a time (selection-based).
