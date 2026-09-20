@@ -141,6 +141,12 @@ extension AppConfig {
                     "unfocusedPaneOpacity \(op) is outside 0.0–1.0 — using 1.0 (no dimming)")
             }
         }
+        // Sidebar config — fail-soft: bad input keeps the default (true).
+        if let s = file.sidebar {
+            if let autoReveal = s.autoReveal {
+                config.sidebarAutoReveal = autoReveal
+            }
+        }
         return config
     }
 
