@@ -117,9 +117,9 @@ if ShellIntegration.parseExitCode(from: asBytes("D;abc")) != nil {
 var received: [(Int?, UInt64)] = []
 var startCount = 0
 let state = ShellIntegration.State(
-    onCommandStart: { startCount += 1 },
     callback: { code, nanos in received.append((code, nanos)) }
 )
+state.onCommandStarted = { startCount += 1 }
 
 // 1. D before any C → ignored (first precmd after sourcing)
 ShellIntegration.handle(data: asBytes("D;0"), state: state)
