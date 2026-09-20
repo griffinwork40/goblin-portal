@@ -18,7 +18,7 @@ CONFIG="${1:-debug}"
 APP_NAME="GoblinPortal"
 DISPLAY_NAME="Goblin Portal"
 BUNDLE_ID="com.griffinlong.goblin-portal"
-VERSION="1.2.0"
+VERSION="1.3.0"
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
