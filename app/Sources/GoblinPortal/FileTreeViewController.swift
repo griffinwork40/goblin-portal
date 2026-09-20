@@ -102,6 +102,12 @@ final class FileTreeViewController: NSViewController {
     /// Nil means "no filter — show everything". Written by `applyFilter(_:)`.
     var visibleURLs: Set<URL>?
 
+    /// Expansion state saved the moment a filter is first applied, so it can be
+    /// restored exactly when the filter is cleared. Nil when no filter is active.
+    /// Stored here (not in the extension file) because Swift extensions cannot
+    /// add stored properties.
+    var preFilterExpansion: [FileNode]?
+
     init(root url: URL) {
         self.root = FileNode(url: url, isDirectory: true)
         super.init(nibName: nil, bundle: nil)
