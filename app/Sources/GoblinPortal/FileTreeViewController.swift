@@ -298,7 +298,7 @@ final class FileTreeViewController: NSViewController {
         // Guard: URL must be inside the current tree root.
         let rootPath = root.url.resolvingSymlinksInPath().path
         let targetPath = url.resolvingSymlinksInPath().path
-        guard targetPath.hasPrefix(rootPath) else { return }
+        guard targetPath.hasPrefix(rootPath + "/") || targetPath == rootPath else { return }
 
         // Walk the path components between root and target, expanding each directory
         // as we go so the child nodes are loaded before we try to show them.
