@@ -35,7 +35,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-APP="build/GoblinPortal.app"
+APP="build/Goblin Portal.app"
 [[ -d "$APP" ]] || {
   echo "error: $APP not found — run ./Scripts/make-app-bundle.sh first" >&2
   exit 1

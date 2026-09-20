@@ -27,7 +27,7 @@ import Foundation
 ///
 /// Supported invocation:
 ///
-///     GoblinPortal --wait <path>
+///     goblin-portal --wait <path>
 ///
 /// `--wait` is the POSIX convention adopted by every `$EDITOR` integration —
 /// used by git (`core.editor`), crontab, and `VISUAL` / `EDITOR` — where the

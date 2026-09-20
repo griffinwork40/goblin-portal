@@ -130,7 +130,7 @@ fi
 say "  ok  shader in SwiftPM resource bundle"
 
 # --- static case B: does the packaged .app carry it too? --------------------------
-# The dev path (`swift run`) and the shipped path (`open build/GoblinPortal.app`) resolve the
+# The dev path (`swift run`) and the shipped path (`open "build/Goblin Portal.app"`) resolve the
 # bundle from DIFFERENT places — Bundle.main.bundleURL versus Bundle.main.resourceURL
 # (candidateBundles(), MetalTerminalRenderer.swift:2825) — so checking one proves nothing
 # about the other. make-app-bundle.sh:51 is what carries it across; this asserts it did.
