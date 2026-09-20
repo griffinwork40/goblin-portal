@@ -145,6 +145,8 @@ expectUpdate("attention + succeeded -> setSucceeded",
 // .failed always wins, regardless of current state.
 expectUpdate("running + failed -> setFailed",
     CommandOutcome.failed.statusUpdate(currentIsRunning: true), .setFailed)
+expectUpdate("attention + failed -> setFailed",
+    CommandOutcome.failed.statusUpdate(currentIsRunning: false), .setFailed)
 
 // FALSIFICATION for the transition gate: flip the .ignore branch to always return .setIdle
 // and the "attention + ignore" case must fail. Verified by doing exactly that during authoring.
@@ -162,7 +164,7 @@ if bad == 0 {
     print("  ok  .attention + .ignore -> noChange (bell survives interleaved D)")
     print("  ok  .succeeded/.failed always win regardless of current state")
     print("  ok  transition falsification pin holds")
-    print("\nall command-outcome cases passed (17 mappings + threshold pin + 6 transition cases + 2 falsification pins)")
+    print("\nall command-outcome cases passed (17 mappings + threshold pin + 7 transition cases + 2 falsification pins)")
 } else {
     print("\n\(bad) command-outcome case(s) FAILED")
 }
