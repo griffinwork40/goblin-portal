@@ -247,6 +247,8 @@ final class FileTreeViewController: NSViewController {
     /// rebuilt the tree and discarded the user's expansion and selection twice a second:
     /// precisely the damage the guard exists to prevent, in the shape of a passing test.
     func setRoot(_ url: URL) {
+        filterField.stringValue = ""
+        applyFilter("")
         guard url.resolvingSymlinksInPath().path != root.url.resolvingSymlinksInPath().path
         else { return }
         root = FileNode(url: url, isDirectory: true)
