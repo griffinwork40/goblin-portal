@@ -37,7 +37,11 @@ import Foundation
 /// Refuses HTTP redirects to hosts outside the GitHub download allowlist.
 /// URLSession follows redirects by default with no callback; without this
 /// delegate a compromised CDN redirect could deliver arbitrary content from
-/// a non-allowlisted host. The allowlist matches UpdateChecker.findZipAsset.
+/// a non-allowlisted host.
+///
+/// GitHub release asset downloads follow a two-hop redirect chain:
+///   github.com → github.com/releases/download/... → release-assets.githubusercontent.com/...
+/// Both intermediate and final hosts must be in the allowlist.
 ///
 /// `internal` (not `private`) so UpdateInstaller+Install.swift can create a
 /// second instance for the SHA-256 sidecar fetch (S2). Private is file-scoped
@@ -46,6 +50,7 @@ import Foundation
 final class DownloadRedirectDelegate: NSObject, URLSessionTaskDelegate {
     static let allowedHosts: Set<String> = [
         "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
         "github.com",
     ]
 

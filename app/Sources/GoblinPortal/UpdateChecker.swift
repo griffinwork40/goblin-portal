@@ -153,16 +153,21 @@ final class UpdateChecker {
     ///     installed in place of Goblin Portal. Asset filenames use no space
     ///     because GitHub normalizes spaces to dots in release asset names.
     ///   • Host allowlist: the download URL's host must be
-    ///     objects.githubusercontent.com (CDN) or github.com (direct). Any
-    ///     other host would mean the release JSON was tampered with or the API
-    ///     returned an unexpected redirect target.
+    ///     objects.githubusercontent.com, release-assets.githubusercontent.com
+    ///     (CDN), or github.com (direct). Any other host would mean the
+    ///     release JSON was tampered with or the API returned an unexpected
+    ///     redirect target.
     ///   The existing `.sha256` exclusion is kept as belt-and-suspenders.
     nonisolated private static func findZipAsset(
         in json: [String: Any]
     ) -> URL? {
         // Item 4: allowed CDN/release hosts for GitHub asset downloads.
+        // browser_download_url in the API JSON always starts at github.com;
+        // release-assets.githubusercontent.com is added for defense-in-depth
+        // against a tampered JSON payload pointing directly at the CDN.
         let allowedHosts: Set<String> = [
             "objects.githubusercontent.com",
+            "release-assets.githubusercontent.com",
             "github.com",
         ]
         guard let assets = json["assets"] as? [[String: Any]] else { return nil }
@@ -195,6 +200,7 @@ final class UpdateChecker {
     ) -> URL? {
         let allowedHosts: Set<String> = [
             "objects.githubusercontent.com",
+            "release-assets.githubusercontent.com",
             "github.com",
         ]
         guard let assets = json["assets"] as? [[String: Any]] else { return nil }
