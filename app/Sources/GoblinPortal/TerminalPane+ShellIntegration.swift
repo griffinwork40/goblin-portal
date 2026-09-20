@@ -168,27 +168,25 @@ extension TerminalPane {
         shellIntegrationState = state
     }
 
-    /// Apply `outcome` to this pane's `status`. Extracted so it is legible at the
-    /// call site and testable independently of the OSC parsing above.
+    /// Apply `outcome` to this pane's `status`. Delegates to the pure
+    /// `CommandOutcome.statusUpdate(currentIsRunning:)` for the transition logic so the
+    /// policy is testable headlessly in `check-command-outcome.sh`. This function is the
+    /// single AppKit-side translator: Foundation decision → `DocumentStatus` write.
     ///
-    /// Maps `CommandOutcome` → `DocumentStatus` with the same one-line translation the
-    /// `CommandOutcome.swift` header describes: the decision (outcome) lives in that
-    /// Foundation-only file; the presentation type (`DocumentStatus`) is AppKit-adjacent
-    /// and lives here, in the one file that sees both.
+    /// The key invariant preserved by `statusUpdate`: `.ignore` only clears `.running`
+    /// back to idle — it never erases `.attention` or other prior news. A bell that fires
+    /// between OSC 133 C and D (C → bell → D with .ignore) therefore survives the D.
     func applyCommandOutcome(_ outcome: CommandOutcome) {
-        switch outcome {
-        case .failed:    status = .failed
-        case .succeeded: status = .succeeded
-        case .ignore:
-            // Clear `.running` back to idle when the command finishes without earning
-            // a status (fast success on the active tab, or missing exit code). Without
-            // this, a quick `ls` would leave the running dot stuck on the tab until the
-            // next command. Other states (.failed, .succeeded, .attention) are left alone
-            // — .ignore means "this command has nothing to say", not "erase prior news".
-            if status == .running {
-                status = .idle
-                termDiag("OSC 133 D -> .ignore (running cleared to idle)")
-            }
+        switch outcome.statusUpdate(currentIsRunning: status == .running) {
+        case .setFailed:
+            status = .failed
+        case .setSucceeded:
+            status = .succeeded
+        case .setIdle:
+            status = .idle
+            termDiag("OSC 133 D -> .ignore (running cleared to idle)")
+        case .noChange:
+            break
         }
     }
 

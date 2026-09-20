@@ -53,6 +53,11 @@ func expect(_ label: String, _ actual: CommandOutcome, _ wanted: CommandOutcome)
     print("  FAIL \(label): got \(actual), expected \(wanted)")
     bad += 1
 }
+func expectUpdate(_ label: String, _ actual: StatusUpdate, _ wanted: StatusUpdate) {
+    if actual == wanted { return }
+    print("  FAIL \(label): got \(actual), expected \(wanted)")
+    bad += 1
+}
 
 // Durations in nanoseconds, named so the cases read as intent rather than arithmetic.
 let instant: UInt64 = 40_000_000            // 40ms — a typo, or a cache hit
@@ -112,12 +117,52 @@ if CommandOutcome.of(exitCode: 0, durationNanos: long, isActiveDocument: false) 
     bad += 1
 }
 
+// --- 7. Status transition: statusUpdate(currentIsRunning:) --------------------------------
+// Pins the interleaved C → bell → D (.ignore) path: a bell that fires between OSC 133 C
+// and D sets .attention on the tab. The D arrives with outcome .ignore (fast success on the
+// active tab, or missing exit code). Without the `currentIsRunning` guard, .ignore would
+// clear .attention back to idle, silently erasing news the user earned.
+//
+// `currentIsRunning: true` models the normal .running tab (OSC 133 C has fired, D arriving).
+// `currentIsRunning: false` models .attention, .succeeded, .failed, .idle, etc. — any state
+// that is NOT .running, in which .ignore must be a no-op.
+
+// Normal clear: .running + .ignore -> idle (the running dot must disappear after a fast cmd).
+expectUpdate("running + ignore -> setIdle",
+    CommandOutcome.ignore.statusUpdate(currentIsRunning: true), .setIdle)
+
+// The interleaved case: bell fired between C and D, tab is now .attention but the D carries
+// .ignore. The bell must survive — .noChange means "leave .attention alone".
+expectUpdate("attention + ignore -> noChange (bell survives interleaved D)",
+    CommandOutcome.ignore.statusUpdate(currentIsRunning: false), .noChange)
+
+// .succeeded always wins, regardless of current state.
+expectUpdate("running + succeeded -> setSucceeded",
+    CommandOutcome.succeeded.statusUpdate(currentIsRunning: true), .setSucceeded)
+expectUpdate("attention + succeeded -> setSucceeded",
+    CommandOutcome.succeeded.statusUpdate(currentIsRunning: false), .setSucceeded)
+
+// .failed always wins, regardless of current state.
+expectUpdate("running + failed -> setFailed",
+    CommandOutcome.failed.statusUpdate(currentIsRunning: true), .setFailed)
+
+// FALSIFICATION for the transition gate: flip the .ignore branch to always return .setIdle
+// and the "attention + ignore" case must fail. Verified by doing exactly that during authoring.
+if CommandOutcome.ignore.statusUpdate(currentIsRunning: false) == .setIdle {
+    print("  FAIL transition falsification: .ignore on a non-running tab must NOT clear to idle")
+    bad += 1
+}
+
 if bad == 0 {
     print("  ok  active-tab guard beats every other input")
     print("  ok  any nonzero exit marks the tab; a missing exit code never does")
     print("  ok  success marks only at or past the 10s threshold, boundary inclusive")
     print("  ok  falsification pin holds; threshold is still 10s")
-    print("\nall command-outcome cases passed (17 mappings + threshold pin + falsification pin)")
+    print("  ok  .running + .ignore -> idle (normal clear)")
+    print("  ok  .attention + .ignore -> noChange (bell survives interleaved D)")
+    print("  ok  .succeeded/.failed always win regardless of current state")
+    print("  ok  transition falsification pin holds")
+    print("\nall command-outcome cases passed (17 mappings + threshold pin + 6 transition cases + 2 falsification pins)")
 } else {
     print("\n\(bad) command-outcome case(s) FAILED")
 }

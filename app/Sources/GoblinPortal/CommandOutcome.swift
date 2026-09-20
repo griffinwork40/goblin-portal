@@ -76,4 +76,47 @@ enum CommandOutcome: Equatable {
         let seconds = TimeInterval(durationNanos) / 1_000_000_000
         return seconds >= longRunningThreshold ? .succeeded : .ignore
     }
+
+    // MARK: - Status transition
+
+    /// The action to take on a tab's status after this outcome arrives.
+    ///
+    /// Foundation-only so it compiles in the headless gate (`check-command-outcome.sh`) alongside
+    /// `CommandOutcome.of`. `DocumentStatus` cannot be used here — it lives in `SpaceDocument.swift`
+    /// which imports AppKit. `StatusUpdate` mirrors the four reachable outcomes of the transition
+    /// and the AppKit caller (`applyCommandOutcome` in `TerminalPane+ShellIntegration.swift`)
+    /// translates them to real `DocumentStatus` values.
+    ///
+    /// The key invariant: `.ignore` only clears the tab back to idle when the current status is
+    /// `.running`. Any other status (.attention, .succeeded, .failed, .idle) is preserved — `.ignore`
+    /// means "this command has nothing to say", not "erase prior news". Without this guard, a bell
+    /// that fires between OSC 133 C and D (the interleaved C -> bell -> D path) would be silently
+    /// erased by the D's `.ignore` outcome, and the user would never see the .attention dot they
+    /// earned.
+    func statusUpdate(currentIsRunning: Bool) -> StatusUpdate {
+        switch self {
+        case .failed:    return .setFailed
+        case .succeeded: return .setSucceeded
+        case .ignore:    return currentIsRunning ? .setIdle : .noChange
+        }
+    }
+}
+
+/// The action `CommandOutcome.statusUpdate(currentIsRunning:)` instructs the caller to take.
+///
+/// Foundation-only. The AppKit caller translates these to `DocumentStatus` values.
+/// Kept as a top-level type (not nested inside `CommandOutcome`) so the gate harness can
+/// reference it without qualifying every case — matching the style of `CommandOutcome` itself.
+enum StatusUpdate: Equatable {
+    /// Clear a running indicator back to idle. Only returned when outcome is `.ignore`
+    /// and the current status is `.running`.
+    case setIdle
+    /// Mark the tab as failed. Returned unconditionally for `.failed` outcomes.
+    case setFailed
+    /// Mark the tab as succeeded. Returned unconditionally for `.succeeded` outcomes.
+    case setSucceeded
+    /// Do not change the current status. Returned when `.ignore` arrives on a tab
+    /// that is not in the `.running` state — preserving `.attention`, `.succeeded`,
+    /// `.failed`, or `.idle` as-is.
+    case noChange
 }
