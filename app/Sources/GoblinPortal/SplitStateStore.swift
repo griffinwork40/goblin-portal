@@ -19,6 +19,13 @@
 //  Written on every split change (create, close, divider drag) rather than at
 //  quit, matching `persistOpenRoots()`'s crash-safe discipline.
 //
+//  Codable note: both snapshot types implement explicit `init(from:)` rather
+//  than relying on synthesis. This is a compiler backstop: if a future field
+//  addition forgets to be Optional, the build breaks here (at the `decode` vs
+//  `decodeIfPresent` call site) rather than silently wiping saved splits at
+//  runtime when `try?` converts a missing-key throw to nil. Required fields
+//  use `decode`; optional fields use `decodeIfPresent` with a nil default.
+//
 
 import Foundation
 
@@ -27,27 +34,89 @@ import Foundation
 /// Serializable snapshot of one sub-split (a nested split inside one half of the
 /// outer split).
 ///
-/// **Schema rule:** new fields must be `Optional` (or decoded via `init(from:)`
-/// with a default). A non-optional addition silently invalidates every snapshot
-/// written by older versions — `JSONDecoder` throws on a missing key, the
-/// `try?` in `SplitStateStore` converts that to `nil`, and the user's saved
-/// splits are wiped on upgrade.
+/// **Schema rule:** new fields must be `Optional` and decoded with
+/// `decodeIfPresent` in `init(from:)`. A non-optional addition silently
+/// invalidates every snapshot written by older versions — `JSONDecoder` throws
+/// on a missing key, the `try?` in `SplitStateStore` converts that to `nil`,
+/// and the user's saved splits are wiped on upgrade.
 struct SubSplitSnapshot: Codable {
     let direction: String   // "horizontal" or "vertical"
     let ratio: Double       // 0...1, the nested container's dividerRatio
     let cwd: String?        // peer pane's working directory at save time
+
+    // Explicit CodingKeys: required so init(from:) can name each key and
+    // choose decode vs decodeIfPresent per field.
+    enum CodingKeys: String, CodingKey {
+        case direction
+        case ratio
+        case cwd
+    }
+
+    // Explicit init(from:) — the compiler backstop.
+    // Required fields: direction, ratio.
+    // Optional fields: cwd (decodeIfPresent → nil when absent).
+    // Adding a required field here without making it Optional causes a compile
+    // error if the corresponding property is also non-Optional, forcing the
+    // author to choose. That is the whole point.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        direction = try c.decode(String.self, forKey: .direction)
+        ratio     = try c.decode(Double.self, forKey: .ratio)
+        cwd       = try c.decodeIfPresent(String.self, forKey: .cwd)
+    }
+
+    // Memberwise initializer preserved for call sites in SpaceViewController+Splits.swift.
+    init(direction: String, ratio: Double, cwd: String?) {
+        self.direction = direction
+        self.ratio     = ratio
+        self.cwd       = cwd
+    }
 }
 
 /// Serializable snapshot of one tab's split arrangement.
 ///
-/// **Schema rule:** new fields must be `Optional` (or decoded via `init(from:)`
-/// with a default). See `SubSplitSnapshot` for rationale.
+/// **Schema rule:** new fields must be `Optional` and decoded with
+/// `decodeIfPresent` in `init(from:)`. See `SubSplitSnapshot` for rationale.
 struct SplitSnapshot: Codable {
     let outerDirection: String          // "horizontal" or "vertical"
     let outerRatio: Double              // 0...1, outer container's dividerRatio
     let peerCwd: String?                // outer peer's CWD
     let primarySubSplit: SubSplitSnapshot?
     let peerSubSplit: SubSplitSnapshot?
+
+    // Explicit CodingKeys: required so init(from:) can name each key and
+    // choose decode vs decodeIfPresent per field.
+    enum CodingKeys: String, CodingKey {
+        case outerDirection
+        case outerRatio
+        case peerCwd
+        case primarySubSplit
+        case peerSubSplit
+    }
+
+    // Explicit init(from:) — the compiler backstop.
+    // Required fields: outerDirection, outerRatio.
+    // Optional fields: peerCwd, primarySubSplit, peerSubSplit
+    //   (decodeIfPresent → nil when absent, including on data written by
+    //    older app versions that did not have the field at all).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        outerDirection   = try c.decode(String.self, forKey: .outerDirection)
+        outerRatio       = try c.decode(Double.self, forKey: .outerRatio)
+        peerCwd          = try c.decodeIfPresent(String.self,            forKey: .peerCwd)
+        primarySubSplit  = try c.decodeIfPresent(SubSplitSnapshot.self,  forKey: .primarySubSplit)
+        peerSubSplit     = try c.decodeIfPresent(SubSplitSnapshot.self,  forKey: .peerSubSplit)
+    }
+
+    // Memberwise initializer preserved for call sites in SpaceViewController+Splits.swift.
+    init(outerDirection: String, outerRatio: Double, peerCwd: String?,
+         primarySubSplit: SubSplitSnapshot?, peerSubSplit: SubSplitSnapshot?) {
+        self.outerDirection  = outerDirection
+        self.outerRatio      = outerRatio
+        self.peerCwd         = peerCwd
+        self.primarySubSplit = primarySubSplit
+        self.peerSubSplit    = peerSubSplit
+    }
 }
 
 // MARK: - Direction encoding helpers

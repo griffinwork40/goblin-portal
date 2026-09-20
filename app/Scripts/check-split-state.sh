@@ -20,6 +20,9 @@
 #   3. Decode of corrupt JSON returns nil (fail-soft).
 #   4. Direction enum spellings are stable ("horizontal" and "vertical").
 #   5. setSnapshots([]) removes the key rather than writing an empty array.
+#   6. setAll writes multiple roots in one call and supports selective clear.
+#   7. Backward compat: snapshot missing an Optional field decodes to nil default
+#      (proves decodeIfPresent guards against field-addition regressions).
 #
 # Usage: ./Scripts/check-split-state.sh
 #
@@ -180,6 +183,31 @@ check("setAll selective clear: root 1 nil",     SplitStateStore.snapshots(for: t
 check("setAll selective clear: root 2 present", SplitStateStore.snapshots(for: testRoot2) != nil)
 // Clean up root 2.
 SplitStateStore.setSnapshots([], for: testRoot2)
+
+// ── Case 7: backward compat — missing Optional field decodes with nil default ──
+// Encode a snapshot whose JSON omits `peerCwd` entirely (as would happen when
+// reading data saved by an older version that did not have the field). With
+// synthesized Codable, `decodeIfPresent` is the only guarantee; this case pins
+// that the explicit init(from:) actually uses it — a regression to `decode`
+// would throw and the try? would return nil.
+let missingOptionalJSON = """
+{
+    "\(testRoot.path)": [
+        {
+            "outerDirection": "horizontal",
+            "outerRatio": 0.7,
+            "primarySubSplit": null,
+            "peerSubSplit": null
+        }
+    ]
+}
+""".data(using: .utf8)!
+UserDefaults.standard.set(missingOptionalJSON, forKey: "GoblinPortal.splitState")
+let fromMissing = SplitStateStore.snapshots(for: testRoot)
+check("backward compat: snapshot missing peerCwd decodes to non-nil", fromMissing != nil)
+checkEq("backward compat: outerDirection correct", fromMissing?.first?.outerDirection, "horizontal")
+checkEq("backward compat: outerRatio correct",     fromMissing?.first?.outerRatio,     0.7)
+check("backward compat: peerCwd is nil (not a throw)", fromMissing?.first?.peerCwd == nil)
 
 // ── Isolation: the real app domain's splitState was not touched ───────────────
 // The harness is a bundle-less binary; its UserDefaults.standard domain is NOT
