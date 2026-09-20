@@ -150,6 +150,17 @@ extension TerminalPane {
                     """)
             }
         }
+        // Wire the command-start callback so the tab shows the .running dot while a
+        // command is in flight. OSC 133 C fires when the user presses Return on a
+        // non-empty command line; D clears it via applyCommandOutcome. The idle/attention
+        // states are NOT set here — only the state machine advances through .running.
+        state.onCommandStarted = { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.status = .running
+                termDiag("OSC 133 C — command started, status = .running")
+            }
+        }
         // Retain the state for the pane's lifetime. The handler closure already holds
         // a strong reference to `state`, but keeping it here too means the state is
         // reachable for diagnostics and future introspection without traversing the

@@ -120,6 +120,7 @@ final class SpaceViewController: NSSplitViewController {
         documentArea.strip.apply(
             background: config.effectiveBackground, foreground: config.effectiveForeground,
             accent: config.effectiveAccent)
+        documentArea.container.applyDividerColor(config.effectiveForeground)  // +Appearance.swift
 
         // Set the initial divider explicitly. `minimumThickness` alone leaves the
         // sidebar at whatever the split view computes, which is not 220.
@@ -274,22 +275,13 @@ final class SpaceViewController: NSSplitViewController {
             },
             activeIndex: activeIndex)
 
-        // The unsaved dot above lives *in* the strip, and the strip is hidden at a
-        // single document by design (`DocumentAreaViewController.swift:44-47`: with
-        // one terminal open this should still just look like a terminal). The two
-        // decisions composed into a bug: a Space holding exactly one unsaved file
-        // showed no persistent unsaved indicator anywhere at all.
-        //
-        // `isDocumentEdited` is AppKit's own answer and it does not fight that
-        // decision — it draws the standard dot inside the window's close button, and
-        // because Spaces are native window tabs, on the tab as well. Nothing to lay
-        // out, nothing to hide, correct while the strip is absent.
-        //
-        // Reads `hasEditedDocuments` rather than the active document on purpose: the
-        // unsaved file is usually the one you are *not* looking at, which is exactly
-        // when a marker has to be visible. `view.window` is nil until the Space is
-        // installed in a window; `windowDidBecomeKey()` re-syncs, so the early no-op
-        // is harmless rather than a missed update.
+        // The unsaved dot lives *in* the strip, hidden at a single document by design
+        // (DocumentAreaViewController.swift:44-47), which composed with a single edited
+        // file into: no persistent indicator anywhere. `isDocumentEdited` is AppKit's own
+        // answer: a dot in the close button + the native tab. Reads `hasEditedDocuments`
+        // rather than the active document — the unsaved file is usually the one you are
+        // *not* looking at. `view.window` is nil until installed; `windowDidBecomeKey()`
+        // re-syncs, so the early no-op is harmless.
         view.window?.isDocumentEdited = hasEditedDocuments
     }
 
@@ -304,6 +296,7 @@ final class SpaceViewController: NSSplitViewController {
         documentArea.strip.apply(
             background: config.effectiveBackground, foreground: config.effectiveForeground,
             accent: config.effectiveAccent)
+        documentArea.container.applyDividerColor(config.effectiveForeground)
         if let doc = activeDocument {  // re-apply padding after ⌘R
             let pad = doc is TerminalPane ? config.terminalPadding : (x: CGFloat(0), y: CGFloat(0))
             documentArea.setTerminalPadding(pad, backgroundColor: config.effectiveBackground)

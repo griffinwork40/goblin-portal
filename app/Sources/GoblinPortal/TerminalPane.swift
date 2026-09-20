@@ -30,10 +30,10 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
 
     /// What the tab strip should be saying about this pane.
     ///
-    /// Only `.idle` and `.attention` are reachable today; see `DocumentStatus` for
-    /// which states are defined and why. OSC 133 is now parsed (probe plan §6.2 is done),
-    /// and `.succeeded`/`.failed` are reachable via `TerminalPane+ShellIntegration`.
-    // Internal setter: cross-file extension `TerminalPane+ShellIntegration` sets this on OSC 133 D.
+    /// All five `DocumentStatus` states are reachable: `.idle` (default), `.attention`
+    /// (bell), `.running` (OSC 133 C via `State.onCommandStarted`), `.succeeded`/`.failed`
+    /// (OSC 133 D via `applyCommandOutcome`). See `TerminalPane+ShellIntegration.swift`.
+    // Internal setter: cross-file extension `TerminalPane+ShellIntegration` sets this.
     var status: DocumentStatus = .idle {
         didSet {
             guard status != oldValue else { return }

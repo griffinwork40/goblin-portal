@@ -195,8 +195,9 @@ struct AppConfig {
     /// rationale and the parsing details (accepted forms, validation, fail-soft contract).
     /// Default (4, 4) — see `defaults()`.
     var terminalPadding: (x: CGFloat, y: CGFloat)
-    /// Alpha applied to the unfocused pane in a split. 1.0 = no dimming (default).
-    /// Clamped to 0.0–1.0 on load; out-of-range values degrade to 1.0 with a warning.
+    /// Alpha applied to the unfocused pane in a split. Default 0.7 — the unfocused
+    /// pane stays readable but the focused one clearly wins. 1.0 = no dimming.
+    /// Clamped to 0.0–1.0 on load; out-of-range values degrade to the default with a warning.
     /// Affects the ENTIRE pane view (terminal chrome included), not just the text surface.
     var unfocusedPaneOpacity: Double
     /// When true, switching to a `FileViewerPane` document scrolls to and selects
@@ -279,7 +280,13 @@ struct AppConfig {
             showTrailingWhitespace: true,
             stickyScroll: true,
             terminalPadding: (x: 4, y: 4),
-            unfocusedPaneOpacity: 1.0,
+            // 0.7 is a perceptually comfortable default: the unfocused pane stays
+            // readable but the focused one clearly wins, without the jarring contrast
+            // that values below ~0.5 produce. Users who want no dimming can set 1.0
+            // explicitly in config.json. The 150ms ease-in-out animation in
+            // SplitContainerView.setFocusedChild is elided when opacity == 1.0, so
+            // moving to the default-on direction requires that path remains active.
+            unfocusedPaneOpacity: 0.7,
             sidebarAutoReveal: true
         )
     }

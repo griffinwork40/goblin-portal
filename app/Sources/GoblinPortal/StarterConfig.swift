@@ -47,8 +47,8 @@ enum StarterConfig {
       "// padding-note": "Does NOT apply to the file editor (that uses textContainerInset). Values above 100 are rejected and fall back to the default.",
       "padding": 4,
 
-      "// unfocusedPaneOpacity": "0.0-1.0. Alpha of the unfocused pane when a split is open. 1.0 (default) = no dimming. 0.85 is a good starting point: the inactive pane stays readable but the focused one clearly wins. Out-of-range values are ignored and a warning is printed to stderr.",
-      "unfocusedPaneOpacity": 1.0,
+      "// unfocusedPaneOpacity": "0.0-1.0. Alpha of the unfocused pane when a split is open. Default 0.7 — the inactive pane stays readable but the focused one clearly wins. 1.0 = no dimming. Out-of-range values are ignored and a warning is printed to stderr.",
+      "unfocusedPaneOpacity": 0.7,
 
       "// fontThicken": "Apply medium font dilation before glyph rendering (default false). White-on-black text appears thinner than light-on-dark due to sub-pixel AA bleed direction. Enabling this applies CGContextSetFontSmoothingStyle(48) — the same style Terminal.app uses — which widens strokes roughly half a sub-pixel. Try it if your font looks too light on dark backgrounds. Note: private CoreGraphics API, same as Terminal.app/iTerm2/Emacs use.",
       "fontThicken": false,
