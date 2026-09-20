@@ -2,9 +2,9 @@
 //  SplitContainerView+Persistence.swift
 //  Read and write the divider ratio for split state persistence.
 //
-//  `SplitContainerView.swift` is at 347/350 LOC, so any API addition goes in
-//  an extension file rather than inline. This follows the pattern established
-//  by `SpaceViewController+SplitPresentation.swift` and `+SplitFocus.swift`.
+//  `SplitContainerView.swift` is at the 350-LOC ceiling, so any API addition
+//  goes in an extension file rather than inline. This follows the pattern
+//  established by `SpaceViewController+SplitPresentation.swift` and `+SplitFocus.swift`.
 //
 //  `currentDividerRatio` exposes the ratio for serialization without making it
 //  publicly settable (drag remains the only way to change it during normal use).
@@ -27,8 +27,6 @@ extension SplitContainerView {
     /// above `minPaneSize` by `layout()` itself, so out-of-range values
     /// degrade rather than break.
     func applyDividerRatio(_ ratio: CGFloat) {
-        dividerRatio = ratio
-        needsLayout = true
-        layout()
+        setDividerRatio(ratio)
     }
 }

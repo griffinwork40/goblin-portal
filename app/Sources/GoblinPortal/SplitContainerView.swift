@@ -40,13 +40,9 @@ final class SplitContainerView: NSView {
     private(set) var direction: Direction = .horizontal
 
     /// Fraction of the container given to the primary pane, 0…1. Clamped so
-    /// each pane has at least minPaneSize points. Updated by dragging the divider.
-    /// Explicitly `internal(set)`: the setter is accessible to the whole module
-    /// (the drag handler here and `applyDividerRatio` in `+Persistence.swift`),
-    /// but any caller that writes `container.dividerRatio = x` directly bypasses
-    /// the `layout()` call that must follow. Prefer `applyDividerRatio(_:)` for
-    /// all external write sites.
-    internal(set) var dividerRatio: CGFloat = 0.5
+    /// each pane has at least minPaneSize points. Written only via
+    /// `setDividerRatio(_:)` — the internal helper that also calls `layout()`.
+    private(set) var dividerRatio: CGFloat = 0.5
 
     /// 1px divider view, coloured to hint at the split without drawing a heavy chrome.
     let dividerView = NSView()  // internal (not private) — +Appearance.swift needs it
@@ -110,9 +106,7 @@ final class SplitContainerView: NSView {
         splitView = view
         view.autoresizingMask = []  // container owns the frame, not autoresizing
         addSubview(view)
-        dividerRatio = 0.5
-        needsLayout = true
-        layout()
+        setDividerRatio(0.5)
     }
 
     /// Remove the split peer and its view from the hierarchy. Returns the removed
@@ -309,10 +303,8 @@ final class SplitContainerView: NSView {
         guard available > 0 else { return }
         let lo = Self.minPaneSize / available
         let hi = max(1 - lo, lo)  // mirrors layout()'s guard: handles available < 2*minPaneSize
-        dividerRatio = (dividerRatio + delta / available).clamped(to: lo...hi)
+        setDividerRatio((dividerRatio + delta / available).clamped(to: lo...hi))
         dragStartPoint = current
-        needsLayout = true
-        layout()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -335,6 +327,17 @@ final class SplitContainerView: NSView {
             hitRect = hitRect.insetBy(dx: 0, dy: -Self.dividerHitSlop)
         }
         addCursorRect(hitRect, cursor: cursor)
+    }
+
+    // MARK: - Internal divider-ratio setter
+
+    /// Set `dividerRatio` and re-run layout. The only sanctioned write path for
+    /// the stored ratio — keeps layout in sync without duplicating the call.
+    /// `internal` so `+Persistence.swift` can call it during restoration.
+    func setDividerRatio(_ ratio: CGFloat) {
+        dividerRatio = ratio
+        needsLayout = true
+        layout()
     }
 }
 
