@@ -25,12 +25,14 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-08-25 the tree differs from upstream in SIX places — Package.swift,
-# Buffer.swift, EscapeSequenceParser.swift, MacTerminalView.swift and
-# AppleTerminalView.swift are modified, and PtmuxDcsHandler.swift is added new by
-# 0005 — carrying EIGHT patches between them: 0001 on Package.swift, 0002/0003/0004
-# on Buffer.swift, 0005 on EscapeSequenceParser.swift (plus the new file), 0006 and
-# 0008 on MacTerminalView.swift, and 0007 on AppleTerminalView.swift.
+# As of 2026-09-20 the tree differs from upstream in SEVEN places — Package.swift,
+# Buffer.swift, EscapeSequenceParser.swift, MacTerminalView.swift,
+# AppleTerminalView.swift and TerminalViewSearch.swift are modified, and
+# PtmuxDcsHandler.swift is added new by 0005 — carrying NINE patches between them:
+# 0001 on Package.swift, 0002/0003/0004 on Buffer.swift, 0005 on
+# EscapeSequenceParser.swift (plus the new file), 0006/0008/0009 on
+# MacTerminalView.swift, 0007 on AppleTerminalView.swift, and 0009 also on
+# TerminalViewSearch.swift.
 # File count and patch count are not the same number and have not been since 0003;
 # do not infer one from the other.
 #
@@ -41,6 +43,7 @@
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/TerminalViewSearch.swift
 
 upstream_repo   = https://github.com/migueldeicaza/SwiftTerm
 upstream_tag    = v1.15.0
@@ -188,23 +191,18 @@ upstream_escape_seq_parser = ee651a9ffaa1adaaa106d89121c17903227d3c4a38312c42a3a
 # but a modified file would pass the existence check silently without this pin.
 ptmux_dcs_handler = 78c20efe0b206162b6a771fa2f089474aeba2102508e29f1b83efcf293492b89
 
-# MacTerminalView.swift AFTER applying 0006-gate-linefeed-selection-clear-on-mouse-mode.patch.
+# MacTerminalView.swift AFTER applying 0006-gate-linefeed-selection-clear-on-mouse-mode.patch,
+# 0008-make-draw-open-for-subclass-override.patch, and
+# 0009-expose-search-state-changed-hook.patch.
 #
-# What 0006 fixes: upstream's linefeed(source:) callback clears the terminal
-# selection on every LF byte when `allowMouseReporting` is true — which it is by
-# default. Every OTHER allowMouseReporting guard in the patched file (mouseDown
-# :2472, mouseUp :2520, mouseDragged :2537, scrollWheel :2771) also checks
-# `terminal.mouseMode` — nested one level inside for mouseDragged — but linefeed
-# was the sole site that omitted it.
-# The effect: at a plain shell prompt (mouseMode == .off), every newline in the
-# output clears the selection before ⌘C can copy it.
-#
-# Severity: SILENT. A tree missing 0006 compiles, runs, and silently clears the
-# user's selection during normal output.
+# 0006 gates linefeed's selection-clear on mouseMode; 0008 makes draw() `open`;
+# 0009 adds the `searchStateDidChange(term:options:)` callback and fires it from
+# handleFindBarSearchChanged, handleFindBarOptionsChanged, and hideFindBar — giving
+# the host app the hook it needs for all-match search highlighting.
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
-patched_mac_terminal_view  = 0dc5cab8ebad153f5808d4fb209afc8bba1a5288935c2b7c355a4e35d7f773ea
+patched_mac_terminal_view  = 5f36f9fdb371b2e9b5f8783b2abff43486fab8e49f26fc40776601d0f1eb8ac4
 
 # MacTerminalView.swift as shipped upstream at v1.15.0.
 upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac60417864168cded4041
@@ -234,3 +232,15 @@ patched_apple_terminal_view  = d08379316e47745b9aeb0b1f6fbede03cedc4441e36685f84
 
 # AppleTerminalView.swift as shipped upstream at v1.15.0.
 upstream_apple_terminal_view = d28360034441f9a4573debcfe8ac5f86b3c57b3059da5f94ba2549838714e45e
+
+# TerminalViewSearch.swift AFTER applying
+# 0009-expose-search-state-changed-hook.patch.
+#
+# What 0009 adds: `findAllMatchPositions(_:options:limit:)` — a public method that
+# returns match positions as `[(row: Int, col: Int, size: Int)]` tuples, exposing
+# the data from the internal `SearchResult` type without crossing the module boundary.
+# Needed by the all-match search highlight overlay in GoblinPortalTerminalView.
+#
+# Regenerate with:
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/TerminalViewSearch.swift
+patched_terminal_view_search  = 59314eda53d681038224cd9525f65a1f1ced1bad21d5983cdc6fc30e68f53bb6

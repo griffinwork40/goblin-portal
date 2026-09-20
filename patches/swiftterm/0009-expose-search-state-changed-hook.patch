@@ -1,0 +1,20 @@
+0009-expose-search-state-changed-hook.patch
+
+Two changes enabling all-match search highlighting from the host app:
+
+1. TerminalViewSearch.swift — adds `findAllMatchPositions(_:options:limit:)`
+   A public method returning match positions as [(row: Int, col: Int, size: Int)]
+   tuples, exposing the data from the module-internal SearchResult type without
+   crossing the module boundary.
+
+2. MacTerminalView.swift — adds `searchStateDidChange(term:options:)`
+   An `open` callback that fires whenever the find bar's search term or options
+   change, or the find bar is dismissed. Called from handleFindBarSearchChanged,
+   handleFindBarOptionsChanged, and hideFindBar. Also clears findBarTerm in
+   hideFindBar so the callback receives "" on dismissal.
+
+Together these give a TerminalView subclass everything it needs to maintain
+a transparent overlay of all-match highlights: the callback says WHEN to update,
+and findAllMatchPositions says WHERE the matches are.
+
+Pattern: same as patches 0006/0007 — an `open` hook on existing behaviour.
