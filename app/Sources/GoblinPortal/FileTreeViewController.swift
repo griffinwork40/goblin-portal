@@ -254,6 +254,7 @@ final class FileTreeViewController: NSViewController {
     /// precisely the damage the guard exists to prevent, in the shape of a passing test.
     func setRoot(_ url: URL) {
         filterField.stringValue = ""
+        preFilterExpansion = nil
         applyFilter("")
         guard url.resolvingSymlinksInPath().path != root.url.resolvingSymlinksInPath().path
         else { return }
