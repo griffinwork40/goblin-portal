@@ -148,10 +148,10 @@ final class UpdateChecker {
     /// that only have a DMG, or private repos where assets are not visible).
     ///
     /// Item 4 -- Two additional guards beyond the original `.zip` suffix check:
-    ///   • Name prefix: only accept "Goblin Portal-*.zip" (or legacy
-    ///     "GoblinPortal-*.zip" for v1.2.0 transition). A malicious or
+    ///   • Name prefix: only accept "GoblinPortal-*.zip". A malicious or
     ///     mis-tagged release that happens to include a foreign zip cannot be
-    ///     installed in place of Goblin Portal.
+    ///     installed in place of Goblin Portal. Asset filenames use no space
+    ///     because GitHub normalizes spaces to dots in release asset names.
     ///   • Host allowlist: the download URL's host must be
     ///     objects.githubusercontent.com (CDN) or github.com (direct). Any
     ///     other host would mean the release JSON was tampered with or the API
@@ -170,7 +170,7 @@ final class UpdateChecker {
             guard let assetName = asset["name"] as? String,
                   assetName.hasSuffix(".zip"),
                   !assetName.hasSuffix(".sha256"),       // belt-and-suspenders
-                  (assetName.hasPrefix("Goblin Portal-") || assetName.hasPrefix("GoblinPortal-")),  // Item 4: name prefix guard
+                  assetName.hasPrefix("GoblinPortal-"),  // Item 4: name prefix guard (no space -- GitHub normalizes spaces in asset names)
                   let downloadURL = asset["browser_download_url"] as? String,
                   let url = URL(string: downloadURL),
                   url.scheme == "https",                  // Item 4: reject non-HTTPS
@@ -201,7 +201,7 @@ final class UpdateChecker {
         for asset in assets {
             guard let assetName = asset["name"] as? String,
                   assetName.hasSuffix(".zip.sha256"),
-                  (assetName.hasPrefix("Goblin Portal-") || assetName.hasPrefix("GoblinPortal-")),
+                  assetName.hasPrefix("GoblinPortal-"),  // no space -- GitHub normalizes spaces
                   let downloadURL = asset["browser_download_url"] as? String,
                   let url = URL(string: downloadURL),
                   url.scheme == "https",
