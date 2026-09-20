@@ -156,6 +156,8 @@ MainActor.assumeIsolated {
     // ========================================================================================
     tPane.documentWillClose()
     ok("pane survives a second documentWillClose() (idempotent)")
+    if isDead(tChild) { ok("idempotency: shell (pid \(tChild)) is still dead — no spurious signal was sent") }
+    else { fail("idempotency: shell pid \(tChild) is ALIVE after second documentWillClose() — running guard missing?") }
 
     // ========================================================================================
     // CASE 3 — THE CONTROL, and it is mandatory.
