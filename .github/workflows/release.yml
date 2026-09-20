@@ -83,7 +83,7 @@ jobs:
             exit 1
           fi
           echo "tag=$TAG"        >> "$GITHUB_OUTPUT"
-          echo "asset=Umber-$TAG.zip" >> "$GITHUB_OUTPUT"
+          echo "asset=GoblinPortal-$TAG.zip" >> "$GITHUB_OUTPUT"
           echo "  tag=$TAG  bundle version=$SCRIPT_VERSION  commit=$(git rev-parse HEAD)"
 
       - name: Toolchain and runner architecture
@@ -91,7 +91,7 @@ jobs:
           set -euo pipefail
           swift --version
           sw_vers
-          # Umber is Apple-silicon only (LSMinimumSystemVersion 14.0, arm64 build). If
+          # Goblin Portal is Apple-silicon only (LSMinimumSystemVersion 14.0, arm64 build). If
           # GitHub ever changes what macos-26 provisions, an x86_64 runner would produce a
           # zip that launches for nobody on an M-series Mac and fails no other check here.
           if [ "$(uname -m)" != "arm64" ]; then
@@ -155,13 +155,13 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          APP=build/Umber.app
+          APP="build/Goblin Portal.app"
           BUILT="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
           if [ "v$BUILT" != "${{ steps.v.outputs.tag }}" ]; then
             echo "::error::built bundle reports $BUILT, tag is ${{ steps.v.outputs.tag }}"
             exit 1
           fi
-          ARCH="$(lipo -archs "$APP/Contents/MacOS/Umber")"
+          ARCH="$(lipo -archs "$APP/Contents/MacOS/GoblinPortal")"
           if [ "$ARCH" != "arm64" ]; then
             echo "::error::binary is '$ARCH', expected arm64"
             exit 1
@@ -184,7 +184,7 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          ditto -c -k --sequesterRsrc --keepParent build/Umber.app "${{ steps.v.outputs.asset }}"
+          ditto -c -k --sequesterRsrc --keepParent "build/Goblin Portal.app" "${{ steps.v.outputs.asset }}"
           shasum -a 256 "${{ steps.v.outputs.asset }}" > "${{ steps.v.outputs.asset }}.sha256"
           cat "${{ steps.v.outputs.asset }}.sha256"
 
@@ -197,9 +197,9 @@ jobs:
           set -euo pipefail
           rm -rf /tmp/verify && mkdir -p /tmp/verify
           ditto -x -k "${{ steps.v.outputs.asset }}" /tmp/verify
-          codesign -v --verbose=2 /tmp/verify/Umber.app
-          test -x /tmp/verify/Umber.app/Contents/MacOS/Umber
-          test -f /tmp/verify/Umber.app/Contents/Resources/Umber.icns
+          codesign -v --verbose=2 "/tmp/verify/Goblin Portal.app"
+          test -x "/tmp/verify/Goblin Portal.app/Contents/MacOS/GoblinPortal"
+          test -f "/tmp/verify/Goblin Portal.app/Contents/Resources/Goblin Portal.icns"
           echo "  unpacked signature verifies; executable and icon present"
 
       # The DMG is the premium distribution artifact: background image, icon
@@ -209,9 +209,9 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          ./Scripts/make-dmg.sh build/Umber.app "Umber-${{ steps.v.outputs.tag }}.dmg"
-          shasum -a 256 "Umber-${{ steps.v.outputs.tag }}.dmg" > "Umber-${{ steps.v.outputs.tag }}.dmg.sha256"
-          cat "Umber-${{ steps.v.outputs.tag }}.dmg.sha256"
+          ./Scripts/make-dmg.sh "build/Goblin Portal.app" "GoblinPortal-${{ steps.v.outputs.tag }}.dmg"
+          shasum -a 256 "GoblinPortal-${{ steps.v.outputs.tag }}.dmg" > "GoblinPortal-${{ steps.v.outputs.tag }}.dmg.sha256"
+          cat "GoblinPortal-${{ steps.v.outputs.tag }}.dmg.sha256"
 
       # The DMG itself needs notarisation — Gatekeeper checks the disk image, not
       # just the .app inside it. The app was already notarised and stapled by
@@ -225,7 +225,7 @@ jobs:
           NOTARIZE_ISSUER: ${{ secrets.NOTARIZE_ISSUER }}
         run: |
           set -euo pipefail
-          DMG="Umber-${{ steps.v.outputs.tag }}.dmg"
+          DMG="GoblinPortal-${{ steps.v.outputs.tag }}.dmg"
           echo "==> notarising DMG (this takes 1–5 minutes)"
           xcrun notarytool submit "$DMG" \
             --key /tmp/notarize-key.p8 \
@@ -242,10 +242,10 @@ jobs:
         working-directory: app
         run: |
           set -euo pipefail
-          MOUNT="$(hdiutil attach "Umber-${{ steps.v.outputs.tag }}.dmg" -readonly -noverify -noautoopen | \
+          MOUNT="$(hdiutil attach "GoblinPortal-${{ steps.v.outputs.tag }}.dmg" -readonly -noverify -noautoopen | \
             grep '/Volumes/' | sed 's|.*\(/Volumes/.*\)|\1|' | head -1)"
-          codesign -v --verbose=2 "$MOUNT/Umber.app"
-          test -x "$MOUNT/Umber.app/Contents/MacOS/Umber"
+          codesign -v --verbose=2 "$MOUNT/Goblin Portal.app"
+          test -x "$MOUNT/Goblin Portal.app/Contents/MacOS/GoblinPortal"
           test -L "$MOUNT/Applications"  # symlink to /Applications must exist
           hdiutil detach "$MOUNT" -quiet
           echo "  DMG signature verifies; executable present; Applications symlink intact"
@@ -273,7 +273,7 @@ jobs:
             echo "  no release for $TAG — creating with generated notes"
             gh release create "$TAG" --title "$TAG" --generate-notes
           fi
-          DMG="Umber-${TAG}.dmg"
+          DMG="GoblinPortal-${TAG}.dmg"
           # --clobber so a re-run replaces rather than erroring on a duplicate name.
           gh release upload "$TAG" "$ASSET" "$ASSET.sha256" "$DMG" "$DMG.sha256" --clobber
           echo "  uploaded $ASSET + $DMG (+ checksums) built from $(git rev-parse HEAD)"

@@ -1,4 +1,4 @@
-# Umber's verification surface, run on every push and PR.
+# Goblin Portal's verification surface, run on every push and PR.
 #
 # This project has no test target — see app/README.md ("Checks") for the argument. What it
 # has instead is a set of standalone scripts, most of which compile ONE shipped source file
