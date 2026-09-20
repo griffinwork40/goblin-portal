@@ -73,7 +73,7 @@ extension TerminalPane: SpaceDocument {
     /// free to have reused, and that now applies to the SIGHUP above as much as to SwiftTerm's
     /// SIGTERM. `running` is the property that actually tracks liveness, it is flipped
     /// synchronously by `terminate()`, and guarding on it is what the vendor itself does before
-    /// touching the pty (`Mac/MacLocalTerminalView.swift:98`). `check-pane-teardown.sh` case 4
+    /// touching the pty (`Mac/MacLocalTerminalView.swift:98`). `check-pane-teardown.sh` case 2
     /// is what keeps this honest.
     func documentWillClose() {
         guard view.process.running else { return }
