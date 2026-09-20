@@ -31,6 +31,9 @@
 //
 
 import AppKit
+import ObjectiveC
+
+nonisolated(unsafe) private var scInstalledKey: UInt8 = 0
 
 extension FileTreeViewController {
 
@@ -67,19 +70,32 @@ extension FileTreeViewController {
 
     // MARK: Git snapshot push
 
-    /// Forward the latest git snapshot and repository to the Space's source control panel.
+    /// Called from `gitStatusDidChange()` to forward the snapshot to the source
+    /// control panel. On first call, also installs the panel into the sidebar stack.
     ///
-    /// Called from `gitStatusDidChange()` immediately after the file tree decorations are
-    /// repainted. Both consumers (the tree and the panel) receive the same snapshot from
-    /// the same poller tick — one read, two consumers.
-    ///
-    /// The `space` parameter avoids a direct dependency from `FileTreeViewController` to
-    /// `SourceControlViewController`: the tree knows it has a Space, which knows it has a
-    /// panel. The call is cheap (`gitFollow?.snapshot` is an already-computed value) and
-    /// always on the main actor.
-    func pushSnapshotToSourceControl(to space: SpaceViewController) {
+    /// Walks the delegate chain (`self.delegate` → `SpaceViewController`) to find the
+    /// Space. The first time a valid Space is found, the panel is installed into the
+    /// sidebar stack. On every call, the latest snapshot is pushed.
+    func notifySourceControlOfChange() {
+        guard let space = delegate as? SpaceViewController else { return }
+
+        // Lazy install: the first snapshot arrival triggers panel installation.
+        if !sourceControlInstalled {
+            installSourceControlPanel(from: space)
+            sourceControlInstalled = true
+        }
+
         let snapshot = gitFollow?.snapshot ?? .empty
         let repository = gitFollow?.repository
         space.updateSourceControl(snapshot: snapshot, repository: repository)
+    }
+
+    /// Whether `installSourceControlPanel(from:)` has run for this tree.
+    /// Cannot be a stored property on an extension, but the delegate cast above
+    /// guarantees this runs on a concrete `FileTreeViewController`, so we use a
+    /// simple associated-object flag.
+    private var sourceControlInstalled: Bool {
+        get { objc_getAssociatedObject(self, &scInstalledKey) as? Bool ?? false }
+        set { objc_setAssociatedObject(self, &scInstalledKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 }

@@ -337,5 +337,6 @@ extension FileTreeViewController {
             applyGitDecoration(to: cell, for: node)
         }
         gitHeader.update(summary: gitFollow?.branchSummary)
+        notifySourceControlOfChange()
     }
 }
