@@ -165,30 +165,33 @@ enum GitOperations {
             return .failure(GitOperationError(message: "Failed to launch git"))
         }
 
-        // Read stderr concurrently with the timeout wait. readDataToEndOfFile() blocks
-        // until the pipe closes, which only happens when the process exits (or is
-        // terminated). If the read were sequential before the wait, a hung process
-        // would block the read forever and the timeout would never fire. Reading on a
-        // separate queue lets the semaphore timeout fire first, terminate() the process,
-        // which closes the pipe and unblocks the read.
-        var errData = Data()
+        // Read stderr on a serial queue. Using `sync` with a return value
+        // eliminates the `var errData` mutation that Swift 6 strict concurrency
+        // flags as a SendableClosureCaptures warning — the data flows through
+        // the return, not a captured mutable variable.
         let readQueue = DispatchQueue(label: "goblin-portal.git-stderr")
-        readQueue.async {
-            errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        }
+        let errHandle = errPipe.fileHandleForReading
 
         let timedOut = done.wait(timeout: .now() + 30) == .timedOut
         if timedOut {
             process.terminate()
-            // Wait briefly for the terminated process to close its pipes so the
-            // concurrent stderr read can complete. 2 seconds is generous — terminate()
-            // delivers SIGTERM and the pipe closes on process exit.
-            readQueue.sync {}
+            // SIGTERM is not guaranteed to kill child processes (e.g. an SSH
+            // subprocess that catches the signal). Give it 2 seconds, then
+            // SIGKILL to guarantee the pipe closes and the stderr read unblocks.
+            let pid = process.processIdentifier
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                // processIdentifier is 0 only if the process was never launched.
+                // kill(0, SIGKILL) would kill the calling process group — guard it.
+                guard pid > 0 else { return }
+                kill(pid, SIGKILL)
+            }
+            // Block until stderr is fully read (pipe closes on process exit/kill).
+            let _ = readQueue.sync { errHandle.readDataToEndOfFile() }
             return .failure(GitOperationError(message: "git timed out after 30 seconds"))
         }
         process.waitUntilExit()
-        // Ensure the stderr read has finished before we access errData.
-        readQueue.sync {}
+        // Blocking sync read — the process has exited so the pipe is closed.
+        let errData = readQueue.sync { errHandle.readDataToEndOfFile() }
 
         guard process.terminationStatus == 0 else {
             let stderr = String(decoding: errData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)

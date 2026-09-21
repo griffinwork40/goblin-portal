@@ -74,7 +74,10 @@ enum GitDiff {
 
         let out = Pipe()
         process.standardOutput = out
-        process.standardError = Pipe()
+        // Discard stderr: a Pipe whose read end is never drained deadlocks
+        // waitUntilExit() when git writes more than the ~64 KB kernel buffer
+        // (smudge-filter errors, large binary warnings). nullDevice has no buffer.
+        process.standardError = FileHandle.nullDevice
 
         guard (try? process.run()) != nil else { return nil }
 

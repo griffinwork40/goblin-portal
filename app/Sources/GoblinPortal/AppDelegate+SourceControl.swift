@@ -93,29 +93,33 @@ extension AppDelegate {
                 }
                 return
             }
+            // Run discard and clean independently so a failure in one does not
+            // silently skip the other, and the error message names exactly what
+            // succeeded and what did not.
             let discardResult = GitOperations.discard(path: ".", in: repo)
-            let cleanResult: Result<Void, GitOperationError>
-            if case .failure = discardResult {
-                cleanResult = discardResult  // skip clean if discard failed
-            } else {
-                cleanResult = GitOperations.cleanAll(in: repo)
-            }
+            let cleanResult = GitOperations.cleanAll(in: repo)
+
             DispatchQueue.main.async {
-                switch cleanResult {
-                case .failure(let error):
+                var errors: [String] = []
+                if case .failure(let e) = discardResult { errors.append("Revert tracked files: \(e.message)") }
+                if case .failure(let e) = cleanResult   { errors.append("Remove untracked files: \(e.message)") }
+
+                if !errors.isEmpty {
                     let errAlert = NSAlert()
-                    errAlert.messageText = "Discard failed"
-                    errAlert.informativeText = error.message
+                    errAlert.messageText = "Discard partially failed"
+                    // unstageAll already succeeded at this point — tell the user.
+                    errAlert.informativeText = "Staged changes were unstaged. The following steps failed:\n\n"
+                        + errors.joined(separator: "\n")
+                    errAlert.alertStyle = .warning
                     if let window = NSApp.keyWindow {
                         errAlert.beginSheetModal(for: window, completionHandler: nil)
                     } else {
                         errAlert.runModal()
                     }
-                case .success:
-                    // Trigger a re-poll — every other write path calls this so the
-                    // file tree and source control panel reflect the new state.
-                    panel.delegate?.sourceControlDidChange(panel)
                 }
+                // Trigger a re-poll — even on partial failure the repo state changed
+                // (unstageAll succeeded), so the UI must reflect the current state.
+                panel.delegate?.sourceControlDidChange(panel)
             }
         }
     }

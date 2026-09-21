@@ -218,6 +218,12 @@ enum SourceControlSection: Int, CaseIterable {
                 u.append(entry)
             default:
                 if entry.isStaged { s.append(entry) } else { c.append(entry) }
+                // A partially-staged file (MM porcelain) has isStaged=true AND
+                // working-tree changes. Show it in both sections so the user sees
+                // the unstaged half, matching VS Code's two-row presentation.
+                if entry.isStaged && entry.status == .modified {
+                    c.append(entry)
+                }
             }
         }
 
