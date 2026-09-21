@@ -214,14 +214,19 @@ enum SourceControlSection: Int, CaseIterable {
 
         for entry in snapshot.entries.values.sorted(by: { $0.path < $1.path }) {
             switch entry.status {
-            case .untracked, .ignored:
+            case .untracked:
                 u.append(entry)
+            case .ignored:
+                break  // Ignored files are not shown in the source control panel
             default:
                 if entry.isStaged { s.append(entry) } else { c.append(entry) }
-                // A partially-staged file (MM porcelain) has isStaged=true AND
-                // working-tree changes. Show it in both sections so the user sees
-                // the unstaged half, matching VS Code's two-row presentation.
-                if entry.isStaged && entry.status == .modified {
+                // A partially-staged file has changes in both the index AND the
+                // worktree. Show it in both sections so the user sees the unstaged
+                // half, matching VS Code's two-row presentation.
+                // `hasWorkingTreeChange` is derived directly from the Y porcelain
+                // byte (true when Y != '.'), so it is exact for all XY combos:
+                // MM, MD, RD, TD, etc.
+                if entry.isStaged && entry.hasWorkingTreeChange {
                     c.append(entry)
                 }
             }
@@ -265,15 +270,16 @@ enum SourceControlSection: Int, CaseIterable {
         let row = sender.clickedRow
         guard row >= 0,
               let entry = sender.item(atRow: row) as? GitFileEntry,
-              let section = sectionFor(entry: entry) else { return }
+              // Derive the section from the outline view's own parent link rather than
+              // searching the model arrays. For a partially-staged (MM) file, the same
+              // GitFileEntry struct appears in both `staged[]` and `changes[]`; an
+              // array search always returns `.staged` first, routing the diff incorrectly
+              // when the user double-clicks the Changes row. The outline view's parent
+              // pointer is authoritative: it is the section-header String that was
+              // used as the group item when the row was inserted.
+              let parentTitle = sender.parent(forItem: entry) as? String,
+              let section = section(for: parentTitle) else { return }
         let staged = section == .staged
         delegate?.sourceControl(self, didRequestDiff: entry, staged: staged)
-    }
-
-    private func sectionFor(entry: GitFileEntry) -> SourceControlSection? {
-        if staged.contains(entry)    { return .staged }
-        if changes.contains(entry)   { return .changes }
-        if untracked.contains(entry) { return .untracked }
-        return nil
     }
 }

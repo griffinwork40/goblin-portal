@@ -79,6 +79,12 @@ struct GitFileEntry: Equatable {
     let status: GitFileStatus
     /// The index differs from HEAD — the change is staged, in whole or in part.
     let isStaged: Bool
+    /// The worktree differs from the index — there are unstaged changes.
+    ///
+    /// True when the Y byte of the porcelain XY field is not `.`. Used to detect
+    /// partially-staged files (both `isStaged` and `hasWorkingTreeChange` are true),
+    /// which must appear in both the Staged and Changes sections.
+    let hasWorkingTreeChange: Bool
     /// Where a rename or copy came from, repo-relative. Nil for every other record.
     let originalPath: String?
 }
@@ -232,7 +238,8 @@ enum GitStatus {
                 guard fields.count == 11 else { continue }
                 let path = String(fields[10])
                 entries[path] = GitFileEntry(
-                    path: path, status: .conflicted, isStaged: false, originalPath: nil)
+                    path: path, status: .conflicted, isStaged: false,
+                    hasWorkingTreeChange: true, originalPath: nil)
             case "?", "!":
                 // `? <path>` / `! <path>` — everything after the single space is path,
                 // including any further spaces. `!` only ever appears when the caller
@@ -242,7 +249,7 @@ enum GitStatus {
                 guard !path.isEmpty else { continue }
                 entries[path] = GitFileEntry(
                     path: path, status: kind == "?" ? .untracked : .ignored,
-                    isStaged: false, originalPath: nil)
+                    isStaged: false, hasWorkingTreeChange: true, originalPath: nil)
             default:
                 continue
             }
@@ -282,7 +289,8 @@ enum GitStatus {
         let effective = y == "." ? x : y
         guard let status = status(forCode: effective) else { return nil }
         return GitFileEntry(
-            path: path, status: status, isStaged: x != ".", originalPath: originalPath)
+            path: path, status: status, isStaged: x != ".", hasWorkingTreeChange: y != ".",
+            originalPath: originalPath)
     }
 
     /// One XY character to a status. `.` means "no change on this side" and is filtered
