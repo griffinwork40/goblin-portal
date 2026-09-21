@@ -78,10 +78,10 @@ extension SourceControlViewController {
             showError("Commit message is required.")
             return
         }
-        guard !staged.isEmpty else {
-            showError("Nothing is staged. Stage files first, then commit.")
-            return
-        }
+        // No client-side "nothing staged" guard: the view-model array is stale
+        // between 2-second poll ticks, so the guard produces false negatives.
+        // Let `git commit` reject the empty-index case — its stderr ("nothing to
+        // commit") is already surfaced by showError via performOperation.
 
         performOperation(description: "commit") { repo in
             GitOperations.commit(message: message, in: repo)

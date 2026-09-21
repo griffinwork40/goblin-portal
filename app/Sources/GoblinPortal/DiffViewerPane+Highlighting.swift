@@ -208,23 +208,4 @@ extension DiffViewerPane {
         AppConfig.resized(config.font, to: fontSize)
     }
 
-    // MARK: - Private label reference
-
-    // These labels live on DiffViewerPane itself but `+Highlighting` needs to
-    // update them when a rename is detected. Swift extensions can read stored
-    // properties, so direct access works — no getter shim required.
-    private var oldPathLabel: NSTextField {
-        // The stored `oldPathLabel` is on the parent class; extensions reach it.
-        return (containerView.subviews.first(where: { $0 is NSView && ($0 as? NSView) === headerBar })?
-            .subviews.compactMap({ $0 as? NSTextField })
-            .first(where: { $0.stringValue != "→" && $0.stringValue != "Staged" }))
-            ?? NSTextField(labelWithString: "")
-    }
-
-    private var newPathLabel: NSTextField {
-        return (headerBar.subviews.compactMap({ $0 as? NSTextField })
-            .filter({ $0.stringValue != "→" && $0.stringValue != "Staged" })
-            .last)
-            ?? NSTextField(labelWithString: "")
-    }
 }

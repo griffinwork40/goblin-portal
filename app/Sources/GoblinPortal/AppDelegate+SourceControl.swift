@@ -44,22 +44,36 @@ extension AppDelegate {
         // Safety: confirm before discarding all changes
         let alert = NSAlert()
         alert.messageText = "Discard all changes?"
-        alert.informativeText = "This will revert all modified files to their last committed state. This cannot be undone."
+        alert.informativeText = "This will revert all modified tracked files and delete all untracked files. This cannot be undone."
         alert.alertStyle = .critical
         alert.addButton(withTitle: "Discard All")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        // Discard all tracked changes, then clean untracked
+        // Revert all tracked changes (`git checkout -- .`) AND remove untracked
+        // files (`git clean -f`) to match the per-file discardFile + discardUntracked
+        // behavior in SourceControlViewController+Actions.swift. Without the clean
+        // step, untracked files are left behind even though the dialog says "all changes."
         guard let repo = panel.repository else { return }
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = GitOperations.discard(path: ".", in: repo)
+            let discardResult = GitOperations.discard(path: ".", in: repo)
+            let cleanResult: Result<Void, GitOperationError>
+            if case .failure = discardResult {
+                cleanResult = discardResult  // skip clean if discard failed
+            } else {
+                cleanResult = GitOperations.cleanAll(in: repo)
+            }
             DispatchQueue.main.async {
-                if case .failure(let error) = result {
+                switch cleanResult {
+                case .failure(let error):
                     let errAlert = NSAlert()
                     errAlert.messageText = "Discard failed"
                     errAlert.informativeText = error.message
                     errAlert.runModal()
+                case .success:
+                    // Trigger a re-poll — every other write path calls this so the
+                    // file tree and source control panel reflect the new state.
+                    panel.delegate?.sourceControlDidChange(panel)
                 }
             }
         }

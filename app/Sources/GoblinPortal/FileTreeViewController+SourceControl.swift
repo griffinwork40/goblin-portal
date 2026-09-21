@@ -56,16 +56,24 @@ extension FileTreeViewController {
     ///   - space: The `SpaceViewController` that owns the panel and the delegate.
     ///            Called to do the actual `stack.addArrangedSubview` work so the
     ///            panel installation logic stays in one place.
-    func installSourceControlPanel(from space: SpaceViewController) {
+    /// Returns `true` when the panel was successfully installed, `false` when the
+    /// sidebar view is not an `NSStackView` (which should never happen in practice).
+    /// The return value is `@discardableResult` so callers that already check the
+    /// installed flag can ignore it — but `notifySourceControlOfChange` uses it to
+    /// gate the `sourceControlInstalled = true` write, preventing the flag from
+    /// being set when the guard returns early and the panel was never actually added.
+    @discardableResult
+    func installSourceControlPanel(from space: SpaceViewController) -> Bool {
         // Trigger `loadView()` if needed — the first `view` access runs it.
         // After this call, `view` is the NSStackView that `loadView()` built.
         guard let stack = view as? NSStackView else {
             // Should never happen: `loadView()` always sets `view` to an NSStackView.
             // If it somehow does not, fail silently rather than crashing — source
             // control is additive, not load-bearing.
-            return
+            return false
         }
         space.installSourceControl(in: stack)
+        return true
     }
 
     // MARK: Git snapshot push
@@ -80,9 +88,11 @@ extension FileTreeViewController {
         guard let space = delegate as? SpaceViewController else { return }
 
         // Lazy install: the first snapshot arrival triggers panel installation.
+        // Only set the flag when installation actually succeeded — if the guard
+        // returns early (stack view missing), we want to retry on the next call
+        // rather than silently skipping all future install attempts.
         if !sourceControlInstalled {
-            installSourceControlPanel(from: space)
-            sourceControlInstalled = true
+            sourceControlInstalled = installSourceControlPanel(from: space)
         }
 
         let snapshot = gitFollow?.snapshot ?? .empty

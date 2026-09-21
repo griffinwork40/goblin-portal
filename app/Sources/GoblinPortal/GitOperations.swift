@@ -70,6 +70,16 @@ enum GitOperations {
         run(["clean", "-f", "--", path], in: repository)
     }
 
+    /// Remove ALL untracked files in the working tree: `git clean -f`.
+    ///
+    /// **This is irreversible** — every untracked file is deleted from disk.
+    /// Callers MUST confirm with the user before invoking this. Paired with
+    /// `discard(path: ".", ...)` to implement a full "discard all" that covers
+    /// both tracked and untracked files (matching per-file discard behavior).
+    static func cleanAll(in repository: GitRepository) -> Result<Void, GitOperationError> {
+        run(["clean", "-f"], in: repository)
+    }
+
     /// Commit staged changes: `git commit -m <message>`.
     ///
     /// Returns an error if nothing is staged, or if git rejects the commit for
@@ -112,7 +122,11 @@ enum GitOperations {
         process.currentDirectoryURL = repository.root
 
         let errPipe = Pipe()
-        process.standardOutput = Pipe()  // swallowed — success output is noise
+        // Use FileHandle.nullDevice instead of a Pipe for stdout: a Pipe has a
+        // bounded kernel buffer (~64 KB on macOS); if git writes more than that
+        // before we read it, waitUntilExit() deadlocks. nullDevice discards output
+        // with no buffer, so the subprocess never stalls writing to stdout.
+        process.standardOutput = FileHandle.nullDevice
         process.standardError = errPipe
 
         guard (try? process.run()) != nil else {

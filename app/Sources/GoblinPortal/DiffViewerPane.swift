@@ -19,6 +19,23 @@
 
 import AppKit
 
+/// A thin NSView subclass whose sole job is to call back into the pane's
+/// layout pass whenever AppKit decides to lay out this view.
+///
+/// Without this, `DiffViewerPane.layoutSubviews(in:)` is defined but never
+/// called, leaving the header bar with a zero frame and invisible on screen.
+/// Using `layout()` rather than `resizeSubviews(withOldSize:)` is correct
+/// because we size both the header and the split view, not just subviews.
+@MainActor
+final class DiffContainerView: NSView {
+    weak var pane: DiffViewerPane?
+
+    override func layout() {
+        super.layout()
+        pane?.layoutSubviews(in: bounds)
+    }
+}
+
 @MainActor
 final class DiffViewerPane: NSObject {
     // MARK: - Identity
@@ -44,7 +61,7 @@ final class DiffViewerPane: NSObject {
     // MARK: - Views
 
     /// Single root exposed to the Space as `documentView`.
-    let containerView = NSView()
+    let containerView = DiffContainerView()
     let headerBar = NSView()
     let splitView = NSSplitView()
 
@@ -53,10 +70,12 @@ final class DiffViewerPane: NSObject {
     let rightScroll = NSScrollView()
     let rightTextView = NSTextView()
 
-    // Header labels
-    private let oldPathLabel  = NSTextField(labelWithString: "")
+    // Header labels — internal (not private) so DiffViewerPane+Highlighting.swift
+    // can update them directly when a rename is detected, without a fragile view
+    // hierarchy walk. Swift `private` is file-scoped, blocking extension access.
+    let oldPathLabel  = NSTextField(labelWithString: "")
     private let arrowLabel    = NSTextField(labelWithString: "→")
-    private let newPathLabel  = NSTextField(labelWithString: "")
+    let newPathLabel  = NSTextField(labelWithString: "")
     private let stagedBadge   = NSTextField(labelWithString: "Staged")
 
     // MARK: - Scroll-sync state
@@ -73,6 +92,10 @@ final class DiffViewerPane: NSObject {
         self.config     = config
         self.fontSize   = FontZoom.override ?? config.font.pointSize
         super.init()
+
+        // Give the container a back-reference so its layout() override can call
+        // into our layoutSubviews(in:) — see DiffContainerView above.
+        containerView.pane = self
 
         buildViewHierarchy()
         applyTheme()
@@ -202,10 +225,9 @@ final class DiffViewerPane: NSObject {
 
     // MARK: - Layout
 
-    /// Called whenever the container resizes (the pane is embedded by the Space).
-
-
-    /// Manually lay out header and split view since we use autoresizing masks.
+    /// Called by `DiffContainerView.layout()` whenever AppKit lays out the container.
+    /// Manually positions the header bar and split view within `frame` since they
+    /// use autoresizing masks rather than Auto Layout constraints.
     func layoutSubviews(in frame: NSRect) {
         let hh = Self.headerHeight
         headerBar.frame = NSRect(x: 0, y: frame.height - hh, width: frame.width, height: hh)
