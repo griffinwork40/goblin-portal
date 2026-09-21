@@ -232,11 +232,6 @@ extension SourceControlViewController: NSOutlineViewDelegate {
         item is GitFileEntry
     }
 
-    func outlineView(_ outlineView: NSOutlineView, menuFor tableColumn: NSTableColumn?, item: Any?) -> NSMenu? {
-        guard let entry = item as? GitFileEntry else { return nil }
-        return contextMenu(for: entry)
-    }
-
     // MARK: Cell builders
 
     private func headerCell(_ outlineView: NSOutlineView, title: String) -> NSView {
@@ -299,5 +294,24 @@ extension SourceControlViewController: NSOutlineViewDelegate {
             row.configure(entry: entry, controller: self)
         }
         return row
+    }
+}
+
+// MARK: - NSMenuDelegate
+
+extension SourceControlViewController: NSMenuDelegate {
+    /// Rebuild the context menu just before it is shown, using `clickedRow` to
+    /// identify which file entry was right-clicked. This is the correct AppKit
+    /// pattern (mirrors FileTreeViewController+ContextMenu.swift): assigning
+    /// `outlineView.menu` with a delegate is what triggers right-click menus —
+    /// there is no real `NSOutlineViewDelegate.menuFor:` method.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        guard outlineView.clickedRow >= 0,
+              let entry = outlineView.item(atRow: outlineView.clickedRow) as? GitFileEntry
+        else { return }
+        for item in contextMenu(for: entry).items {
+            menu.addItem(item.copy() as! NSMenuItem)
+        }
     }
 }

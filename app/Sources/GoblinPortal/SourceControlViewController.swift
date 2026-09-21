@@ -146,9 +146,14 @@ enum SourceControlSection: Int, CaseIterable {
         outlineView.target     = self
         outlineView.doubleAction = #selector(outlineDoubleClicked(_:))
 
+        // Wire up the context menu via NSMenuDelegate so AppKit actually calls it.
+        // NSOutlineViewDelegate has no menuFor: method — the correct pattern is to
+        // assign a menu with a delegate (see FileTreeViewController+ContextMenu.swift).
+        outlineView.menu = NSMenu()
+        outlineView.menu?.delegate = self
+
         scrollView.documentView = outlineView
         buildLayout()
-        expandAllSections()
     }
 
     // MARK: Layout
@@ -220,15 +225,19 @@ enum SourceControlSection: Int, CaseIterable {
         changes   = c
         untracked = u
 
-        outlineView.reloadData()
-        expandAllSections()
-    }
-
-    // MARK: Helpers
-
-    private func expandAllSections() {
+        // Preserve user collapse state across reloads so the 2-second poll tick
+        // does not destroy sections the user intentionally collapsed.
+        var expanded = Set<String>()
         for title in sections {
-            outlineView.expandItem(title)
+            if outlineView.isItemExpanded(title) { expanded.insert(title) }
+        }
+        // On first load (outline is empty), default all sections to expanded.
+        let isFirstLoad = expanded.isEmpty && outlineView.numberOfRows == 0
+        outlineView.reloadData()
+        for title in sections {
+            if isFirstLoad || expanded.contains(title) {
+                outlineView.expandItem(title)
+            }
         }
     }
 

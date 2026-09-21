@@ -50,12 +50,22 @@ extension AppDelegate {
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        // Revert all tracked changes (`git checkout -- .`) AND remove untracked
-        // files (`git clean -f`) to match the per-file discardFile + discardUntracked
-        // behavior in SourceControlViewController+Actions.swift. Without the clean
-        // step, untracked files are left behind even though the dialog says "all changes."
+        // Unstage everything first so staged deletions/renames are not left behind,
+        // then revert all tracked changes (`git checkout -- .`) and remove untracked
+        // files and directories (`git clean -fd`) to fully match the per-file
+        // discardFile + discardUntracked behavior in SourceControlViewController+Actions.swift.
         guard let repo = panel.repository else { return }
         DispatchQueue.global(qos: .userInitiated).async {
+            let unstageResult = GitOperations.unstageAll(in: repo)
+            if case .failure(let unstageErr) = unstageResult {
+                DispatchQueue.main.async {
+                    let errAlert = NSAlert()
+                    errAlert.messageText = "Discard failed"
+                    errAlert.informativeText = unstageErr.message
+                    errAlert.runModal()
+                }
+                return
+            }
             let discardResult = GitOperations.discard(path: ".", in: repo)
             let cleanResult: Result<Void, GitOperationError>
             if case .failure = discardResult {

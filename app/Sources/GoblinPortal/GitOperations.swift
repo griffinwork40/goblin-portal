@@ -63,21 +63,21 @@ enum GitOperations {
         run(["checkout", "--", path], in: repository)
     }
 
-    /// Remove an untracked file: `git clean -f -- <path>`.
+    /// Remove an untracked file or directory: `git clean -fd -- <path>`.
     ///
-    /// **This is irreversible** — the file is deleted from disk.
+    /// **This is irreversible** — the file or directory is deleted from disk.
     static func discardUntracked(path: String, in repository: GitRepository) -> Result<Void, GitOperationError> {
-        run(["clean", "-f", "--", path], in: repository)
+        run(["clean", "-fd", "--", path], in: repository)
     }
 
-    /// Remove ALL untracked files in the working tree: `git clean -f`.
+    /// Remove ALL untracked files and directories in the working tree: `git clean -fd`.
     ///
-    /// **This is irreversible** — every untracked file is deleted from disk.
+    /// **This is irreversible** — every untracked file and directory is deleted from disk.
     /// Callers MUST confirm with the user before invoking this. Paired with
     /// `discard(path: ".", ...)` to implement a full "discard all" that covers
     /// both tracked and untracked files (matching per-file discard behavior).
     static func cleanAll(in repository: GitRepository) -> Result<Void, GitOperationError> {
-        run(["clean", "-f"], in: repository)
+        run(["clean", "-fd"], in: repository)
     }
 
     /// Commit staged changes: `git commit -m <message>`.
@@ -94,7 +94,7 @@ enum GitOperations {
     static func push(in repository: GitRepository, branch: String? = nil, setUpstream: Bool = false) -> Result<Void, GitOperationError> {
         var args = ["push"]
         if setUpstream, let branch {
-            args += ["-u", "origin", branch]
+            args += ["-u", "origin", "--", branch]
         }
         return run(args, in: repository)
     }
@@ -120,6 +120,10 @@ enum GitOperations {
         process.executableURL = URL(fileURLWithPath: GitStatusReader.gitPath)
         process.arguments = arguments
         process.currentDirectoryURL = repository.root
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_TERMINAL_PROMPT"] = "0"
+        process.environment = environment
 
         let errPipe = Pipe()
         // Use FileHandle.nullDevice instead of a Pipe for stdout: a Pipe has a
