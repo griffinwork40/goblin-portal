@@ -41,19 +41,42 @@ extension AppDelegate {
 
     @objc func scDiscardAll(_ sender: Any?) {
         guard let panel = focusedSpace?.sourceControlPanel else { return }
-        // Safety: confirm before discarding all changes
+
+        // F-5: Use beginSheetModal rather than runModal so the alert is window-modal
+        // (attached as a sheet) instead of application-modal. runModal() blocks ALL
+        // windows in the app for the duration — the user cannot switch spaces, look at
+        // diffs, or dismiss other sheets. beginSheetModal matches the per-file discard
+        // path in SourceControlViewController+Actions.swift (confirmDiscard), making the
+        // UX consistent and limiting the modal to the key window only (HIG §Alerts).
         let alert = NSAlert()
         alert.messageText = "Discard all changes?"
         alert.informativeText = "This will revert all modified tracked files and delete all untracked files. This cannot be undone."
         alert.alertStyle = .critical
         alert.addButton(withTitle: "Discard All")
         alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        // Unstage everything first so staged deletions/renames are not left behind,
-        // then revert all tracked changes (`git checkout -- .`) and remove untracked
-        // files and directories (`git clean -fd`) to fully match the per-file
-        // discardFile + discardUntracked behavior in SourceControlViewController+Actions.swift.
+        // Target the key window; fall back to runModal when there is none (e.g. during
+        // automated testing or when the app is in the background with no visible window).
+        guard let window = NSApp.keyWindow else {
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            scDiscardAllExecute(panel: panel)
+            return
+        }
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.scDiscardAllExecute(panel: panel)
+        }
+    }
+
+    /// The actual git operations for "Discard All", factored out so both the sheet and
+    /// the runModal fallback in `scDiscardAll` can call it without duplicating logic.
+    ///
+    /// Unstage everything first so staged deletions/renames are not left behind,
+    /// then revert all tracked changes (`git checkout -- .`) and remove untracked
+    /// files and directories (`git clean -fd`) to fully match the per-file
+    /// discardFile + discardUntracked behavior in SourceControlViewController+Actions.swift.
+    private func scDiscardAllExecute(panel: SourceControlViewController) {
         guard let repo = panel.repository else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let unstageResult = GitOperations.unstageAll(in: repo)
@@ -62,7 +85,11 @@ extension AppDelegate {
                     let errAlert = NSAlert()
                     errAlert.messageText = "Discard failed"
                     errAlert.informativeText = unstageErr.message
-                    errAlert.runModal()
+                    if let window = NSApp.keyWindow {
+                        errAlert.beginSheetModal(for: window, completionHandler: nil)
+                    } else {
+                        errAlert.runModal()
+                    }
                 }
                 return
             }
@@ -79,7 +106,11 @@ extension AppDelegate {
                     let errAlert = NSAlert()
                     errAlert.messageText = "Discard failed"
                     errAlert.informativeText = error.message
-                    errAlert.runModal()
+                    if let window = NSApp.keyWindow {
+                        errAlert.beginSheetModal(for: window, completionHandler: nil)
+                    } else {
+                        errAlert.runModal()
+                    }
                 case .success:
                     // Trigger a re-poll — every other write path calls this so the
                     // file tree and source control panel reflect the new state.

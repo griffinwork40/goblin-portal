@@ -36,6 +36,13 @@ extension SourceControlViewController {
 
     /// Discard working-tree changes for a file — shows a confirmation alert first
     /// because the operation is irreversible.
+    ///
+    /// F-4: For a staged-only addition (`isStaged && status == .added`), the file
+    /// exists only in the index, not the working tree, so `git checkout -- <path>`
+    /// is a silent no-op. The correct operation is `git restore --staged` (unstage),
+    /// which removes the file from the index without touching the working tree. This
+    /// matches VS Code's "Discard Changes" behaviour for staged new files
+    /// (vscode src/vs/workbench/contrib/scm/common/scmService.ts, revert path).
     @objc func discardFile(_ sender: Any?) {
         guard let entry = entry(from: sender) else { return }
         confirmDiscard(filename: (entry.path as NSString).lastPathComponent) { [weak self] confirmed in
@@ -43,6 +50,11 @@ extension SourceControlViewController {
             if entry.status == .untracked {
                 self.performOperation(description: "discard \(entry.path)") { repo in
                     GitOperations.discardUntracked(path: entry.path, in: repo)
+                }
+            } else if entry.isStaged && entry.status == .added {
+                // Staged-only new file: unstage instead of discard (checkout is a no-op).
+                self.performOperation(description: "unstage \(entry.path)") { repo in
+                    GitOperations.unstage(path: entry.path, in: repo)
                 }
             } else {
                 self.performOperation(description: "discard \(entry.path)") { repo in
@@ -108,9 +120,31 @@ extension SourceControlViewController {
         }
     }
 
+    /// Discard only the working-tree half of a partially-staged modified file.
+    ///
+    /// F-6: A file with `MM` porcelain status has changes in both the index (staged)
+    /// and the working tree (unstaged). `git checkout -- <path>` reverts the working
+    /// tree to match the index without touching the staged half — exactly the "Discard
+    /// Working Changes" action VS Code exposes on the second row of a partially-staged
+    /// file (vscode src/vs/workbench/contrib/scm/browser/scmViewPane.ts, "discardChanges").
+    @objc func discardWorkingChanges(_ sender: Any?) {
+        guard let entry = entry(from: sender) else { return }
+        confirmDiscard(filename: (entry.path as NSString).lastPathComponent) { [weak self] confirmed in
+            guard confirmed, let self else { return }
+            self.performOperation(description: "discard working changes \(entry.path)") { repo in
+                GitOperations.discard(path: entry.path, in: repo)
+            }
+        }
+    }
+
     // MARK: - Context menu builder
 
     /// Returns the appropriate context menu for a row, called from the data source.
+    ///
+    /// F-6: For a partially-staged modified file (`isStaged && status == .modified`)
+    /// the staged section row gets an extra "Discard Working Changes" item, letting users
+    /// manage the working-tree half without first unstaging. Also label the "Stage" item
+    /// on a partially-staged entry as "Stage All Changes" to clarify it stages both halves.
     func contextMenu(for entry: GitFileEntry) -> NSMenu {
         let menu = NSMenu()
 
@@ -129,6 +163,17 @@ extension SourceControlViewController {
             unstage.representedObject = entry
             unstage.target = self
             menu.addItem(unstage)
+
+            // Partially-staged (MM): also offer discard of the working-tree changes.
+            if entry.status == .modified {
+                let discardWorking = NSMenuItem(
+                    title: "Discard Working Changes",
+                    action: #selector(discardWorkingChanges(_:)),
+                    keyEquivalent: "")
+                discardWorking.representedObject = entry
+                discardWorking.target = self
+                menu.addItem(discardWorking)
+            }
         } else {
             let stage = NSMenuItem(title: "Stage File", action: #selector(stageFile(_:)), keyEquivalent: "")
             stage.representedObject = entry

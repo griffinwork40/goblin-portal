@@ -91,7 +91,15 @@ enum GitOperations {
     /// Push the current branch: `git push`.
     ///
     /// If no upstream is set, uses `git push -u origin <branch>` to set it up.
+    ///
+    /// F-3: When the caller requests `setUpstream` but `branch` is nil, HEAD is
+    /// detached and git would push an anonymous ref. Fail early with a clear message
+    /// rather than letting git emit a confusing "You are not currently on a branch"
+    /// error that bypasses the existing showError path on some versions.
     static func push(in repository: GitRepository, branch: String? = nil, setUpstream: Bool = false) -> Result<Void, GitOperationError> {
+        if setUpstream && branch == nil {
+            return .failure(GitOperationError(message: "Cannot push: HEAD is detached."))
+        }
         var args = ["push"]
         if setUpstream, let branch {
             args += ["-u", "origin", "--", branch]
@@ -99,9 +107,15 @@ enum GitOperations {
         return run(args, in: repository)
     }
 
-    /// Pull from upstream: `git pull`.
+    /// Pull from upstream: `git pull --ff-only`.
+    ///
+    /// F-2: Bare `git pull` silently creates a merge commit when the local and remote
+    /// branches have diverged — the merge is often unintentional and hard to undo
+    /// without re-reading git history. `--ff-only` makes divergence a hard error surfaced
+    /// through the existing showError path, which matches VS Code's pull behaviour
+    /// (vscode src/vs/workbench/contrib/scm/browser/dirtDiffDecorator.ts, "ff-only").
     static func pull(in repository: GitRepository) -> Result<Void, GitOperationError> {
-        run(["pull"], in: repository)
+        run(["pull", "--ff-only"], in: repository)
     }
 
     // MARK: - Subprocess
@@ -122,7 +136,15 @@ enum GitOperations {
         process.currentDirectoryURL = repository.root
 
         var environment = ProcessInfo.processInfo.environment
+        // F-1: Suppress interactive credential prompts in two layers:
+        //  • GIT_TERMINAL_PROMPT=0 prevents git from writing to /dev/tty directly
+        //    (git credential.c, "terminal_prompt" guard, git 2.3+).
+        //  • GIT_ASKPASS="" overrides any ASKPASS helper the ambient shell may have set
+        //    (e.g. the macOS Keychain helper or an IDE bridge). Without it, git falls
+        //    through to the helper even when GIT_TERMINAL_PROMPT=0 is set, and the helper
+        //    can open a GUI dialog or block indefinitely (git credential.c:credential_do).
         environment["GIT_TERMINAL_PROMPT"] = "0"
+        environment["GIT_ASKPASS"] = ""
         process.environment = environment
 
         let errPipe = Pipe()
@@ -133,13 +155,40 @@ enum GitOperations {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errPipe
 
+        // F-1: Hard 30-second timeout so a hung credential helper or stalled remote
+        // cannot block the caller indefinitely. terminationHandler MUST be set before
+        // run() to avoid a race where git exits before the handler is wired.
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
+
         guard (try? process.run()) != nil else {
             return .failure(GitOperationError(message: "Failed to launch git"))
         }
 
-        // Read-before-wait, same as GitStatusReader, to prevent pipe deadlock.
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        // Read stderr concurrently with the timeout wait. readDataToEndOfFile() blocks
+        // until the pipe closes, which only happens when the process exits (or is
+        // terminated). If the read were sequential before the wait, a hung process
+        // would block the read forever and the timeout would never fire. Reading on a
+        // separate queue lets the semaphore timeout fire first, terminate() the process,
+        // which closes the pipe and unblocks the read.
+        var errData = Data()
+        let readQueue = DispatchQueue(label: "goblin-portal.git-stderr")
+        readQueue.async {
+            errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        }
+
+        let timedOut = done.wait(timeout: .now() + 30) == .timedOut
+        if timedOut {
+            process.terminate()
+            // Wait briefly for the terminated process to close its pipes so the
+            // concurrent stderr read can complete. 2 seconds is generous — terminate()
+            // delivers SIGTERM and the pipe closes on process exit.
+            readQueue.sync {}
+            return .failure(GitOperationError(message: "git timed out after 30 seconds"))
+        }
         process.waitUntilExit()
+        // Ensure the stderr read has finished before we access errData.
+        readQueue.sync {}
 
         guard process.terminationStatus == 0 else {
             let stderr = String(decoding: errData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
