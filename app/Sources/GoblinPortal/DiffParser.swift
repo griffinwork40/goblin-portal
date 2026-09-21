@@ -74,7 +74,12 @@ struct FileDiff: Equatable {
 enum DiffParser {
     /// Parse a complete `git diff` output (possibly containing multiple files).
     static func parse(_ text: String) -> [FileDiff] {
+        // Split on "\n" and strip any trailing "\r" so CRLF line endings (from
+        // repos with core.autocrlf=true or CRLF-stored content) do not leave a
+        // stale carriage return in every DiffLine.text, which would render as a
+        // visible artifact in the diff viewer's attributed strings.
         let allLines = text.components(separatedBy: "\n")
+            .map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }
         var diffs: [FileDiff] = []
         var i = 0
 

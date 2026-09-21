@@ -145,8 +145,19 @@ extension SourceControlViewController {
     /// the staged section row gets an extra "Discard Working Changes" item, letting users
     /// manage the working-tree half without first unstaging. Also label the "Stage" item
     /// on a partially-staged entry as "Stage All Changes" to clarify it stages both halves.
-    func contextMenu(for entry: GitFileEntry) -> NSMenu {
+    /// Build the context menu for a row. `inStagedSection` disambiguates a
+    /// partially-staged (MM) file whose `GitFileEntry` appears in both the Staged
+    /// and Changes sections with `isStaged = true` on both instances. Without the
+    /// section hint the Changes row would show "Unstage" instead of
+    /// "Stage + Discard" -- the bug the double-click handler already avoided by
+    /// consulting `outlineView.parent(forItem:)`. The caller (`menuNeedsUpdate`)
+    /// resolves the section the same way and passes it here.
+    func contextMenu(for entry: GitFileEntry, inStagedSection: Bool? = nil) -> NSMenu {
         let menu = NSMenu()
+        // Use the section hint when available; fall back to the entry's own flag
+        // for call sites that do not have an outline-view parent (e.g. programmatic
+        // callers or future non-outline surfaces).
+        let staged = inStagedSection ?? entry.isStaged
 
         if entry.status == .untracked {
             let track = NSMenuItem(title: "Stage File", action: #selector(stageFile(_:)), keyEquivalent: "")
@@ -158,7 +169,7 @@ extension SourceControlViewController {
             clean.representedObject = entry
             clean.target = self
             menu.addItem(clean)
-        } else if entry.isStaged {
+        } else if staged {
             let unstage = NSMenuItem(title: "Unstage File", action: #selector(unstageFile(_:)), keyEquivalent: "")
             unstage.representedObject = entry
             unstage.target = self

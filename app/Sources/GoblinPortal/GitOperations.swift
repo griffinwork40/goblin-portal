@@ -165,12 +165,16 @@ enum GitOperations {
             return .failure(GitOperationError(message: "Failed to launch git"))
         }
 
-        // Read stderr on a serial queue. Using `sync` with a return value
-        // eliminates the `var errData` mutation that Swift 6 strict concurrency
-        // flags as a SendableClosureCaptures warning — the data flows through
-        // the return, not a captured mutable variable.
-        let readQueue = DispatchQueue(label: "goblin-portal.git-stderr")
+        // Drain stderr BEFORE waiting on the semaphore. The pipe's kernel buffer
+        // is finite (~64 KB on macOS); if we wait first, a git hook or credential
+        // helper that writes more than that to stderr stalls the subprocess on its
+        // write() syscall, the semaphore never fires, and the caller hangs for the
+        // full 30-second timeout. This is the same deadlock the stdout comment above
+        // (line 151) diagnoses, and the same drain-first pattern GitDiff.run() uses
+        // for stdout. Reading first empties the buffer so git never blocks on a write;
+        // the semaphore then fires once the process exits naturally.
         let errHandle = errPipe.fileHandleForReading
+        let errData = errHandle.readDataToEndOfFile()
 
         let timedOut = done.wait(timeout: .now() + 30) == .timedOut
         if timedOut {
@@ -185,13 +189,9 @@ enum GitOperations {
                 guard pid > 0 else { return }
                 kill(pid, SIGKILL)
             }
-            // Block until stderr is fully read (pipe closes on process exit/kill).
-            let _ = readQueue.sync { errHandle.readDataToEndOfFile() }
             return .failure(GitOperationError(message: "git timed out after 30 seconds"))
         }
         process.waitUntilExit()
-        // Blocking sync read — the process has exited so the pipe is closed.
-        let errData = readQueue.sync { errHandle.readDataToEndOfFile() }
 
         guard process.terminationStatus == 0 else {
             let stderr = String(decoding: errData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)

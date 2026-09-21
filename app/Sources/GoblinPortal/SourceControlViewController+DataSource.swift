@@ -310,7 +310,15 @@ extension SourceControlViewController: NSMenuDelegate {
         guard outlineView.clickedRow >= 0,
               let entry = outlineView.item(atRow: outlineView.clickedRow) as? GitFileEntry
         else { return }
-        for item in contextMenu(for: entry).items {
+        // Resolve the section from the outline view's own parent link rather than
+        // relying solely on entry.isStaged. For a partially-staged (MM) file, the
+        // same GitFileEntry (with isStaged=true) appears in both the Staged and
+        // Changes sections. Without this, contextMenu(for:) branches on isStaged
+        // alone and shows "Unstage" for the Changes row — the same fix the
+        // double-click handler already applies at SourceControlViewController.swift:279.
+        let parentTitle = outlineView.parent(forItem: entry) as? String
+        let inStagedSection = parentTitle == SourceControlSection.staged.title
+        for item in contextMenu(for: entry, inStagedSection: inStagedSection).items {
             menu.addItem(item.copy() as! NSMenuItem)
         }
     }
