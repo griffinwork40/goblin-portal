@@ -66,6 +66,8 @@ struct ConfigFile: Decodable {
     var lineHeight: Double?
     /// Ligature toggle. Default false. NOT YET IMPLEMENTED — see TerminalPane+Typography.swift.
     var ligatures: Bool?
+    /// Pixel-level smooth trackpad scrolling. Default true.
+    var smoothScrolling: Bool?
 
     struct EditorSpec: Decodable {
         var tabWidth: Int?
@@ -174,6 +176,9 @@ struct AppConfig {
     /// Multiplier on the font's natural line height. 1.0 = default metrics;
     /// 1.2 = 20% extra leading. Clamped to 0.8–2.0. Default 1.0.
     var lineHeight: CGFloat
+    /// Pixel-level smooth trackpad scrolling via CALayer transform. Default true.
+    /// Set `"smoothScrolling": false` in config.json to opt out.
+    var smoothScrolling: Bool
 
     // Editor behaviour — see `Config+Editor.swift` for the resolver.
     var tabWidth: Int
@@ -272,6 +277,7 @@ struct AppConfig {
             renderer: .default,
             fontThicken: false,
             lineHeight: 1.0,
+            smoothScrolling: true,
             tabWidth: 4,
             softTabs: true,
             wordWrap: .auto,
