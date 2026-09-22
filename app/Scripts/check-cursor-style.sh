@@ -167,9 +167,10 @@ for shape in [CursorStyle.Shape.block, .underline, .bar] {
 
 // ---- 5. The default -------------------------------------------------------------------
 // AppConfig.defaults() reads CursorStyle.default rather than re-hardcoding a case, so this is
-// the single source of truth. It must remain what the app shipped with.
-if CursorStyle.default != .blinkBlock {
-    print("FAIL default: CursorStyle.default is \(CursorStyle.default), expected .blinkBlock")
+// the single source of truth. Changed from .blinkBlock to .steadyBlock to eliminate the 0.7s
+// blink timer that drove ~11% idle CPU + 60%+ WindowServer load (see CursorStyle.swift).
+if CursorStyle.default != .steadyBlock {
+    print("FAIL default: CursorStyle.default is \(CursorStyle.default), expected .steadyBlock")
     bad += 1
 }
 // ...and the warning AppConfig.load() prints says "using block", so the default must actually
@@ -197,7 +198,7 @@ out="$("$TMP/cursorcheck" 2>&1)"
 if [[ "$out" == *"ALL-OK"* ]]; then
   say "  ok  all 10 config spellings map as promised; 5 unknowns rejected"
   say "  ok  all 6 DECSCUSR codes unchanged from the pre-move table, unique, covering 1-6"
-  say "  ok  shape/blinks decomposition agrees with every case; default is a blinking block"
+  say "  ok  shape/blinks decomposition agrees with every case; default is a steady block"
   echo
   echo "all cursor-style cases passed (15 mappings + 6 codes + 6 decompositions + default)"
   exit 0

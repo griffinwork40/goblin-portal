@@ -38,8 +38,14 @@ enum CursorStyle: CaseIterable {
     case blinkBar
     case steadyBar
 
-    /// Matches the previous hard-coded default in `AppConfig.defaults()`.
-    static let `default`: CursorStyle = .blinkBlock
+    /// A steady cursor eliminates the 0.7-second repeating `Timer` that
+    /// `MetalTerminalRenderer.updateCursorBlinkTimer` creates for blinking styles.
+    /// That timer calls `view.setNeedsDisplay(bounds)` on every tick — a full GPU
+    /// command-buffer submit + `drawable.present()` + WindowServer compositor wake —
+    /// even when the terminal is idle or unfocused, producing ~11% CPU and driving
+    /// WindowServer to 60%+.  Steady kills the timer; users who want blink set
+    /// `"cursor": "block"` in config.
+    static let `default`: CursorStyle = .steadyBlock
 
     /// Map a config string onto a case, or `nil` if it names nothing.
     ///
