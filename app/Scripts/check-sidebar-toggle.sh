@@ -93,10 +93,10 @@ fi
 # `@testable import`. The directory carries a build-configuration hash, so glob for it rather
 # than hardcoding one machine's, exactly as check-pane-teardown.sh does.
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*testable-t.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*GoblinPortal-*-testable.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/SidebarToggleAccessory.o" ]] || {
   echo "error: no testable GoblinPortal objects under .build — cannot @testable import the real accessory." >&2
-  echo "  Looked for '*testable-t.build/Objects-normal/*/SidebarToggleAccessory.o'. Try: swift build" >&2
+  echo "  Looked for '*GoblinPortal-*-testable.build/Objects-normal/*/SidebarToggleAccessory.o'. Try: swift build" >&2
   exit 2; }
 [[ -e "$PRODUCTS/SwiftTerm.o" ]] || {
   echo "error: $PRODUCTS/SwiftTerm.o missing after build." >&2; exit 2; }

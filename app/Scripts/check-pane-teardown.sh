@@ -40,10 +40,10 @@ fi
 # The testable variant is what exposes Goblin Portal's internals to `@testable import`. The directory
 # carries a build-configuration hash, so glob for it rather than hardcoding one machine's.
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*testable-t.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*GoblinPortal-*-testable.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/TerminalPane.o" ]] || {
   echo "error: no testable GoblinPortal objects under .build — cannot @testable import the real panes." >&2
-  echo "  Looked for '*testable-t.build/Objects-normal/*/TerminalPane.o'. Try: swift build" >&2
+  echo "  Looked for '*GoblinPortal-*-testable.build/Objects-normal/*/TerminalPane.o'. Try: swift build" >&2
   exit 2; }
 [[ -e "$PRODUCTS/SwiftTerm.o" ]] || {
   echo "error: $PRODUCTS/SwiftTerm.o missing after build." >&2; exit 2; }

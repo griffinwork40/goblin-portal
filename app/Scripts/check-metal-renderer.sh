@@ -95,7 +95,7 @@ cleanup() {
   # Restore the shader first and unconditionally: case 3 deliberately breaks the build
   # products, and leaving them broken would make the NEXT run of anything fail for a
   # reason that has nothing to do with its own subject.
-  [[ -n "$HIDDEN" && -f "$HIDDEN" ]] && mv "$HIDDEN" "$RES_BUNDLE/Contents/Resources/Shaders.metal"
+  [[ -n "$HIDDEN" && -f "$HIDDEN" && -n "$SHADER" ]] && mv "$HIDDEN" "$SHADER"
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -116,18 +116,22 @@ if [[ ! -f "$PRODUCTS/SwiftTerm.o" ]]; then
 fi
 
 # --- static case A: does the shader ship in the SwiftPM resource bundle? ----------
-SHADER="$RES_BUNDLE/Contents/Resources/Shaders.metal"
-if [[ ! -f "$SHADER" ]]; then
-  echo "✗ FAIL: $SHADER is missing." >&2
-  echo "  vendor/SwiftTerm/Package.swift is not declaring Apple/Metal/Shaders.metal as a" >&2
-  echo "  .copy resource. Apply patch 0001:" >&2
+# Accept either the raw source (CLT-only: .copy resource ships Shaders.metal) or the
+# compiled binary (full Xcode with Metal toolchain: .process compiles to default.metallib).
+SHADER=""
+for _candidate in \
+    "$RES_BUNDLE/Contents/Resources/Shaders.metal" \
+    "$RES_BUNDLE/Contents/Resources/default.metallib"; do
+  [[ -f "$_candidate" ]] && SHADER="$_candidate" && break
+done
+if [[ -z "$SHADER" ]]; then
+  echo "✗ FAIL: neither Shaders.metal nor default.metallib found in $RES_BUNDLE/Contents/Resources/." >&2
+  echo "  vendor/SwiftTerm/Package.swift must declare Apple/Metal/Shaders.metal as a resource." >&2
+  echo "  Apply patch 0001:" >&2
   echo "    patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch" >&2
-  echo "  Note it must be .copy, NOT upstream's .process — .process invokes the offline" >&2
-  echo "  Metal compiler and dies with 'unable to spawn process metal' on a machine with" >&2
-  echo "  only Command Line Tools installed." >&2
   exit 1
 fi
-say "  ok  shader in SwiftPM resource bundle"
+say "  ok  shader artifact in SwiftPM resource bundle ($(basename "$SHADER"))"
 
 # --- static case B: does the packaged .app carry it too? --------------------------
 # The dev path (`swift run`) and the shipped path (`open "build/Goblin Portal.app"`) resolve the
@@ -138,16 +142,28 @@ if ! ./Scripts/make-app-bundle.sh >/dev/null 2>&1; then
   echo "error: make-app-bundle.sh failed — cannot check the packaged path." >&2
   exit 2
 fi
-APP_SHADER="$APP_ROOT/build/Goblin Portal.app/Contents/Resources/SwiftTerm_SwiftTerm.bundle/Contents/Resources/Shaders.metal"
-if [[ ! -f "$APP_SHADER" ]]; then
+# The .app bundle may use a flat layout (bundle/Shaders.metal) or a nested one
+# (bundle/Contents/Resources/default.metallib), depending on how make-app-bundle.sh
+# copies the resource bundle and whether the Metal toolchain compiled the shader.
+APP_SHADER=""
+APP_BUNDLE="$APP_ROOT/build/Goblin Portal.app/Contents/Resources/SwiftTerm_SwiftTerm.bundle"
+for _candidate in \
+    "$APP_BUNDLE/Contents/Resources/Shaders.metal" \
+    "$APP_BUNDLE/Contents/Resources/default.metallib" \
+    "$APP_BUNDLE/Shaders.metal" \
+    "$APP_BUNDLE/default.metallib"; do
+  [[ -f "$_candidate" ]] && APP_SHADER="$_candidate" && break
+done
+if [[ -z "$APP_SHADER" ]]; then
   echo "✗ FAIL: the shader is in the build products but NOT in Goblin Portal.app." >&2
-  echo "  Expected: ${APP_SHADER#$APP_ROOT/}" >&2
+  echo "  Expected Shaders.metal or default.metallib inside:" >&2
+  echo "    build/Goblin Portal.app/Contents/Resources/SwiftTerm_SwiftTerm.bundle/Contents/Resources/" >&2
   echo "  make-app-bundle.sh copies \$BIN_DIR/*.bundle into Contents/Resources (:51-53);" >&2
   echo "  if that loop changed, the shipped app has no reachable GPU renderer even though" >&2
   echo "  \`swift run\` does. That divergence is invisible in normal use." >&2
   exit 1
 fi
-say "  ok  shader in Goblin Portal.app/Contents/Resources"
+say "  ok  shader artifact in Goblin Portal.app/Contents/Resources ($(basename "$APP_SHADER"))"
 
 failures=0
 
@@ -275,7 +291,7 @@ falsify_live="${falsify_out#LIVE=}"; falsify_live="${falsify_live%% *}"
 if [[ "$falsify_live" == "coretext" && "$falsify_out" == *"THREW="* && "$falsify_out" != *"THREW=none"* ]]; then
   say "  ok  shader hidden -> falls back to coretext AND throws (gate is discriminating)"
 else
-  echo "✗ FAIL: with Shaders.metal hidden, Metal still came up: $falsify_out" >&2
+  echo "✗ FAIL: with shader hidden, Metal still came up: $falsify_out" >&2
   echo "  This gate is BLIND: its passing cases are not caused by the shipped shader." >&2
   echo "  Most likely a stale default.metallib or a cached library is satisfying" >&2
   echo "  makeLibrary() (MetalTerminalRenderer.swift:2746). Do not trust case 1 until" >&2
