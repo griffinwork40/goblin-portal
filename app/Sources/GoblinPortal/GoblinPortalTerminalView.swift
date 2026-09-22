@@ -70,6 +70,16 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     /// `AppConfig` so the draw path has one dependency: `self.fontThicken`.
     var fontThicken: Bool = false
 
+    // MARK: - Smooth scrolling
+
+    /// Set by `TerminalPane.apply(config:)`. When false, `scrollWheel` falls through
+    /// to super, preserving the original line-by-line behaviour.
+    var smoothScrollEnabled: Bool = true
+
+    /// Holds all smooth-scroll state. Wired in `configureSmoothScroll()`.
+    /// Internal (not private) so the `+SmoothScroll` extension file can access it.
+    let smoothScroll = SmoothScroll()
+
     // MARK: - Search highlight overlay
 
     /// Transparent overlay that draws translucent rects at every search match.
@@ -138,7 +148,7 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
 
     /// Cell size derived from view bounds and grid dimensions.
     /// `cellDimension` on `MacTerminalView` is internal, so we compute it.
-    private var terminalCellSize: CGSize {
+    var terminalCellSize: CGSize {
         let terminal = getTerminal()
         guard terminal.cols > 0, terminal.rows > 0 else { return .zero }
         return CGSize(
@@ -168,6 +178,9 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     override func layout() {
         super.layout()
         updateSearchOverlayGeometry()
+        // Sync SmoothScroll cell height (cellDimension is internal to SwiftTerm).
+        let t = getTerminal()
+        if t.rows > 0 { smoothScroll.configure(view: self, cellHeight: bounds.height / CGFloat(t.rows)) }
     }
 
     private func ensureSearchOverlay() -> SearchHighlightOverlay {
@@ -206,6 +219,16 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
         // plain clicks stay free for text selection and mouse reporting, and ⌘ is
         // the intentional "I want the link" gesture. Source: `Mac/MacTerminalView.swift:893`.
         linkHighlightMode = .hoverWithModifier
+        // Wire smooth-scroll callbacks. `scrollUp/Down` are public on AppleTerminalView.
+        smoothScroll.onScrollLines = { [weak self] lines in
+            guard let self else { return }
+            if lines > 0 { self.scrollUp(lines: lines) }
+            else { self.scrollDown(lines: -lines) }
+        }
+        smoothScroll.onOffsetChanged = { [weak self] offset in
+            self?.layer?.setAffineTransform(
+                offset == 0 ? .identity : CGAffineTransform(translationX: 0, y: offset))
+        }
     }
 
     /// Required companion to the frame-based initialiser above.
@@ -214,33 +237,15 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
 
     // MARK: - Link activation
 
-    /// Override the inherited `requestOpenLink` to route through `openSafeURL(_:)`,
-    /// which filters to safe schemes and logs under `GOBLIN_PORTAL_DIAG`.
-    ///
-    /// `LocalProcessTerminalView` is its own `TerminalViewDelegate` and provides a
-    /// default `requestOpenLink` that calls `openLink(_:)` → `NSWorkspace.shared.open`.
-    /// We override rather than replace so the subclass controls every outbound URL
-    /// without needing to reassign `terminalDelegate` (explicitly warned against in
-    /// `MacLocalTerminalView.swift:59-64`). See `TerminalPane+Links.swift` for the
-    /// full architecture and rationale.
+    /// Route through `openSafeURL(_:)` (scheme allow-list + GOBLIN_PORTAL_DIAG logging).
+    /// Overrides rather than reassigning `terminalDelegate` — see `TerminalPane+Links.swift`.
     override func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
         openSafeURL(link)
     }
 
-    /// Separate from `processDelegate` because the bell is *not* on
-    /// `LocalProcessTerminalViewDelegate` — that protocol carries exactly four
-    /// members (`MacLocalTerminalView.swift:14-43`: sizeChanged,
-    /// setTerminalTitle, hostCurrentDirectoryUpdate, processTerminated) and the bell
-    /// is on the lower-level `TerminalViewDelegate` instead
-    /// (`Apple/TerminalViewDelegate.swift:64`). `LocalProcessTerminalView` *is* its own
-    /// `TerminalViewDelegate` and does not forward the bell onward — it simply
-    /// inherits the default that calls `NSSound.beep()`
-    /// (`MacTerminalView.swift:3032-3035`). Reassigning `terminalDelegate` to reach it
-    /// is explicitly warned against upstream ("you might inadvertently break the
-    /// internal working", `MacLocalTerminalView.swift:59-64`), so the safe hook is to
-    /// override the `open` `bell(source: Terminal)` on `TerminalView` itself
-    /// (`MacTerminalView.swift:2869`) — which is what this subclass already exists to
-    /// do for key handling.
+    /// Bell not on `LocalProcessTerminalViewDelegate` (4 members, no bell). The safe hook
+    /// is override `bell(source: Terminal)` — reassigning `terminalDelegate` is warned
+    /// against upstream (`MacLocalTerminalView.swift:59-64`). Full rationale in TerminalPane.
     weak var bellDelegate: GoblinPortalTerminalViewDelegate?
 
     /// `bell(source: Terminal)` rather than `bell(source: TerminalView)`: the former is
@@ -298,6 +303,21 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
         return true
     }
 
+    /// Event monitor handle for smooth scroll interception -- see
+    /// `GoblinPortalTerminalView+SmoothScroll.swift` for the wiring.
+    var scrollMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { installScrollMonitor() } else { removeScrollMonitor() }
+    }
+
+    /// Cancel in-flight momentum before text selection begins.
+    override func mouseDown(with event: NSEvent) {
+        smoothScroll.snapToGrid()
+        super.mouseDown(with: event)
+    }
+
     // MARK: - Paste guard
 
     /// Intercept ⌘V to guard against accidental multi-line or large pastes.
@@ -316,5 +336,11 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
             return  // User cancelled or nothing on clipboard
         }
         super.paste(sender as Any)
+    }
+
+    // Clip the parent so a sub-cell pixel offset doesn't reveal a gap at the edges.
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        superview?.wantsLayer = true; superview?.layer?.masksToBounds = true
     }
 }

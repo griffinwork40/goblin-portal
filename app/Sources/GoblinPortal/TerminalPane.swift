@@ -191,6 +191,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         view.selectedTextForegroundColor = sel?.foreground ?? NSColor.selectedTextColor
         view.optionAsMetaKey = config.optionAsMeta
         view.allowMouseReporting = config.mouseReporting
+        view.smoothScrollEnabled = config.smoothScrolling
         view.changeScrollback(config.scrollback == 0 ? nil : config.scrollback)
         applyRenderer(config.renderer)  // must precede the font — see applyRenderer(_:)
         // Re-resolve rather than reusing `fontSize`, so editing `font.size` and
@@ -198,6 +199,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // file — ⌘0 drops it and hands control back to the config.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
         applyTypography(config)  // lineHeight + fontThicken — must follow setFontSize; see TerminalPane+Typography.swift
+        view.configureSmoothScroll()  // cellHeight depends on font size — must follow setFontSize
         // `GOBLIN_PORTAL_DIAG=1` dumps the resolved appearance to stderr — the only
         // observability for a project with no test target. Costs nothing unset.
         if ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil {
