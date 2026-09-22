@@ -37,9 +37,9 @@ enum StarterConfig {
       "// mouseReporting": "true (default) lets programs like tmux and vim capture mouse clicks. When true, hold Shift to select text instead. Set false to always select text with the mouse (programs lose mouse support).",
       "mouseReporting": true,
 
-      "// renderer": "coretext (default) | metal. metal is SwiftTerm's GPU path: a glyph atlas plus per-row vertex caching, which should scroll a big log noticeably faster than coretext, where every visible row is re-shaped through Core Text on every frame.",
-      "// renderer-note": "OPT-IN because upstream calls the GPU path experimental and its speedup here has not been measured. Falls back to coretext by itself if it cannot start, and says so on stderr. Change it and hit Cmd-R; run app/Scripts/check-metal-renderer.sh if you suspect it silently fell back.",
-      "renderer": "coretext",
+      "// renderer": "metal (default) | coretext. metal is SwiftTerm's GPU path: a glyph atlas plus per-row vertex caching. coretext re-shapes every visible row through Core Text on every frame with no per-row cache. check-metal-throughput.sh validates Metal is faster.",
+      "// renderer-note": "Falls back to coretext by itself if the GPU is unavailable, and says so on stderr. Run app/Scripts/check-metal-renderer.sh if you suspect it silently fell back.",
+      "renderer": "metal",
 
       "// padding": "inner margin around terminal content in points. Default 4. The gap fills with the terminal background colour (seamless, not a border). Two forms accepted:",
       "// padding-uniform": "  \"padding\": 4               → same on all sides",
