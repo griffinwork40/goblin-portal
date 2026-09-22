@@ -298,6 +298,7 @@ extension AppDelegate {
         mainMenu.addItem(viewItem)
 
         buildNavigateMenu(in: mainMenu)
+        Self.addSourceControlMenu(to: mainMenu)
 
         // Window menu — giving it the standard role is what makes the native tab
         // commands (Show All Tabs, Move Tab to New Window, …) appear.
