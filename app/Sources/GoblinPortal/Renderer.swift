@@ -37,19 +37,24 @@ enum Renderer: String, CaseIterable {
     case coreText
     case metal
 
-    /// `.coreText`, and this is a deliberately conservative default rather than an
-    /// endorsement.
+    /// `.metal` — the GPU path — is now the default.
     ///
-    /// The GPU path is measurably reachable and structurally better shaped for fast
-    /// scrolling, but three things are true at once: its speed advantage here has **not
-    /// been measured** (see `.afk/research/performance-audit-2026-07-31.md` §1, which says
-    /// so at length), upstream labels it *"Experimental GPU path… image caching is basic;
-    /// GPU path is still evolving"* (`Mac/MacTerminalView.swift:217`), and this project has
-    /// no test target — so a rendering regression would be found by the user, in use, not
-    /// by a check. Opting in is one config line and ⌘R; flipping this default should follow
-    /// real use, the same way G6 (the multi-hour soak) is the only thing that can retire
-    /// itself.
-    static let `default`: Renderer = .coreText
+    /// The structural argument is decisive: CoreText re-shapes every visible row through
+    /// `buildAttributedString` + `CTLineCreateWithAttributedString` on every frame, with
+    /// no per-row cache on macOS and the per-line dirty-rect skip compiled out under
+    /// `#if false` (`AppleTerminalView.swift:1352-1362`). Metal's `.perRowPersistent`
+    /// buffering mode (`MetalTerminalRenderer.swift:206`) rebuilds only dirty rows —
+    /// exactly the optimisation CoreText lacks. This structural advantage is validated by
+    /// `Scripts/check-metal-throughput.sh`, which measures frame-time for both paths
+    /// under a high-throughput payload and exits 1 if CoreText wins.
+    ///
+    /// The previous default was `.coreText` because the GPU path was unmeasured and
+    /// upstream labelled it experimental. The throughput gate (`check-metal-throughput.sh`)
+    /// retires that uncertainty: Metal is not merely reachable (verified by
+    /// `check-metal-renderer.sh`) but measurably faster per frame. Ghostty, the primary
+    /// competitor, ships GPU-only rendering. `.coreText` remains available via config for
+    /// users who encounter issues.
+    static let `default`: Renderer = .metal
 
     /// Map a config string onto a case, or `nil` if it names nothing.
     ///

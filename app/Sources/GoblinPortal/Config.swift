@@ -164,7 +164,7 @@ struct AppConfig {
     /// (`shiftBypassesMouseReporting`) still works when this is `true`.
     var mouseReporting: Bool
     /// Which drawing back end terminals use. See `Renderer.swift` for the two paths and
-    /// why the default is the conservative one.
+    /// why the default is `.metal`.
     var renderer: Renderer
     /// Apply medium font dilation (CGContextSetFontSmoothingStyle style 48) before
     /// glyph rendering. Compensates for sub-pixel AA bleed that makes white-on-black

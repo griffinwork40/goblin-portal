@@ -107,11 +107,12 @@ if Renderer.configNames.isEmpty {
     bad += 1
 }
 
-// The default is the conservative one, and it is conservative on purpose: the GPU path is
-// upstream-experimental and its speedup here is unmeasured. Flipping it is a legitimate
-// decision — but it must be a deliberate edit HERE too, not something that drifts in.
-if Renderer.default != .coreText {
-    print("FAIL default: Renderer.default is \(Renderer.default), expected .coreText")
+// The default is now .metal. The structural argument is decisive (per-row vertex cache vs.
+// per-frame Core Text reshape), and check-metal-throughput.sh validates the advantage.
+// Flipping it back is a legitimate decision — but it must be a deliberate edit HERE too,
+// not something that drifts in.
+if Renderer.default != .metal {
+    print("FAIL default: Renderer.default is \(Renderer.default), expected .metal")
     bad += 1
 }
 
@@ -131,7 +132,7 @@ fi
 out="$("$TMP/renderercheck" 2>&1)"
 if [[ "$out" == *"ALL-OK"* ]]; then
   say "  ok  every documented spelling maps as promised; unknown values rejected"
-  say "  ok  configName round-trips for every case; default is coretext"
+  say "  ok  configName round-trips for every case; default is metal"
   echo
   echo "all renderer-config cases passed (13 mappings + round-trip + default)"
   exit 0
