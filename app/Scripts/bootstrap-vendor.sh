@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Materialise vendor/SwiftTerm from nothing: clone the pinned upstream, apply the
-# seven local patches, and hand off to verify-vendor.sh for the verdict.
+# local patch series, and hand off to verify-vendor.sh for the verdict.
 #
 # Why this script exists: vendor/ is gitignored (.gitignore:20) but
 # app/Package.swift declares `.package(path: "../vendor/SwiftTerm")`, so a fresh
@@ -68,7 +68,12 @@ pin_value() {
 # feedPrepare()'s selection.active = false the same way so pty output between
 # selecting and ⌘C does not silently disable Copy; 0008 makes draw(_:) `open`
 # instead of `public` so GoblinPortalTerminalView can override it for font dilation
-# (required by Xcode 27 / Swift 6 strict access control). A tree missing any
+# (required by Xcode 27 / Swift 6 strict access control); 0009 adds the
+# searchStateDidChange hook + findAllMatchPositions that all-match search
+# highlighting needs (it was missing from this array while verify-vendor.sh
+# already pinned it, so a fresh bootstrap failed its own verdict); 0010 paces redraws
+# on the display link instead of a free-running 16.67ms timer, which dropped every
+# other frame of a 60fps producer. A tree missing any
 # one of them is not the tree this project is tested against, which is the whole
 # reason the pin records hashes rather than a version.
 PATCHES=(
@@ -80,6 +85,8 @@ PATCHES=(
   "0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
   "0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
   "0008-make-draw-open-for-subclass-override.patch"
+  "0009-expose-search-state-changed-hook.patch"
+  "0010-pace-redraws-on-display-link.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then
@@ -90,7 +97,7 @@ fi
 for p in "${PATCHES[@]}"; do
   if [[ ! -f "$PATCH_DIR/$p" ]]; then
     err "error: missing patches/swiftterm/$p"
-    err "       All seven patches are required; see SwiftTerm.pin for why."
+    err "       Every patch in the series is required; see SwiftTerm.pin for why."
     exit 1
   fi
 done
