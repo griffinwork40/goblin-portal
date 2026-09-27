@@ -1,13 +1,14 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its seven local patches applied.
+# WITH its ten local patches applied.
 #
 # Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
 # fine while silently corrupting scrollback (0002), bleeding stale cells across
 # tmux panes (0003), shipping a release-build abort() (0004), dropping DCS Ptmux
-# sequences (0005), and breaking copy/paste (0006, 0007). This script makes that
-# silent case loud. Called first by make-app-bundle.sh.
+# sequences (0005), breaking copy/paste (0006, 0007), and painting on a free-running
+# timer that drops every other frame of a 60fps producer (0010). This script makes that
+# silent case loud. The view-file checks (0006-0010) live in verify-vendor-views.sh. Called first by make-app-bundle.sh.
 #
 # Buffer.swift carries 0002/0003/0004 under ONE combined hash — half-patched
 # matches neither and lands in the exit-3 "unknown" branch by design. See the
@@ -43,6 +44,7 @@ PATCH_DEBUGGATE="$REPO_ROOT/patches/swiftterm/0004-gate-resize-post-condition-be
 PATCH_PTMUX="$REPO_ROOT/patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
 PATCH_LFSEL="$REPO_ROOT/patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
 PATCH_FEEDSEL="$REPO_ROOT/patches/swiftterm/0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
+PATCH_PACE="$REPO_ROOT/patches/swiftterm/0010-pace-redraws-on-display-link.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -56,7 +58,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -84,15 +86,16 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it:"
   err "  ./Scripts/bootstrap-vendor.sh"
   err ""
-  err "That clones $UPSTREAM_TAG, applies all seven patches in order, and re-runs this"
+  err "That clones $UPSTREAM_TAG, applies all ten patches in order, and re-runs this"
   err "check for the verdict. app/README.md documents the manual equivalent if you"
   err "would rather see the steps than trust a script."
   err ""
-  err "ALL SEVEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
+  err "ALL TEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
   err "narrowing), 0003 fixes the alt-buffer resize defect (stale cells bleeding across tmux"
   err "panes on widening), 0004 stops an upstream release-build abort() on every resize, 0005"
   err "adds DCS Ptmux passthrough, 0006 keeps the selection alive during linefeed at a plain"
-  err "prompt, and 0007 keeps the selection alive during pty output (feedPrepare);"
+  err "prompt, 0007 keeps the selection alive during pty output (feedPrepare), and 0010"
+  err "paces redraws on the display link;"
   err "check-reflow.sh and check-altbuffer-resize.sh are what prove 0002 and 0003 applied."
   exit 1
 fi
@@ -257,94 +260,9 @@ if [[ "$GOT_PTMUX" != "$WANT_PTMUX" ]]; then
   exit 3
 fi
 
-# --- fourth check: is the linefeed selection-clear patch applied? ---------------
-# 0006 gates linefeed's selection.selectNone() on terminal.mouseMode != .off so
-# that a plain shell prompt (mouseMode == .off) preserves the selection during
-# streaming output. Without it, every LF clears the selection before ⌘C fires.
-MTV="$VENDOR/Sources/SwiftTerm/Mac/MacTerminalView.swift"
-if [[ ! -f "$MTV" ]]; then
-  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Mac/MacTerminalView.swift -- incomplete checkout."
-  exit 1
-fi
+# --- view-layer checks (0006-0010) live in a sibling -----------------------------
+# MacTerminalView.swift, AppleTerminalView.swift, TerminalViewSearch.swift and 0010's
+# MacDisplayLinkPacer.swift. Sourced, not executed, so its exits are this script's.
+. "$APP_ROOT/Scripts/verify-vendor-views.sh"
 
-WANT_MTV="$(pin_value patched_mac_terminal_view)"
-WANT_MTV_UPSTREAM="$(pin_value upstream_mac_terminal_view)"
-GOT_MTV="$(sha256_of "$MTV")"
-
-if [[ "$GOT_MTV" == "$WANT_MTV_UPSTREAM" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift is UNPATCHED upstream $UPSTREAM_TAG."
-  err ""
-  err "Patch 0006 gates linefeed(source:)'s selection.selectNone() on"
-  err "terminal.mouseMode != .off. Without it, every newline in the terminal output"
-  err "clears the user's text selection — copy/paste feels broken even though ⌘C"
-  err "itself works correctly."
-  err ""
-  err "Apply the patch:"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
-  exit 2
-fi
-
-if [[ "$GOT_MTV" != "$WANT_MTV" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift matches neither"
-  err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
-  err ""
-  err "  expected (patched): $WANT_MTV"
-  err "  found:              $GOT_MTV"
-  err ""
-  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift"
-  err "  # then update patched_mac_terminal_view in patches/swiftterm/SwiftTerm.pin"
-  exit 3
-fi
-
-# --- fifth check: is the feedPrepare selection-clear patch applied? ----------------
-# 0007 gates feedPrepare()'s selection.active = false on terminal.mouseMode != .off
-# so that pty output at a plain prompt (mouseMode == .off) preserves the selection.
-# Without it, ANY output between selecting text and pressing ⌘C clears the selection,
-# causing validateUserInterfaceItem to disable Copy and silently swallow the keystroke.
-# Same defect pattern as 0006 (linefeed), different call site (feedPrepare).
-ATV="$VENDOR/Sources/SwiftTerm/Apple/AppleTerminalView.swift"
-if [[ ! -f "$ATV" ]]; then
-  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Apple/AppleTerminalView.swift -- incomplete checkout."
-  exit 1
-fi
-
-GOT_ATV="$(sha256_of "$ATV")"
-
-if [[ "$GOT_ATV" == "$WANT_ATV_UPSTREAM" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift is UNPATCHED upstream $UPSTREAM_TAG."
-  err ""
-  err "Patch 0007 gates feedPrepare()'s selection.active = false on"
-  err "terminal.mouseMode != .off. Without it, any pty output between selecting"
-  err "text and pressing ⌘C clears the selection — copy/paste is silently broken."
-  err ""
-  err "Apply the patch:"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
-  exit 2
-fi
-
-if [[ "$GOT_ATV" != "$WANT_ATV" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift matches neither"
-  err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
-  err ""
-  err "  expected (patched): $WANT_ATV"
-  err "  found:              $GOT_ATV"
-  err ""
-  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift"
-  err "  # then update patched_apple_terminal_view in patches/swiftterm/SwiftTerm.pin"
-  exit 3
-fi
-
-# --- sixth check: is the search-state-changed hook (0009) applied? ---------------
-TVS="$VENDOR/Sources/SwiftTerm/TerminalViewSearch.swift"
-if [ ! -f "$TVS" ]; then err "error: TerminalViewSearch.swift missing."; exit 1; fi
-WANT_TVS="$(pin_value patched_terminal_view_search)"
-GOT_TVS="$(sha256_of "$TVS")"
-if [ "$GOT_TVS" != "$WANT_TVS" ]; then
-  err "error: TerminalViewSearch.swift hash mismatch (expected $WANT_TVS, got $GOT_TVS)."
-  err "  Regenerate: shasum -a 256 $TVS"
-  exit 3
-fi
-
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 9 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 10 local patches"

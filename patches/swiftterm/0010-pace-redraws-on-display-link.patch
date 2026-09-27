@@ -1,0 +1,310 @@
+0010-pace-redraws-on-display-link.patch
+
+Paint on the display's refresh instead of on a free-running 16.67ms timer.
+
+Upstream coalesces redraws with DispatchQueue.main.asyncAfter(+16.67ms) from the
+first queued byte (queuePendingDisplay, queueMetalDisplay). That timer has no
+relationship to vsync, so:
+
+  * a steady 60fps producer (agent-afk's ink reveal through tmux) is coalesced to
+    ~30fps: the timer is still pending when every second update arrives, so every
+    other frame is dropped (measured 94/188 painted, p50 interval ~32ms at 120Hz);
+  * the paints that do happen land at an arbitrary, drifting phase inside the
+    refresh period (~2ms spread at 120Hz), so the compositor shows some one
+    refresh late and some on time, which reads as uneven motion.
+
+Three changes:
+
+1. Mac/MacDisplayLinkPacer.swift (new) — TerminalDisplayPacer, driven by
+   NSView.displayLink(target:selector:) (macOS 14+) in .common run-loop mode.
+   Paints only on a tick with something pending; pauses after 8 idle ticks;
+   a 100ms watchdog paints a frame the link failed to deliver (view ordered out,
+   minimised); rebinds on window change so the link follows the screen's rate.
+   SWIFTTERM_DISPLAY_LINK=0 (or TerminalView.displayLinkPacingEnabled = false)
+   restores upstream's timer verbatim. TerminalView.frameTimingObserver is called
+   once per real paint so pacing can be measured.
+
+2. Apple/AppleTerminalView.swift — queuePendingDisplay and queueMetalDisplay try
+   the pacer first and fall through to upstream's asyncAfter when it declines
+   (off-main, pre-14, no window, kill switch). updateDisplay calls the timing
+   observer after clearUpdateRange. The DEC 2026 synchronizedOutputActive checks
+   are unchanged, so synchronized output is honoured by the same code as before.
+
+3. Mac/MacTerminalView.swift — the displayPacer property, a windowDidChange()
+   call in viewDidMoveToWindow, and invalidate() in deinit.
+
+Gate: app/Scripts/check-display-link.sh (both renderers; its case 8 requires the
+old timer to FAIL the same bounds).
+
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+@@ -1774,6 +1774,9 @@
+         terminal.clearUpdateRange ()
+ 
+         #if os(macOS)
++        // LOCAL PATCH 0010: one call per real paint (a dirty range exists), on either
++        // path, so frame pacing can be measured rather than asserted.
++        TerminalView.frameTimingObserver?(self)
+         let baseLine = frame.height
+         var region = CGRect (x: 0,
+                              y: baseLine - (cellDimension.height + CGFloat(rowEnd) * cellDimension.height),
+@@ -1912,8 +1915,17 @@
+     func queuePendingDisplay ()
+     {
+         if terminal.synchronizedOutputActive {
++            return
++        }
++#if os(macOS)
++        // LOCAL PATCH 0010: paint on the next display-link tick instead of 16.67ms after
++        // the first byte, so frames land in phase with the refresh (MacDisplayLinkPacer.swift).
++        // Falls through to upstream's timer below when the link is unavailable.
++        if requestDisplayLinkFrame() {
++            pendingDisplay = true
+             return
+         }
++#endif
+         // throttle
+         if !pendingDisplay {
+             let fps60 = 16670000
+@@ -1937,8 +1949,14 @@
+ 
+     func queueMetalDisplay() {
+         guard metalView != nil else {
++            return
++        }
++#if os(macOS)
++        // LOCAL PATCH 0010: same vsync pacing for the Metal-only redraw queue.
++        if requestDisplayLinkFrame(metal: true) {
+             return
+         }
++#endif
+         if !pendingMetalDisplay {
+             let fps60 = 16670000
+             let fpsDelay = fps60
+--- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
++++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+@@ -234,6 +234,11 @@
+     private weak var metalBoundWindow: NSWindow?
+     var metalDirtyRange: ClosedRange<Int>?
+     var pendingMetalDisplay: Bool = false
++#endif
++    /// LOCAL PATCH 0010: vsync-paced redraw driver, created on first use
++    /// (see MacDisplayLinkPacer.swift).
++    var displayPacer: TerminalDisplayPacer?
++#if canImport(MetalKit)
+     /// The cursor position last submitted to the Metal renderer. Used to
+     /// detect pure cursor-only moves (no rows dirty) such as the
+     /// CSI Ps C / CSI Ps D sequences shells emit in response to Option+Arrow
+@@ -558,6 +563,7 @@
+     open override func viewDidMoveToWindow() {
+         super.viewDidMoveToWindow()
+         startWindowMouseMovedFallback()
++        displayPacer?.windowDidChange()
+ #if canImport(MetalKit)
+         guard useMetalRenderer, let currentWindow = window else { return }
+         if currentWindow !== metalBoundWindow {
+@@ -580,6 +586,7 @@
+     
+     deinit {
+         stopWindowMouseMovedFallback()
++        displayPacer?.invalidate()
+         if let becomeMainObserver {
+             NotificationCenter.default.removeObserver (becomeMainObserver)
+         }
+--- /dev/null
++++ b/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
+@@ -0,0 +1,194 @@
++//
++//  MacDisplayLinkPacer.swift
++//
++// LOCAL PATCH 0010 (Goblin Portal): pace redraws on the display's refresh.
++//
++// Invariant: upstream throttles redraws with a one-shot
++// `DispatchQueue.main.asyncAfter(now + 16.67ms)` armed by the FIRST byte of a burst
++// (AppleTerminalView.swift queuePendingDisplay / queueMetalDisplay). That timer has no
++// relationship to vsync, so a steady 30-60fps producer (an animated TUI streaming through
++// tmux) lands its paints at an arbitrary, drifting phase inside the refresh period; the
++// compositor then shows some updates one refresh late and some on time, which reads as
++// uneven motion. It also coalesces a 60fps producer down to ~30fps, because the timer is
++// still pending when the second update of each pair arrives.
++//
++// This pacer replaces that timer on macOS 14+ with `NSView.displayLink(target:selector:)`
++// (CADisplayLink on macOS). The link follows the screen the view is on — 60Hz, 120Hz
++// ProMotion, or an external display — so a paint is always issued at the top of a refresh
++// period. Rules, each load-bearing:
++//
++//   * Paint only on a tick, and only when something is pending (`pendingDisplay`, or a
++//     queued Metal redraw). A tick with nothing pending is an idle tick.
++//   * Pause the link after `idleTicksBeforePause` consecutive idle ticks, so a terminal at
++//     rest costs nothing. 8 ticks (67ms at 120Hz, 133ms at 60Hz) is longer than the gap of
++//     a 30fps producer at either rate, so a steady stream never pause/resume-churns.
++//   * Synchronized output (DEC mode 2026) is honoured by the SAME code that honoured it
++//     before: queuePendingDisplay refuses to queue while it is active, and updateDisplay
++//     early-returns while it is active. When the app ends the sync block,
++//     synchronizedOutputChanged(active: false) calls queuePendingDisplay, which re-arms the
++//     link, so the held frame paints on the next tick.
++//   * Liveness is never worse than upstream: a link that does not tick (view in no window,
++//     window ordered out, minimised) would otherwise strand a pending frame, so a
++//     watchdog paints anything still pending after `stallFallbackSeconds` with no tick.
++//   * Off the main thread, or with pacing disabled, or before macOS 14, callers fall back
++//     to upstream's timer verbatim. `SWIFTTERM_DISPLAY_LINK=0` (or setting
++//     `TerminalView.displayLinkPacingEnabled = false`) is the kill switch, and is also how
++//     app/Scripts/check-display-link.sh measures the old path for its falsification case.
++//
++#if os(macOS)
++import AppKit
++import QuartzCore
++
++final class TerminalDisplayPacer: NSObject {
++    /// Consecutive ticks with nothing to paint before the link pauses.
++    static let idleTicksBeforePause = 8
++    /// A pending frame with no tick for this long is painted by the watchdog instead.
++    static let stallFallbackSeconds: Double = 0.1
++
++    private weak var view: TerminalView?
++    /// A CADisplayLink. Stored type-erased because the vendored package still declares
++    /// macOS 13 (vendor Package.swift) and CADisplayLink is macOS 14+; every use is
++    /// inside an availability check via `displayLink`.
++    private var link: NSObject?
++    private var idleTicks = 0
++    private var lastTick: CFTimeInterval = 0
++    private var watchdogArmed = false
++    /// A Metal-only redraw (live resize, cursor colour) queued for the next tick.
++    private var metalPending = false
++
++    init(view: TerminalView) {
++        self.view = view
++    }
++
++    @available(macOS 14.0, *)
++    private var displayLink: CADisplayLink? {
++        link as? CADisplayLink
++    }
++
++    var isRunning: Bool {
++        guard #available(macOS 14.0, *), let displayLink else { return false }
++        return !displayLink.isPaused
++    }
++
++    /// Main thread only. Returns false when the caller must use upstream's timer instead.
++    func requestFrame(metal: Bool) -> Bool {
++        guard #available(macOS 14.0, *) else { return false }
++        guard let view, view.window != nil else { return false }
++        if link == nil {
++            let newLink = view.displayLink(target: self, selector: #selector(tick(_:)))
++            // .common, not .default: the link must keep ticking during live resize and
++            // menu/scroller tracking, exactly as the main GCD queue upstream used does.
++            newLink.add(to: .main, forMode: .common)
++            link = newLink
++        }
++        if metal {
++            metalPending = true
++        }
++        idleTicks = 0
++        displayLink?.isPaused = false
++        armWatchdog()
++        return true
++    }
++
++    /// The view changed window. Drop the link so the next request binds a fresh one to the
++    /// new window's screen rather than trusting an old binding, and carry any pending frame.
++    func windowDidChange() {
++        invalidate()
++        guard let view, view.pendingDisplay || metalPending else { return }
++        if !requestFrame(metal: false) {
++            paintPending(view)
++        }
++    }
++
++    func invalidate() {
++        if #available(macOS 14.0, *) {
++            displayLink?.invalidate()
++        }
++        link = nil
++    }
++
++    @available(macOS 14.0, *)
++    @objc private func tick(_ sender: CADisplayLink) {
++        guard let view else {
++            invalidate()
++            return
++        }
++        lastTick = CACurrentMediaTime()
++        if paintPending(view) {
++            idleTicks = 0
++        } else {
++            idleTicks += 1
++            if idleTicks >= TerminalDisplayPacer.idleTicksBeforePause {
++                sender.isPaused = true
++            }
++        }
++    }
++
++    /// Paints whatever is pending. updateDisplay() keeps upstream's dirty-range, cursor,
++    /// accessibility and 2026 logic untouched; it is simply called from a vsync tick now.
++    @discardableResult
++    private func paintPending(_ view: TerminalView) -> Bool {
++        var painted = false
++        if view.pendingDisplay {
++            view.updateDisplay()
++            painted = true
++        }
++        if metalPending {
++            metalPending = false
++#if canImport(MetalKit)
++            view.requestMetalDisplay()
++#endif
++            painted = true
++        }
++        return painted
++    }
++
++    private func armWatchdog() {
++        guard !watchdogArmed else { return }
++        watchdogArmed = true
++        let delay = TerminalDisplayPacer.stallFallbackSeconds
++        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
++            guard let self else { return }
++            self.watchdogArmed = false
++            guard let view = self.view else { return }
++            let stalled = CACurrentMediaTime() - self.lastTick >= delay
++            if stalled {
++                self.paintPending(view)
++            } else if view.pendingDisplay || self.metalPending {
++                self.armWatchdog()
++            }
++        }
++    }
++}
++
++extension TerminalView {
++    /// Pace redraws on the display link (macOS 14+). Defaults to on; set the environment
++    /// variable `SWIFTTERM_DISPLAY_LINK=0` or assign `false` to restore upstream's timer.
++    public static var displayLinkPacingEnabled: Bool = {
++        let value = ProcessInfo.processInfo.environment["SWIFTTERM_DISPLAY_LINK"]
++        return !(value == "0" || value == "false" || value == "FALSE")
++    }()
++
++    /// Called on the main thread once per paint that had dirty rows, on BOTH the paced
++    /// and the fallback path. nil (the default) costs one load per paint. Goblin Portal
++    /// installs it under GOBLIN_PORTAL_DIAG; check-display-link.sh installs it to measure.
++    public static var frameTimingObserver: ((TerminalView) -> Void)?
++
++    /// True while the redraw display link is ticking; false when paused at rest or unused.
++    /// Diagnostic surface for check-display-link.sh's idle-pause case.
++    public var isDisplayLinkActive: Bool {
++        displayPacer?.isRunning ?? false
++    }
++
++    /// Returns true when the frame was handed to the display link; false means the caller
++    /// must fall back to upstream's timer (off main thread, pacing disabled, no window,
++    /// or pre-macOS 14).
++    func requestDisplayLinkFrame(metal: Bool = false) -> Bool {
++        guard TerminalView.displayLinkPacingEnabled, Thread.isMainThread else { return false }
++        if displayPacer == nil {
++            displayPacer = TerminalDisplayPacer(view: self)
++        }
++        return displayPacer?.requestFrame(metal: metal) ?? false
++    }
++}
++#endif
