@@ -71,7 +71,9 @@ pin_value() {
 # (required by Xcode 27 / Swift 6 strict access control); 0009 adds the
 # searchStateDidChange hook + findAllMatchPositions that all-match search
 # highlighting needs (it was missing from this array while verify-vendor.sh
-# already pinned it, so a fresh bootstrap failed its own verdict). A tree missing any
+# already pinned it, so a fresh bootstrap failed its own verdict); 0010 paces redraws
+# on the display link instead of a free-running 16.67ms timer, which dropped every
+# other frame of a 60fps producer. A tree missing any
 # one of them is not the tree this project is tested against, which is the whole
 # reason the pin records hashes rather than a version.
 PATCHES=(
@@ -84,6 +86,7 @@ PATCHES=(
   "0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
   "0008-make-draw-open-for-subclass-override.patch"
   "0009-expose-search-state-changed-hook.patch"
+  "0010-pace-redraws-on-display-link.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then
