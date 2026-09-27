@@ -164,9 +164,13 @@ final class SmoothScroll {
         isAnimating = true
         let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, context in
             guard let ctx = context else { return kCVReturnSuccess }
-            let me = Unmanaged<SmoothScroll>.fromOpaque(ctx).takeUnretainedValue()
+            // Defer the Unmanaged dereference to the main queue: the SmoothScroll
+            // instance is @MainActor, so no main-actor state may be touched on the
+            // CVDisplayLink thread. The raw pointer is safe to capture and pass across
+            // (it does not touch main-actor state), and takeUnretainedValue() runs on
+            // the main queue where the actor is live.
             DispatchQueue.main.async {
-                me.momentumTick()
+                Unmanaged<SmoothScroll>.fromOpaque(ctx).takeUnretainedValue().momentumTick()
             }
             return kCVReturnSuccess
         }

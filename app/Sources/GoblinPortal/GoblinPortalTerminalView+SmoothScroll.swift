@@ -40,6 +40,7 @@ extension GoblinPortalTerminalView {
     /// when the view is deallocated.
     func removeScrollMonitor() {
         if let m = scrollMonitor { NSEvent.removeMonitor(m); scrollMonitor = nil }
+        smoothScroll.invalidate()
     }
 
     // MARK: - Smooth scroll callbacks
@@ -64,7 +65,8 @@ extension GoblinPortalTerminalView {
 
         smoothScroll.onOffsetChanged = { [weak self] offset in
             guard let self else { return }
-            self.layer?.setAffineTransform(CGAffineTransform(translationX: 0, y: offset))
+            self.layer?.setAffineTransform(
+                offset == 0 ? .identity : CGAffineTransform(translationX: 0, y: offset))
         }
     }
 }

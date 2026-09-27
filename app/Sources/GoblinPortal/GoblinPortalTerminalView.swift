@@ -220,15 +220,7 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
         // the intentional "I want the link" gesture. Source: `Mac/MacTerminalView.swift:893`.
         linkHighlightMode = .hoverWithModifier
         // Wire smooth-scroll callbacks. `scrollUp/Down` are public on AppleTerminalView.
-        smoothScroll.onScrollLines = { [weak self] lines in
-            guard let self else { return }
-            if lines > 0 { self.scrollUp(lines: lines) }
-            else { self.scrollDown(lines: -lines) }
-        }
-        smoothScroll.onOffsetChanged = { [weak self] offset in
-            self?.layer?.setAffineTransform(
-                offset == 0 ? .identity : CGAffineTransform(translationX: 0, y: offset))
-        }
+
     }
 
     /// Required companion to the frame-based initialiser above.
