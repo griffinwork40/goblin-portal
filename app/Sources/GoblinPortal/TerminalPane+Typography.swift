@@ -53,6 +53,7 @@ extension TerminalPane {
         let clamped = min(max(size, Self.minFontSize), Self.maxFontSize)
         fontSize = clamped
         view.font = resized(config.font, to: clamped)
+        view.noteCellGridSnapped()  // the snap just used this scale — see +CellSnap
         if persist {
             // Store nothing when the zoom lands back on the configured size, so
             // editing `font.size` later still takes effect instead of being
@@ -96,6 +97,7 @@ extension TerminalPane {
         // so this is safe to call on every ⌘R without thrashing the terminal layout.
         if view.lineSpacing != config.lineHeight {
             view.lineSpacing = config.lineHeight
+            view.noteCellGridSnapped()
         }
 
         // Font thickening: hand the flag to the view, which applies the private API
