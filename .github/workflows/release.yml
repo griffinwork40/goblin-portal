@@ -210,8 +210,9 @@ jobs:
         run: |
           set -euo pipefail
           ./Scripts/make-dmg.sh "build/Goblin Portal.app" "GoblinPortal-${{ steps.v.outputs.tag }}.dmg"
-          shasum -a 256 "GoblinPortal-${{ steps.v.outputs.tag }}.dmg" > "GoblinPortal-${{ steps.v.outputs.tag }}.dmg.sha256"
-          cat "GoblinPortal-${{ steps.v.outputs.tag }}.dmg.sha256"
+          # No checksum here: `stapler staple` in the next step rewrites the DMG, so a
+          # hash taken now describes a file nobody downloads. v1.5.0 and v1.6.0 shipped
+          # a .dmg.sha256 that failed `shasum -c` for exactly this reason.
 
       # The DMG itself needs notarisation — Gatekeeper checks the disk image, not
       # just the .app inside it. The app was already notarised and stapled by
@@ -235,6 +236,17 @@ jobs:
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
           echo "  DMG notarised and stapled"
+
+      # Hash the DMG only after the step above may have stapled it. Unconditional, so a
+      # build without notarisation credentials still gets a checksum, of the file as shipped.
+      - name: Checksum DMG
+        working-directory: app
+        run: |
+          set -euo pipefail
+          DMG="GoblinPortal-${{ steps.v.outputs.tag }}.dmg"
+          shasum -a 256 "$DMG" > "$DMG.sha256"
+          cat "$DMG.sha256"
+          shasum -a 256 -c "$DMG.sha256"
 
       # Mount the DMG and verify the app inside it survived packaging with its
       # signature intact — the same round-trip check applied to the zip above.
