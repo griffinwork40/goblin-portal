@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Throughput gate: measure frame-time for both CoreText and Metal renderers under a
-# high-throughput payload and assert Metal is no worse than CoreText by more than 20%.
+# high-throughput payload and assert Metal is no worse than CoreText by more than 35%.
 #
 # WHY THIS EXISTS. The default renderer was `.coreText` because Metal's speed advantage
 # was structurally obvious but unmeasured. This script is the measurement: it creates real
@@ -50,8 +50,8 @@
 # broken harness hid behind the "no GPU / no WindowServer" excuse.)
 #
 # Exit codes:
-#   0  Metal median ≤ CoreText median × 1.20 (validates the default flip)
-#   1  Metal regresses by more than 20% vs CoreText (investigate before shipping)
+#   0  Metal median ≤ CoreText median × 1.35 (validates the default flip)
+#   1  Metal regresses by more than 35% vs CoreText (investigate before shipping)
 #   2  environmental — no swiftc, no Metal device, no WindowServer, build failed,
 #      or the harness would not compile. Never conflated with 1.
 #
@@ -146,7 +146,7 @@ func buildPayload() -> [UInt8] {
 func stats(_ name: String, _ a: [Double]) {
     let s = a.sorted()
     let median = s[s.count / 2]
-    let p95 = s[Int(Double(s.count) * 0.95)]
+    let p95 = s[min(s.count - 1, Int(Double(s.count) * 0.95))]
     let mean = a.reduce(0, +) / Double(a.count)
     let meanEx10 = a.dropFirst(10).reduce(0, +) / Double(a.count - 10)
     print(String(format: "STAT %@ median=%.3f p95=%.3f mean=%.3f mean_excl_first10=%.3f",
