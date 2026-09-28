@@ -9,10 +9,11 @@
 - **INV-002** (2026-09-17, spine-init): No AI features in the terminal itself; agent-afk runs as REPL guest.
 - **INV-003** (2026-09-17, spine-init): SwiftTerm vendored at v1.15.0 with exactly six local patches; verify-vendor.sh enforces pin.
 - **INV-004** (2026-09-17, spine-init): Bundle ID, env var prefix, code identifier all normalized to `goblin-portal`/`GoblinPortal`/`GOBLIN_PORTAL_`.
-- **INV-005** (2026-09-17, spine-init): Single `main` branch; no feature branches or CI/test target; verification via 19 headless/GUI check-*.sh scripts.
+- **INV-005** (2026-09-17, spine-init): Single `main` branch; no feature branches or CI/test target; verification via 19 headless/GUI check-*.sh scripts. (reinf
 - **INV-006** (2026-09-17, spine-init): GOBLIN_PORTAL_DIAG=1 env var dumps resolved font/theme/scrollback diagnostics to stderr.
 - **INV-007** (2026-09-17, spine-init): Undo, Redo, Find-and-Replace wired to AppKit responder chain (target=nil); no Goblin Portal code behind them.
 - **INV-008** (2026-09-17, spine-init): Theme preset `"umber"` survives as an easter egg; do not remove despite app rename to Goblin Portal.
+- **INV-009** (2026-09-22, 4a08009c-54fa-4c2f-a4fe-16f0cb51890d): Metal shader artifact may be either source (Shaders.metal) or compiled (default.metallib) depending on toolchain.
 
 
 ## Explicitly Rejected Patterns
@@ -22,4 +23,4 @@
 
 ## Taste Calls Made
 
-- **TST-001** (2026-09-17, spine-init): Prefer native SwiftTerm rendering pipeline; GPU renderer (Metal) is optional, not default.
+- **TST-001** (2026-09-17, spine-init): Prefer native SwiftTerm rendering pipeline; GPU renderer (Metal) is optional, not default. (partially weakened 2026-09-2
