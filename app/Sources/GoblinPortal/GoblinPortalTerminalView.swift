@@ -70,6 +70,16 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     /// `AppConfig` so the draw path has one dependency: `self.fontThicken`.
     var fontThicken: Bool = false
 
+    // MARK: - Smooth scrolling
+
+    /// Set by `TerminalPane.apply(config:)`. When false, the scroll monitor hands every
+    /// event back to SwiftTerm's own line-by-line `scrollWheel`.
+    var smoothScrollEnabled: Bool = true
+
+    /// Holds all smooth-scroll state. Wired in `configureSmoothScroll()`.
+    /// Internal (not private) so the `+SmoothScroll` extension file can access it.
+    let smoothScroll = SmoothScroll()
+
     // MARK: - Search highlight overlay
 
     /// Transparent overlay that draws translucent rects at every search match.
@@ -138,7 +148,7 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
 
     /// Cell size derived from view bounds and grid dimensions.
     /// `cellDimension` on `MacTerminalView` is internal, so we compute it.
-    private var terminalCellSize: CGSize {
+    var terminalCellSize: CGSize {
         let terminal = getTerminal()
         guard terminal.cols > 0, terminal.rows > 0 else { return .zero }
         return CGSize(
@@ -168,6 +178,9 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     override func layout() {
         super.layout()
         updateSearchOverlayGeometry()
+        // Resync the smooth-scroll cell height: a resize or font change moves it, and
+        // SwiftTerm's own `cellDimension` is internal, so derive it the same way.
+        smoothScroll.cellHeight = terminalCellSize.height
     }
 
     private func ensureSearchOverlay() -> SearchHighlightOverlay {
@@ -298,6 +311,19 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
         return true
     }
 
+    /// Event monitor handle for smooth scroll interception -- see
+    /// `GoblinPortalTerminalView+SmoothScroll.swift` for the wiring and its `@objc` overrides.
+    var scrollMonitor: Any?
+
+    /// Typing snaps to the grid. Terminal replies (sendResponse, Terminal.swift:4942-4966;
+    /// focus/mouse reports) arrive here by the same route (MacTerminalView.swift:860-862), so
+    /// `source` cannot tell them apart: snap only when a key event is being handled. Paste
+    /// snaps in `paste(_:)`. In the class: a non-`@objc` method cannot be overridden in an extension.
+    override func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        if NSApp.currentEvent?.type == .keyDown { smoothScroll.snapToGrid(reason: "input") }
+        super.send(source: source, data: data)
+    }
+
     // MARK: - Paste guard
 
     /// Intercept ⌘V to guard against accidental multi-line or large pastes.
@@ -315,6 +341,7 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
               PasteGuard.confirmIfNeeded(text, in: self) else {
             return  // User cancelled or nothing on clipboard
         }
+        smoothScroll.snapToGrid(reason: "paste")
         super.paste(sender as Any)
     }
 }

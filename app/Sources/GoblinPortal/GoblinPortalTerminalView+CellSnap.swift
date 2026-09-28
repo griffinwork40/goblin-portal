@@ -85,10 +85,8 @@ extension GoblinPortalTerminalView {
         resnapCellGridIfNeeded()
     }
 
-    // Covers a pane whose font was applied while detached (snapped for the main
-    // screen) and then attached to a window on a different-scale display.
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        resnapCellGridIfNeeded()
-    }
+    // NOTE: `viewDidMoveToWindow` is overridden in `+SmoothScroll.swift`, which calls
+    // `resnapCellGridIfNeeded()` alongside its own scroll-monitor wiring. Only one
+    // extension may override a given `@objc` method; having two is undefined behaviour
+    // in Swift. The cell-snap call lives there so both concerns share one override site.
 }

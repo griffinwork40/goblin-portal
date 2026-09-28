@@ -115,6 +115,7 @@ extension AppConfig {
         // `ligatures` is accepted in the config file but not yet acted on — the field
         // is parsed here so the file stays valid when the feature ships. See the header
         // of TerminalPane+Typography.swift for why it is deferred.
+        if let v = file.smoothScrolling { config.smoothScrolling = v }
         if file.ligatures != nil {
             config.warnings.append("ligatures: not yet implemented — ignored")
         }

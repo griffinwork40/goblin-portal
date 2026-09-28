@@ -20,6 +20,8 @@ import SwiftTerm
 @MainActor
 final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDelegate {
     let view: GoblinPortalTerminalView
+    /// The per-pane clip holding `view`, returned as `documentView`. See `TerminalClipView`.
+    let clipView: TerminalClipView
     private(set) var currentTitle: String = ""
     /// The container, reached through the document-level protocol declared in
     /// `SpaceDocument.swift` rather than a terminal-specific one. Moved there when the
@@ -81,7 +83,9 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // LocalProcessTerminalView only exposes init(frame:) — the font-taking
         // initialiser belongs to TerminalView and is not inherited here, so the
         // font is applied via the property in apply(config:) below.
-        self.view = GoblinPortalTerminalView(frame: frame)
+        let terminal = GoblinPortalTerminalView(frame: frame)  // a local: `self` is unusable before super.init
+        self.view = terminal
+        self.clipView = TerminalClipView(hosting: terminal, frame: frame)
         super.init()
         view.processDelegate = self
         // Separate from `processDelegate` because the bell is not on
@@ -186,11 +190,13 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         }
         // Theme-aware selection (#31). Both bg+fg required: SwiftTerm replaces both
         // unconditionally (AppleTerminalView.swift:751-752). Nil → system pair.
+        clipView.fillColor = view.nativeBackgroundColor  // the strip a sub-cell shift reveals
         let sel = config.effectiveSelectionColors()
         view.selectedTextBackgroundColor = sel?.background ?? NSColor.selectedTextBackgroundColor
         view.selectedTextForegroundColor = sel?.foreground ?? NSColor.selectedTextColor
         view.optionAsMetaKey = config.optionAsMeta
         view.allowMouseReporting = config.mouseReporting
+        view.smoothScrollEnabled = config.smoothScrolling
         view.changeScrollback(config.scrollback == 0 ? nil : config.scrollback)
         applyRenderer(config.renderer)  // must precede the font — see applyRenderer(_:)
         // Re-resolve rather than reusing `fontSize`, so editing `font.size` and
@@ -198,6 +204,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // file — ⌘0 drops it and hands control back to the config.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
         applyTypography(config)  // lineHeight + fontThicken — must follow setFontSize; see TerminalPane+Typography.swift
+        view.configureSmoothScroll()  // cellHeight depends on font size — must follow setFontSize
         // `GOBLIN_PORTAL_DIAG=1` dumps the resolved appearance to stderr — the only
         // observability for a project with no test target. Costs nothing unset.
         if ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil {
@@ -298,8 +305,12 @@ extension TerminalPane {
     /// **`isKeyWindow`** — is that Space on screen? A background Space's selected tab
     /// stayed true for the superview test alone, silently skipping the OSC 133 mark
     /// (PR #21 review, item 1). Both halves together make it window-aware.
+    ///
+    /// The superview half is read through `view.window`, not `view.superview`: the terminal
+    /// always has a superview (its `TerminalClipView`), but `present` removes a hidden
+    /// document's clip from the window, so the window is nil exactly when `superview` used to be.
     var isActiveDocument: Bool {
-        view.superview != nil && view.window?.isKeyWindow == true
+        view.window?.isKeyWindow == true
     }
 }
 

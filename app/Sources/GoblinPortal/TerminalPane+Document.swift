@@ -16,7 +16,9 @@ import AppKit
 extension TerminalPane: SpaceDocumentReporting {}
 
 extension TerminalPane: SpaceDocument {
-    var documentView: NSView { view }
+    /// The clip, not the terminal: callers frame, present and dim this view, and the clip
+    /// is what keeps smooth scrolling's sub-cell shift inside the pane (TerminalClipView.swift).
+    var documentView: NSView { clipView }
 
     /// Falls back rather than rendering an empty tab: `currentTitle` stays empty
     /// until the shell emits OSC 0/2, which does not happen until the first prompt
@@ -76,6 +78,7 @@ extension TerminalPane: SpaceDocument {
     /// touching the pty (`Mac/MacLocalTerminalView.swift:98`). `check-pane-teardown.sh` case 2
     /// is what keeps this honest.
     func documentWillClose() {
+        view.smoothScroll.invalidate()
         guard view.process.running else { return }
         kill(view.process.shellPid, SIGHUP)
         view.terminate()
