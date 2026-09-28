@@ -33,6 +33,7 @@ extension GoblinPortalTerminalView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil { installScrollMonitor() } else { removeScrollMonitor() }
+        resnapCellGridIfNeeded()  // cell-snap: see +CellSnap.swift for why
     }
 
     /// Drop to the grid before a click: selection and mouse reporting both map the click's

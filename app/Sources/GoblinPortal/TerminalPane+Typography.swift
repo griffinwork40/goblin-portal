@@ -54,6 +54,7 @@ extension TerminalPane {
         fontSize = clamped
         view.smoothScroll.snapToGrid(reason: "font")
         view.font = resized(config.font, to: clamped)
+        view.noteCellGridSnapped()  // the snap just used this scale — see +CellSnap
         syncSmoothScrollCellHeight()
         if persist {
             // Store nothing when the zoom lands back on the configured size, so
@@ -109,6 +110,7 @@ extension TerminalPane {
         if view.lineSpacing != config.lineHeight {
             view.smoothScroll.snapToGrid(reason: "lineHeight")
             view.lineSpacing = config.lineHeight
+            view.noteCellGridSnapped()
             syncSmoothScrollCellHeight()
         }
 
