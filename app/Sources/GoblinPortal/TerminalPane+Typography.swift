@@ -52,13 +52,25 @@ extension TerminalPane {
     func setFontSize(_ size: CGFloat, persist: Bool = true) {
         let clamped = min(max(size, Self.minFontSize), Self.maxFontSize)
         fontSize = clamped
+        view.smoothScroll.snapToGrid(reason: "font")
         view.font = resized(config.font, to: clamped)
+        syncSmoothScrollCellHeight()
         if persist {
             // Store nothing when the zoom lands back on the configured size, so
             // editing `font.size` later still takes effect instead of being
             // permanently masked by a stale override.
             FontZoom.override = clamped == config.font.pointSize ? nil : clamped
         }
+    }
+
+    /// Smooth scrolling steps a line every `cellHeight` pixels, so a zoom that kept the old
+    /// height would step at the wrong distance (PR #135 re-review, R3). No layout pass is
+    /// needed: the `font` setter calls `resetFont()` (Mac/MacTerminalView.swift:322-330), and
+    /// so does `lineSpacing` (AppleTerminalView.swift:127-133). That recomputes the cell size
+    /// and resizes the terminal synchronously (AppleTerminalView.swift:144-160, :2245-2250),
+    /// so `rows`, and with it `terminalCellSize`, is already current here.
+    func syncSmoothScrollCellHeight() {
+        view.smoothScroll.cellHeight = view.terminalCellSize.height
     }
 
     func adjustFontSize(by delta: CGFloat) { setFontSize(fontSize + delta) }
@@ -95,7 +107,9 @@ extension TerminalPane {
         // guard at AppleTerminalView.swift:131 skips `resetFont()` when unchanged —
         // so this is safe to call on every ⌘R without thrashing the terminal layout.
         if view.lineSpacing != config.lineHeight {
+            view.smoothScroll.snapToGrid(reason: "lineHeight")
             view.lineSpacing = config.lineHeight
+            syncSmoothScrollCellHeight()
         }
 
         // Font thickening: hand the flag to the view, which applies the private API

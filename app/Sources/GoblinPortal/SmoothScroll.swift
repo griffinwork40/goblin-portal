@@ -23,6 +23,18 @@
 //  Eligibility is the caller's: alternate buffer, mouse reporting and `smoothScrolling:
 //  false` all hand the event back to SwiftTerm (see `installScrollMonitor`).
 //
+//  ONE OWNER AT A TIME (re-review R1). An event this pane does not claim is handed to
+//  `SmoothScrollModel.release`, which settles an in-flight gesture on the nearest line. That
+//  covers a new swipe over the sidebar, which no terminal claims, so every pane's monitor
+//  sees it. It does NOT cover a new swipe over the split peer: a local monitor that returns
+//  `nil` ends dispatch, so if the peer's monitor runs first this pane never sees the event.
+//  So a claimed gesture START also releases the previous owner directly, through the
+//  main-actor `owner` reference below. There is only one trackpad, so there is only ever one
+//  live gesture, across every pane and window.
+//
+//  HEADROOM (R2). `headroom` is read fresh for every event and for the grace settle, because
+//  output can move `yDisp` between events. The model clamps to it; see its header.
+//
 
 import AppKit
 
@@ -30,6 +42,8 @@ import AppKit
 final class SmoothScroll {
     private var model = SmoothScrollModel()
     private var graceTask: Task<Void, Never>?
+    /// The pane that claimed the most recent gesture start. Weak, so a closed pane drops out.
+    private static weak var owner: SmoothScroll?
 
     /// Set from the view's `layout()` and `configureSmoothScroll()`. Zero disables the path.
     var cellHeight: CGFloat = 0
@@ -42,6 +56,9 @@ final class SmoothScroll {
     /// Re-checked when the grace timer fires, because the buffer or mouse mode can flip
     /// between a finger lift and the settle it schedules.
     var isEligible: () -> Bool = { true }
+    /// Lines SwiftTerm can still scroll each way, from the view's buffer (see
+    /// `ScrollHeadroom.derive`). The default never clamps, so an unwired adapter behaves as before.
+    var headroom: () -> ScrollHeadroom = { .unbounded }
 
     var isMidGesture: Bool { model.isMidGesture }
 
@@ -54,11 +71,30 @@ final class SmoothScroll {
         let input = ScrollInput(phase: ScrollPhase(event.phase),
                                 momentum: ScrollPhase(event.momentumPhase),
                                 deltaY: Double(event.scrollingDeltaY),
-                                cellHeight: Double(cellHeight))
-        guard model.shouldClaim(input, pointerInside: pointerInside) else { return false }
+                                cellHeight: Double(cellHeight),
+                                headroom: headroom())
+        guard model.shouldClaim(input, pointerInside: pointerInside) else {
+            // Someone else's gesture. Settle ours if one is in flight, and hand the event on.
+            // The idle case must stay free: this runs for every sidebar scroll in every pane.
+            if model.isMidGesture { release() }
+            return false
+        }
+        if input.phase == .began || input.phase == .mayBegin {
+            if let prev = Self.owner, prev !== self { prev.release() }
+            Self.owner = self
+        }
         let out = model.handle(input)
         apply(out)
         return out.consumed
+    }
+
+    /// Settle an in-flight gesture on the nearest line because a new gesture started
+    /// elsewhere. Unlike `snapToGrid`, this keeps the half-line rounding.
+    private func release() {
+        guard model.isMidGesture else { return }
+        graceTask?.cancel()
+        graceTask = nil
+        apply(model.release(headroom: headroom()))
     }
 
     /// Drop to the grid at once, with no line step, keeping the callbacks. Used for mouseDown,
@@ -84,6 +120,7 @@ final class SmoothScroll {
         onScrollLines = nil
         onOffsetChanged = nil
         isEligible = { false }
+        headroom = { .pinned }
     }
 
     // MARK: - Internals
@@ -102,7 +139,7 @@ final class SmoothScroll {
             guard !Task.isCancelled, let self else { return }
             self.graceTask = nil
             guard self.isEligible() else { self.snapToGrid(reason: "ineligible"); return }
-            self.apply(self.model.graceExpired(generation: generation))
+            self.apply(self.model.graceExpired(generation: generation, headroom: self.headroom()))
         }
     }
 

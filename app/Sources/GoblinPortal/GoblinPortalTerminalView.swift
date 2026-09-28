@@ -315,12 +315,12 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     /// `GoblinPortalTerminalView+SmoothScroll.swift` for the wiring and its `@objc` overrides.
     var scrollMonitor: Any?
 
-    /// Typing snaps to the grid. All user input reaches the pty via `send(data:)` →
-    /// `terminalDelegate?.send` (AppleTerminalView.swift:2269-2279; the delegate is this view,
-    /// MacLocalTerminalView.swift:145), which also jumps to the prompt. Lives in the class, not
-    /// the extension: a non-`@objc` protocol method cannot be overridden in an extension.
+    /// Typing snaps to the grid. Terminal replies (sendResponse, Terminal.swift:4942-4966;
+    /// focus/mouse reports) arrive here by the same route (MacTerminalView.swift:860-862), so
+    /// `source` cannot tell them apart: snap only when a key event is being handled. Paste
+    /// snaps in `paste(_:)`. In the class: a non-`@objc` method cannot be overridden in an extension.
     override func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        smoothScroll.snapToGrid(reason: "input")
+        if NSApp.currentEvent?.type == .keyDown { smoothScroll.snapToGrid(reason: "input") }
         super.send(source: source, data: data)
     }
 
@@ -341,6 +341,7 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
               PasteGuard.confirmIfNeeded(text, in: self) else {
             return  // User cancelled or nothing on clipboard
         }
+        smoothScroll.snapToGrid(reason: "paste")
         super.paste(sender as Any)
     }
 }

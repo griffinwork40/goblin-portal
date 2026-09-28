@@ -27,6 +27,19 @@
 //  So `lines` and `offset` share the sign of the deltas that produced them, and
 //  `layerTranslationY` below is the ONE place that turns this into a screen direction.
 //
+//  OWNERSHIP (PR #135 re-review R1). AppKit latches a scroll to its first target, so a pane
+//  keeps the events of a gesture it began. It does not keep a NEW gesture. A `.began` outside
+//  the pane, or a finger-phase event arriving while the pane only waits for momentum, proves
+//  the user started scrolling somewhere else. `shouldClaim` refuses it, and the adapter calls
+//  `release`, which settles the owned gesture on the nearest line instead of dropping it.
+//
+//  HEADROOM (R2). SwiftTerm clamps both scroll calls: `scrollUp` to `max(yDisp - lines, 0)`
+//  and `scrollDown` to `lines.count - rows` (AppleTerminalView.swift:2138-2149, via
+//  `scrollTo`, :2084-2088). A model that does not know this builds a sub-cell offset into a
+//  direction with no content, so at the live prompt the view slid over a blank strip and
+//  snapped back on every event. Each input carries `ScrollHeadroom`, and the model clamps
+//  the lines AND the offset to it. The clamp lives here so `check-smooth-scroll.sh` gates it.
+//
 
 import Foundation
 
@@ -36,12 +49,41 @@ enum ScrollPhase: Equatable {
     case none, mayBegin, began, stationary, changed, ended, cancelled
 }
 
+/// Whole lines SwiftTerm can still scroll in each direction, read just before an event.
+struct ScrollHeadroom: Equatable {
+    /// Room for `scrollUp` (positive model sign). This is `yDisp`.
+    var earlier: Int
+    /// Room for `scrollDown` (negative model sign): `lines.count - rows - yDisp`.
+    var later: Int
+
+    /// No clamp. Large but finite, so `room - lines` arithmetic can never overflow.
+    static let unbounded = ScrollHeadroom(earlier: 1 << 40, later: 1 << 40)
+    static let pinned = ScrollHeadroom(earlier: 0, later: 0)
+
+    /// Derive the headroom from SwiftTerm's PUBLIC surface. The exact inputs (`displayBuffer`,
+    /// `Buffer.lines`, `Buffer.rows`) are `internal` to SwiftTerm (Terminal.swift:347,
+    /// Buffer.swift:203/212), so the app cannot read `lines.count - rows` directly. But
+    /// `displayBuffer` is just `buffer` (Terminal.swift:347-349), whose `yDisp` is public
+    /// (Buffer.swift:58), and `scrollPosition` is `yDisp / (lines.count - rows)`, 1 at or past
+    /// the bottom and 0 when `yDisp <= 0` (AppleTerminalView.swift:2027-2041). `canScroll` is
+    /// false when there is no scrollback at all (:2046-2051). At the top the bottom distance is
+    /// unknowable from these (position reads 0), but it is at least one line, so it stays open.
+    static func derive(yDisp: Int, scrollPosition: Double, canScroll: Bool) -> ScrollHeadroom {
+        let earlier = max(0, yDisp)
+        guard canScroll, scrollPosition < 1 else { return ScrollHeadroom(earlier: earlier, later: 0) }
+        guard yDisp > 0, scrollPosition > 0 else { return ScrollHeadroom(earlier: earlier, later: unbounded.later) }
+        let maxScrollback = Int((Double(yDisp) / scrollPosition).rounded())
+        return ScrollHeadroom(earlier: earlier, later: max(0, maxScrollback - yDisp))
+    }
+}
+
 /// One precise scroll event, as the model sees it.
 struct ScrollInput: Equatable {
     var phase: ScrollPhase
     var momentum: ScrollPhase
     var deltaY: Double
     var cellHeight: Double
+    var headroom: ScrollHeadroom = .unbounded
 }
 
 /// What the view should do after one input.
@@ -62,7 +104,8 @@ struct ScrollOutput: Equatable {
 /// Per-gesture record for the `GOBLIN_PORTAL_DIAG` line. One per gesture, never one per event.
 struct GestureSummary: Equatable {
     /// How the gesture ended: "touch" (lift with no momentum), "momentum", "cancelled",
-    /// "interrupted" (a new touch arrived first), or "snap:<reason>".
+    /// "interrupted" (a new touch arrived first), "released" (a new gesture began outside
+    /// the pane), "phaseless", or "snap:<reason>".
     var path: String
     var events: Int
     /// Net lines scrolled, including `settleLines`.
@@ -90,21 +133,46 @@ struct SmoothScrollModel {
     private var events = 0
     private var gestureLines = 0
     private var momentumRan = false
+    /// Headroom of the entry point currently running, measured before its lines are applied.
+    private var room = ScrollHeadroom.unbounded
 
     var isMidGesture: Bool { state != .idle }
 
-    /// Whether a view should take this event at all. An idle view claims only the START of a
-    /// gesture, and only under the pointer. A view that owns a gesture keeps it until it
-    /// finishes, the way AppKit latches a scroll to its first target. So a scroll that begins
-    /// over the sidebar and drifts over the terminal stays the sidebar's (PR #135 review, item 2).
+    /// Whether a view should take this event at all. A gesture START is claimed only under the
+    /// pointer, even mid-gesture: the first cut latched every event while `isMidGesture`, so a
+    /// swipe begun over the sidebar or the split peer during this pane's grace window or
+    /// momentum was stolen (re-review R1). The rest of a gesture the pane owns stays latched
+    /// even if the pointer drifts out, the way AppKit latches a scroll to its first target, so
+    /// a scroll begun over the sidebar that drifts over the terminal stays the sidebar's
+    /// (review item 2). Finger phases belong to a `.touching` gesture only. Once the finger
+    /// has lifted, a finger phase can only come from a new gesture whose start another view
+    /// took, so it is refused too. Non-mutating; when it says no, call `release`.
     func shouldClaim(_ input: ScrollInput, pointerInside: Bool) -> Bool {
-        if isMidGesture { return true }
-        return pointerInside && (input.phase == .began || input.phase == .mayBegin)
+        switch input.phase {
+        case .began, .mayBegin: return pointerInside
+        case .changed, .stationary, .ended, .cancelled: return state == .touching
+        // Momentum, or a phaseless event taken only so `handle` can settle and hand it back.
+        case .none: return isMidGesture
+        }
+    }
+
+    /// An event this pane did NOT claim arrived. If a gesture is in flight, that event is
+    /// someone else's new gesture, so this one is over: settle it on the nearest line, the
+    /// same as `finish`, rather than leave a sub-cell offset stranded until the next click.
+    /// Idle: a no-op. `consumed` is always false; the event belongs to whoever claims it.
+    mutating func release(headroom: ScrollHeadroom = .unbounded) -> ScrollOutput {
+        var out = ScrollOutput(offset: offset)
+        guard isMidGesture else { return out }
+        room = headroom
+        finish("released", into: &out)
+        out.offset = offset
+        return out
     }
 
     mutating func handle(_ input: ScrollInput) -> ScrollOutput {
         guard input.cellHeight > 0 else { return ScrollOutput(offset: offset) }
         cellHeight = input.cellHeight
+        room = input.headroom
         var out = ScrollOutput(consumed: true)
         if input.phase != .none {
             switch input.phase {
@@ -154,10 +222,12 @@ struct SmoothScrollModel {
     }
 
     /// The grace timer fired. Settle if the finger lift it was armed for was not followed by
-    /// momentum, and do nothing if anything happened since.
-    mutating func graceExpired(generation: Int) -> ScrollOutput {
+    /// momentum, and do nothing if anything happened since. `headroom` is re-read at fire
+    /// time, because output may have moved the buffer during the 100 ms wait.
+    mutating func graceExpired(generation: Int, headroom: ScrollHeadroom = .unbounded) -> ScrollOutput {
         var out = ScrollOutput(offset: offset)
         guard state == .awaitingMomentum, generation == graceGeneration else { return out }
+        room = headroom
         finish("touch", into: &out)
         out.offset = offset
         return out
@@ -198,13 +268,25 @@ struct SmoothScrollModel {
         momentumRan = false
     }
 
+    /// Room left in each direction for THIS call: its headroom minus the lines already queued
+    /// in `out`, which the adapter applies only after the call returns.
+    private func roomEarlier(_ out: ScrollOutput) -> Int { max(0, room.earlier - out.lines) }
+    private func roomLater(_ out: ScrollOutput) -> Int { max(0, room.later + out.lines) }
+
     /// Add pixels and move every whole cell they contain out into `lines`. The remainder is
-    /// truncated toward zero, so |offset| stays under one cell in both directions.
+    /// truncated toward zero, so |offset| stays under one cell in both directions and shares
+    /// the sign of `total`. Then clamp to the headroom (R2): once the lines use up the room in
+    /// the direction of travel, the leftover offset would show rows that do not exist, so it
+    /// is zeroed and the lines are capped. Truncation keeps `whole` and the remainder on the
+    /// same side of zero, so only the direction of `total` needs a check.
     private mutating func accumulate(_ delta: Double, into out: inout ScrollOutput) {
         events += 1
         let total = offset + delta
-        let whole = Int(total / cellHeight)
-        offset = total - Double(whole) * cellHeight
+        var whole = Int(total / cellHeight)
+        var rest = total - Double(whole) * cellHeight
+        if total > 0, whole >= roomEarlier(out) { whole = roomEarlier(out); rest = 0 }
+        if total < 0, -whole >= roomLater(out) { whole = -roomLater(out); rest = 0 }
+        offset = rest
         out.lines += whole
         gestureLines += whole
     }
@@ -212,9 +294,13 @@ struct SmoothScrollModel {
     /// End the gesture on a cell boundary: round the leftover to the NEAREST line (one step
     /// when |offset| >= half a cell), then zero it. Without this, a drag with no momentum left
     /// the view shifted by up to a cell, with a gap at the clipped edge (review item 5).
+    /// The step respects the headroom too: output may have used the room since the offset was
+    /// built, and a step SwiftTerm would clamp away would still be counted in the summary.
     private mutating func finish(_ path: String, into out: inout ScrollOutput) {
         var step = 0
         if cellHeight > 0, abs(offset) >= cellHeight / 2 { step = offset > 0 ? 1 : -1 }
+        if step > 0, roomEarlier(out) < 1 { step = 0 }
+        if step < 0, roomLater(out) < 1 { step = 0 }
         out.lines += step
         gestureLines += step
         offset = 0

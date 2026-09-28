@@ -189,6 +189,9 @@ func case9_shouldClaim() {
     var _ = m.handle(ev(.changed, dy: 5.0))
     expect("case9: mid-gesture+outside → still claimed",
            got: m.shouldClaim(ev(.changed, dy: 2.0), pointerInside: false), want: true)
+    // The latch is for the OWNED gesture only: a new start outside is refused even mid-gesture.
+    expect("case9: mid-gesture, new .began outside → refused",
+           got: m.shouldClaim(ev(.began, dy: 0), pointerInside: false), want: false)
     ok("case9: shouldClaim refuses new gesture outside pointer; keeps owned gesture")
 }
 
@@ -235,9 +238,10 @@ func runAllCases() {
     case8_snapZeroesOffset()
     case9_shouldClaim()
     case10_falsification()
+    runBoundsCases()  // cases 11-15, check-smooth-scroll-harness-bounds.swift
 
     if bad == 0 {
-        print("\nall smooth-scroll cases passed (10 cases)")
+        print("\nall smooth-scroll cases passed (15 cases)")
     } else {
         print("\n\(bad) smooth-scroll case(s) FAILED")
     }

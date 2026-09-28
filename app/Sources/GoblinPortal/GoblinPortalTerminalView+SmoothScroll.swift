@@ -15,10 +15,12 @@
 //  Returning the event unchanged lets SwiftTerm handle it normally (hardware wheel, alternate
 //  buffer, mouse reporting, or feature disabled).
 //
-//  The `@objc` NSView overrides (`viewDidMoveToWindow`, `viewDidMoveToSuperview`, `mouseDown`)
-//  live here rather than in the class to keep `GoblinPortalTerminalView.swift` under the
-//  350-LOC ceiling. Swift allows overriding `@objc` members in an extension; the stored
-//  properties they touch (`smoothScroll`, `scrollMonitor`) stay in the class, where they must.
+//  The `@objc` NSView overrides (`viewDidMoveToWindow`, `mouseDown`) live here rather than in
+//  the class to keep `GoblinPortalTerminalView.swift` under the 350-LOC ceiling. Swift allows
+//  overriding `@objc` members in an extension; the stored properties they touch
+//  (`smoothScroll`, `scrollMonitor`) stay in the class, where they must. Clipping the shift
+//  is not done here: it belongs to the pane's own `TerminalClipView` (see that file for why
+//  the shared split container cannot do it).
 //
 
 import AppKit
@@ -31,13 +33,6 @@ extension GoblinPortalTerminalView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil { installScrollMonitor() } else { removeScrollMonitor() }
-    }
-
-    /// Clip the parent so a sub-cell pixel offset doesn't reveal content outside the pane
-    /// (the row scrolled half out of view would otherwise paint over the neighbour).
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        superview?.wantsLayer = true; superview?.layer?.masksToBounds = true
     }
 
     /// Drop to the grid before a click: selection and mouse reporting both map the click's
@@ -133,6 +128,14 @@ extension GoblinPortalTerminalView {
         }
 
         smoothScroll.isEligible = { [weak self] in self?.smoothScrollEligible ?? false }
+
+        // Where `scrollUp`/`scrollDown` would clamp (AppleTerminalView.swift:2138-2149). Only
+        // public SwiftTerm surface is read; see `ScrollHeadroom.derive` for why and how.
+        smoothScroll.headroom = { [weak self] in
+            guard let self else { return .pinned }
+            return ScrollHeadroom.derive(yDisp: self.getTerminal().buffer.yDisp,
+                                         scrollPosition: self.scrollPosition, canScroll: self.canScroll)
+        }
 
         // A reload that turned `smoothScrolling` off, or landed while an app holds the alt
         // buffer, must not leave a sub-cell offset stranded (review item 5).

@@ -1,8 +1,8 @@
 #!/bin/bash
 #
 # Does the smooth-scroll state machine honour the contracts its header promises?
-# Compiles the SHIPPED SmoothScrollModel.swift (Foundation only) together with a
-# separate harness file and runs a 10-case truth table.
+# Compiles the SHIPPED SmoothScrollModel.swift (Foundation only) together with two
+# harness files and runs a 15-case truth table.
 #
 # WHAT IS UNDER TEST. `Sources/GoblinPortal/SmoothScrollModel.swift` only — the pure
 # state machine that decides how many whole lines to scroll and what sub-cell pixel
@@ -24,7 +24,7 @@
 #   • The reattach/reuse lifecycle of SmoothScroll (creation, attachment to a new pane after
 #     a split) — that involves AppKit view hierarchy.
 #
-# TRUTH TABLE (10 cases):
+# TRUTH TABLE (15 cases; 11-15 live in check-smooth-scroll-harness-bounds.swift):
 #   1. Realistic flick (began → changed×8 → ended → momentum began/changed×2/ended) carries
 #      scrolling past the finger-lift and finishes at offset 0.
 #   2. Slow drag ending in .ended with no momentum; grace expiry settles to offset 0 with
@@ -39,11 +39,22 @@
 #   7. Stale grace generation is ignored: a grace timer from an earlier gesture cannot
 #      settle a later one (graceGeneration is bumped on every .ended).
 #   8. snap(reason:) zeroes the offset without emitting lines.
-#   9. shouldClaim refuses a new gesture when the pointer is outside the view, but keeps
-#      a gesture already claimed even if the pointer drifts outside.
+#   9. shouldClaim refuses a new gesture when the pointer is outside the view (even
+#      mid-gesture), but keeps a gesture already claimed if the pointer drifts outside.
 #  10. FALSIFICATION / control: a naive model that drops all momentum events and settles
 #      immediately on .ended emits fewer lines than the shipped model on the same flick,
 #      proving the momentum carry-forward is real and the harness can distinguish them.
+#  11. Re-review R1: a new .began/.mayBegin outside the pane during the grace window or OS
+#      momentum is refused, and release() settles the owned gesture to the nearest line.
+#  12. A phaseless precise event returns consumed == false (and settles a gesture in flight).
+#  13. A negative-direction settle rounds to -1; under half a cell rounds to 0.
+#  14. Re-review R2 headroom clamp: no newer-ward offset/lines at the bottom, no earlier-ward
+#      at the top, normal behaviour mid-scrollback, partial room, the settle step, derive().
+#  15. OS momentum into the bottom edge uses the last line of room and builds no offset.
+#
+# FALSIFIED (PR #135 round 2), each on a TEMP COPY of the model compiled with this script's
+# own main.swift: re-latching every event while mid-gesture, dropping the headroom clamp
+# in accumulate, and dropping the clamp on the settle step each exit 1.
 #
 # WHY IT EXISTS. The old CVDisplayLink implementation (PR #135 first cut) never started
 # its animation loop: .ended carries a near-zero delta, seeding velocity ≈ 0, failing
@@ -67,6 +78,7 @@ cd "$(dirname "$0")/.."
 
 MODEL_SRC="Sources/GoblinPortal/SmoothScrollModel.swift"
 HARNESS_SRC="Scripts/check-smooth-scroll-harness.swift"
+BOUNDS_SRC="Scripts/check-smooth-scroll-harness-bounds.swift"
 
 # --- Environmental checks -----------------------------------------------------------
 
@@ -78,10 +90,9 @@ command -v swiftc >/dev/null 2>&1 || {
     echo "error: $MODEL_SRC not found — did the file move? This gate names its subject explicitly." >&2
     exit 2
 }
-[[ -f "$HARNESS_SRC" ]] || {
-    echo "error: $HARNESS_SRC not found — harness is missing." >&2
-    exit 2
-}
+for h in "$HARNESS_SRC" "$BOUNDS_SRC"; do
+    [[ -f "$h" ]] || { echo "error: $h not found — harness is missing." >&2; exit 2; }
+done
 
 TMP=$(mktemp -d) || { echo "error: mktemp failed" >&2; exit 2; }
 trap 'rm -rf "$TMP"' EXIT
@@ -93,6 +104,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 cp "$MODEL_SRC" "$TMP/SmoothScrollModel.swift"
 cp "$HARNESS_SRC" "$TMP/SmoothScrollHarness.swift"
+cp "$BOUNDS_SRC" "$TMP/SmoothScrollHarnessBounds.swift"
 
 # main.swift: the entry point that runs the truth table defined in the harness.
 cat > "$TMP/main.swift" <<'MAIN'
@@ -102,6 +114,7 @@ MAIN
 if ! swiftc -o "$TMP/smooth_scroll_check" \
     "$TMP/SmoothScrollModel.swift" \
     "$TMP/SmoothScrollHarness.swift" \
+    "$TMP/SmoothScrollHarnessBounds.swift" \
     "$TMP/main.swift" \
     2>"$TMP/compile.log"; then
     echo "error: the harness would not compile — the gate cannot run." >&2

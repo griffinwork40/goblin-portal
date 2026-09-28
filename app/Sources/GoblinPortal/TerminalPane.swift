@@ -20,6 +20,8 @@ import SwiftTerm
 @MainActor
 final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDelegate {
     let view: GoblinPortalTerminalView
+    /// The per-pane clip holding `view`, returned as `documentView`. See `TerminalClipView`.
+    let clipView: TerminalClipView
     private(set) var currentTitle: String = ""
     /// The container, reached through the document-level protocol declared in
     /// `SpaceDocument.swift` rather than a terminal-specific one. Moved there when the
@@ -81,7 +83,9 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // LocalProcessTerminalView only exposes init(frame:) — the font-taking
         // initialiser belongs to TerminalView and is not inherited here, so the
         // font is applied via the property in apply(config:) below.
-        self.view = GoblinPortalTerminalView(frame: frame)
+        let terminal = GoblinPortalTerminalView(frame: frame)  // a local: `self` is unusable before super.init
+        self.view = terminal
+        self.clipView = TerminalClipView(hosting: terminal, frame: frame)
         super.init()
         view.processDelegate = self
         // Separate from `processDelegate` because the bell is not on
@@ -186,6 +190,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         }
         // Theme-aware selection (#31). Both bg+fg required: SwiftTerm replaces both
         // unconditionally (AppleTerminalView.swift:751-752). Nil → system pair.
+        clipView.fillColor = view.nativeBackgroundColor  // the strip a sub-cell shift reveals
         let sel = config.effectiveSelectionColors()
         view.selectedTextBackgroundColor = sel?.background ?? NSColor.selectedTextBackgroundColor
         view.selectedTextForegroundColor = sel?.foreground ?? NSColor.selectedTextColor
@@ -300,8 +305,12 @@ extension TerminalPane {
     /// **`isKeyWindow`** — is that Space on screen? A background Space's selected tab
     /// stayed true for the superview test alone, silently skipping the OSC 133 mark
     /// (PR #21 review, item 1). Both halves together make it window-aware.
+    ///
+    /// The superview half is read through `view.window`, not `view.superview`: the terminal
+    /// always has a superview (its `TerminalClipView`), but `present` removes a hidden
+    /// document's clip from the window, so the window is nil exactly when `superview` used to be.
     var isActiveDocument: Bool {
-        view.superview != nil && view.window?.isKeyWindow == true
+        view.window?.isKeyWindow == true
     }
 }
 
