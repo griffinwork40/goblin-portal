@@ -15,10 +15,11 @@
 //
 //  That alone would be harmless, but the two glyph paths disagree about a
 //  fractional cell. Text is placed at `cellWidth * column`
-//  (`Apple/Metal/MetalTerminalRenderer.swift:1222`), while box-drawing and block
-//  glyphs step by `round(cellWidthPx)` (`:895`, `:946`, `:994`; the Core Text path
-//  does the same at `Apple/AppleTerminalView.swift:1236`, so switching `renderer`
-//  does not help). Measured for the system monospaced face at 18pt: raw advance
+//  (`Apple/Metal/MetalTerminalRenderer.swift:1222`), while box-drawing glyphs, and
+//  non-antialiased block glyphs, step by `round(cellWidthPx)` (`:895`, `:946`, `:994`).
+//  Core Text rounds box-drawing the same way (`Apple/AppleTerminalView.swift:1236`) but
+//  places block glyphs fractionally (`:1191`), so switching `renderer` does not fix the
+//  tmux border, only the half-block art. Measured for the system monospaced face at 18pt: raw advance
 //  11.127pt, snapped at 2x to 11.5pt, drawn on a 1x monitor as 11.5px text steps
 //  against 12px box steps — +0.5px per column, so tmux's `│` pane border at column
 //  104 lands ~52px (≈4.5 columns) to the right of the pane text it separates, and

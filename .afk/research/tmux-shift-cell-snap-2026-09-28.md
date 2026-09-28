@@ -16,8 +16,9 @@ the text column it is laid out against.
 2. The two glyph paths disagree on a fractional cell. Text: `cellWidth * column`
    (`Apple/Metal/MetalTerminalRenderer.swift:1222`). Box-drawing / block glyphs:
    `column * round(cellWidthPx)` (`:895`, `:946`, `:994` unless anti-aliased blocks). Core Text
-   does the same (`Apple/AppleTerminalView.swift:1236`), so `renderer: coretext` is NOT a
-   workaround.
+   rounds BOX-DRAWING the same way (`Apple/AppleTerminalView.swift:1236`) but places block glyphs
+   fractionally (`:1191`), so `renderer: coretext` is NOT a workaround for the tmux border (it
+   would only straighten the half-block art). Narrowed by /shadow-verify.
 3. System mono 18pt: raw advance 11.127pt → snapped at 2x = 11.5pt → on a 1x screen 11.5px text
    steps vs 12px box steps → +0.5px/col → +52px at column 104. At 14pt the 2x snap is 9.0 and
    nothing drifts. Only snapped-HIGH/drawn-LOW drifts (a 1x snap is whole points, whole px at 2x).
