@@ -1,215 +1,132 @@
 //
 //  SmoothScroll.swift
-//  Pixel-level smooth scrolling overlay for the terminal view.
+//  The AppKit half of pixel-smooth trackpad scrolling: NSEvent in, callbacks out.
 //
-//  Intercepts trackpad scroll events, applies sub-cell pixel offsets via
-//  CALayer transform, and fires whole-line scrolls when the accumulated
-//  offset crosses a cell-height boundary. A CVDisplayLink drives momentum
-//  decay after the user lifts their fingers (NSEvent.Phase.ended).
+//  SwiftTerm's `scrollWheel(with:)` is `public`, not `open` (Mac/MacTerminalView.swift:2754),
+//  so this app cannot override it. Instead `GoblinPortalTerminalView+SmoothScroll.swift`
+//  installs an `NSEvent.addLocalMonitorForEvents` monitor, which sees every scroll event in
+//  the app before the responder chain does. For each event the monitor decides whether this
+//  terminal owns it (right window, pointer inside, smooth path eligible) and, if so, passes
+//  it here. Returning `true` means the monitor returns `nil`, so SwiftTerm's line-by-line
+//  path never sees the event and the two paths cannot double-scroll.
 //
-//  Architecture:
-//  - SmoothScroll holds all mutable state and calls back via two closures.
-//  - GoblinPortalTerminalView owns one instance and wires the closures.
-//  - The terminal's own scrollWheel is suppressed when this class handles it,
-//    so the two scroll paths (ours vs SwiftTerm's) never double-fire.
+//  This file only translates. `NSEvent` phases become `ScrollInput` for the pure model in
+//  `SmoothScrollModel.swift`, which is where every decision lives and what
+//  `check-smooth-scroll.sh` gates. The model's output becomes two callbacks: `onScrollLines`
+//  (a real buffer scroll) and `onOffsetChanged` (the sub-cell layer transform).
 //
-//  Guards enforced by the caller:
-//  - Alternate buffer (vim, tmux): fall through to super.scrollWheel.
-//  - Mouse reporting mode != .off: fall through to super.scrollWheel.
-//  - Config.smoothScrolling == false: fall through to super.scrollWheel.
+//  There is no display link and no timer thread. Momentum is the OS's own momentum-phase
+//  event stream (see the model's header). The one timer is the post-lift grace period. It
+//  is a main-actor `Task` that captures `self` weakly and carries a generation number, so a
+//  closed tab can neither be kept alive by it nor be touched by it after release.
+//
+//  Eligibility is the caller's: alternate buffer, mouse reporting and `smoothScrolling:
+//  false` all hand the event back to SwiftTerm (see `installScrollMonitor`).
 //
 
 import AppKit
-import CoreVideo
 
-/// Pixel-level smooth scrolling state machine for the terminal view.
-///
-/// Call `configure(view:cellHeight:)` once after the view is set up, then
-/// call `handleScrollWheel(_:)` from the view's `scrollWheel(with:)` override.
-/// The two callbacks feed back into the view: `onScrollLines` triggers the real
-/// buffer scroll, and `onOffsetChanged` applies the sub-cell layer transform.
 @MainActor
 final class SmoothScroll {
+    private var model = SmoothScrollModel()
+    private var graceTask: Task<Void, Never>?
 
-    // MARK: - Configuration
+    /// Set from the view's `layout()` and `configureSmoothScroll()`. Zero disables the path.
+    var cellHeight: CGFloat = 0
 
-    private weak var view: NSView?
-    private(set) var cellHeight: CGFloat = 0
-
-    // MARK: - Scroll state
-
-    /// Accumulated sub-cell pixel offset (positive = scrolled up = content moves down).
-    private var pixelOffset: CGFloat = 0
-
-    /// Velocity in pixels/frame driving the momentum animation.
-    private var velocity: CGFloat = 0
-
-    /// Phase accumulator: sub-cell pixels carried across events during active touch.
-    private var phaseAccumulator: CGFloat = 0
-
-    // MARK: - Display link
-
-    private var displayLink: CVDisplayLink?
-    private var isAnimating = false
-
-    // MARK: - Callbacks
-
-    /// Called when the pixel accumulator crosses N cell heights. Positive = scroll up.
+    /// Whole lines to scroll. Positive = `scrollUp(lines:)` (toward earlier output).
     var onScrollLines: ((Int) -> Void)?
-
-    /// Called each frame with the sub-cell pixel offset to apply as a layer transform.
-    /// Positive offset = content shifted down (user scrolled up, peeking at earlier output).
+    /// Sub-cell offset in model sign (positive = content shifted toward earlier output).
+    /// The view turns it into a screen direction via `SmoothScrollModel.layerTranslationY`.
     var onOffsetChanged: ((CGFloat) -> Void)?
+    /// Re-checked when the grace timer fires, because the buffer or mouse mode can flip
+    /// between a finger lift and the settle it schedules.
+    var isEligible: () -> Bool = { true }
 
-    // MARK: - Setup
+    var isMidGesture: Bool { model.isMidGesture }
 
-    func configure(view: NSView, cellHeight: CGFloat) {
-        self.view = view
-        self.cellHeight = cellHeight
+    /// Offer one scroll event. Returns `true` when the smooth path consumed it. `pointerInside`
+    /// only matters for claiming a NEW gesture; see `SmoothScrollModel.shouldClaim`.
+    func handleScrollWheel(_ event: NSEvent, pointerInside: Bool) -> Bool {
+        // `onScrollLines == nil` means `invalidate()` ran (the pane closed). A closed pane
+        // must hand events back rather than swallow them into callbacks that no longer exist.
+        guard event.hasPreciseScrollingDeltas, cellHeight > 0, onScrollLines != nil else { return false }
+        let input = ScrollInput(phase: ScrollPhase(event.phase),
+                                momentum: ScrollPhase(event.momentumPhase),
+                                deltaY: Double(event.scrollingDeltaY),
+                                cellHeight: Double(cellHeight))
+        guard model.shouldClaim(input, pointerInside: pointerInside) else { return false }
+        let out = model.handle(input)
+        apply(out)
+        return out.consumed
     }
 
-    // MARK: - Public interface
-
-    /// Handle a scroll-wheel event. Returns `true` when the event is consumed by
-    /// the smooth path (caller should NOT forward to super). Returns `false` when
-    /// the event is not a precise trackpad event and should fall through normally.
-    @discardableResult
-    func handleScrollWheel(_ event: NSEvent) -> Bool {
-        guard event.hasPreciseScrollingDeltas, cellHeight > 0 else { return false }
-
-        stopDisplayLink()
-
-        let dy = event.scrollingDeltaY  // positive = finger moved down = scroll up
-
-        switch event.phase {
-        case .began:
-            // New gesture: reset everything.
-            phaseAccumulator = 0
-            velocity = 0
-            pixelOffset = 0
-            commitOffset()
-
-        case .changed:
-            phaseAccumulator += dy
-            drainAccumulator()
-
-        case .ended, .cancelled:
-            // Fingers lifted: hand off to momentum if we have velocity.
-            velocity = dy  // seed from last delta so the curve feels continuous
-            if abs(velocity) > 0.5 {
-                startDisplayLink()
-            }
-
-        default:
-            // momentumPhase events from the system — we drive our own momentum,
-            // so swallow them to avoid doubling.
-            if event.momentumPhase != [] { return true }
-            // Any other phase we don't recognise: let super handle it.
-            return false
-        }
-
-        return true
+    /// Drop to the grid at once, with no line step, keeping the callbacks. Used for mouseDown,
+    /// typing, leaving the window, and the path turning ineligible. Leaving the window is a
+    /// tab switch or a split (SplitContainerView.swift:89, :134-144), so it has to be fully
+    /// reversible. The first cut nil'd the callbacks here and killed scrolling for good.
+    func snapToGrid(reason: String) {
+        // Called on every keystroke's `send` and every mouseDown, so the common case (idle,
+        // already on the grid) must be free: no layer write, no summary line. `apply` always
+        // pushes the model's offset out, so an idle zero-offset model means identity already.
+        guard model.isMidGesture || model.offset != 0 || graceTask != nil else { return }
+        graceTask?.cancel()
+        graceTask = nil
+        apply(model.snap(reason: reason))
+        onOffsetChanged?(0)
     }
 
-    /// Snap the sub-cell pixel offset to zero. Call on mouseDown so any in-flight
-    /// inertia is cancelled before text selection begins.
-    func snapToGrid() {
-        stopDisplayLink()
-        velocity = 0
-        pixelOffset = 0
-        phaseAccumulator = 0
-        commitOffset()
-    }
-
-    /// Release resources. Call from the view's deinit or when the view is removed.
+    /// Final teardown, from `TerminalPane.documentWillClose()` only.
     func invalidate() {
-        stopDisplayLink()
+        graceTask?.cancel()
+        graceTask = nil
+        _ = model.snap(reason: "closed")
         onScrollLines = nil
         onOffsetChanged = nil
+        isEligible = { false }
     }
 
-    // MARK: - Internal: accumulator drain
+    // MARK: - Internals
 
-    /// Consume whole-cell multiples from `phaseAccumulator`, fire `onScrollLines`,
-    /// and keep the remainder as `pixelOffset`.
-    private func drainAccumulator() {
-        guard cellHeight > 0 else { return }
-        let totalOffset = pixelOffset + phaseAccumulator
-        let lines = Int(totalOffset / cellHeight)
-        if lines != 0 {
-            pixelOffset = totalOffset - CGFloat(lines) * cellHeight
-            phaseAccumulator = 0
-            onScrollLines?(lines)
-        } else {
-            pixelOffset = totalOffset
-            phaseAccumulator = 0
-        }
-        commitOffset()
+    private func apply(_ out: ScrollOutput) {
+        if out.lines != 0 { onScrollLines?(out.lines) }
+        onOffsetChanged?(CGFloat(out.offset))
+        if out.startGrace { armGrace(generation: model.graceGeneration) }
+        if let summary = out.finished { Self.log(summary) }
     }
 
-    /// Push the current `pixelOffset` to the view's layer transform.
-    private func commitOffset() {
-        onOffsetChanged?(pixelOffset)
+    private func armGrace(generation: Int) {
+        graceTask?.cancel()
+        graceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: SmoothScrollModel.momentumGrace)
+            guard !Task.isCancelled, let self else { return }
+            self.graceTask = nil
+            guard self.isEligible() else { self.snapToGrid(reason: "ineligible"); return }
+            self.apply(self.model.graceExpired(generation: generation))
+        }
     }
 
-    // MARK: - Internal: display link (momentum)
+    private static let diagEnabled = ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil
 
-    private func startDisplayLink() {
-        guard displayLink == nil else { return }
-        guard CVDisplayLinkCreateWithActiveCGDisplays(&displayLink) == kCVReturnSuccess,
-              let dl = displayLink else {
-            displayLink = nil
-            return
-        }
-        isAnimating = true
-        let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, context in
-            guard let ctx = context else { return kCVReturnSuccess }
-            // Defer the Unmanaged dereference to the main queue: the SmoothScroll
-            // instance is @MainActor, so no main-actor state may be touched on the
-            // CVDisplayLink thread. The raw pointer is safe to capture and pass across
-            // (it does not touch main-actor state), and takeUnretainedValue() runs on
-            // the main queue where the actor is live.
-            DispatchQueue.main.async {
-                Unmanaged<SmoothScroll>.fromOpaque(ctx).takeUnretainedValue().momentumTick()
-            }
-            return kCVReturnSuccess
-        }
-        CVDisplayLinkSetOutputCallback(dl, callback,
-                                       Unmanaged.passUnretained(self).toOpaque())
-        CVDisplayLinkStart(dl)
+    /// One stderr line per finished gesture, never per event (review item 8). It separates
+    /// "momentum never ran" from "momentum ran and the settle stepped the wrong way".
+    private static func log(_ s: GestureSummary) {
+        guard diagEnabled else { return }
+        let line = "[diag] smooth-scroll: path=\(s.path) events=\(s.events) lines=\(s.lines) "
+            + "momentum=\(s.momentum) settle=\(s.settleLines)\n"
+        FileHandle.standardError.write(Data(line.utf8))
     }
+}
 
-    private func stopDisplayLink() {
-        guard let dl = displayLink else { return }
-        CVDisplayLinkStop(dl)
-        displayLink = nil
-        isAnimating = false
-    }
-
-    /// Called once per display refresh during momentum phase.
-    private func momentumTick() {
-        guard isAnimating, cellHeight > 0 else {
-            stopDisplayLink()
-            return
-        }
-        // Exponential decay: ~0.92 per frame → comfortable half-life of ~8 frames.
-        velocity *= 0.92
-        guard abs(velocity) >= 0.5 else {
-            stopDisplayLink()
-            // Snap any residual sub-cell offset: round toward zero so the final
-            // resting position is exactly on a cell boundary.
-            if abs(pixelOffset) > 0 {
-                let snapLines = Int(pixelOffset / cellHeight)
-                if snapLines != 0 {
-                    pixelOffset -= CGFloat(snapLines) * cellHeight
-                    onScrollLines?(snapLines)
-                }
-                pixelOffset = 0
-                commitOffset()
-            }
-            return
-        }
-        phaseAccumulator += velocity
-        drainAccumulator()
+extension ScrollPhase {
+    /// `NSEvent.Phase` is an OptionSet, but a real event carries at most one phase bit.
+    init(_ phase: NSEvent.Phase) {
+        if phase.contains(.began) { self = .began }
+        else if phase.contains(.changed) { self = .changed }
+        else if phase.contains(.ended) { self = .ended }
+        else if phase.contains(.cancelled) { self = .cancelled }
+        else if phase.contains(.stationary) { self = .stationary }
+        else if phase.contains(.mayBegin) { self = .mayBegin }
+        else { self = .none }
     }
 }

@@ -72,8 +72,8 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
 
     // MARK: - Smooth scrolling
 
-    /// Set by `TerminalPane.apply(config:)`. When false, `scrollWheel` falls through
-    /// to super, preserving the original line-by-line behaviour.
+    /// Set by `TerminalPane.apply(config:)`. When false, the scroll monitor hands every
+    /// event back to SwiftTerm's own line-by-line `scrollWheel`.
     var smoothScrollEnabled: Bool = true
 
     /// Holds all smooth-scroll state. Wired in `configureSmoothScroll()`.
@@ -178,9 +178,9 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     override func layout() {
         super.layout()
         updateSearchOverlayGeometry()
-        // Sync SmoothScroll cell height (cellDimension is internal to SwiftTerm).
-        let t = getTerminal()
-        if t.rows > 0 { smoothScroll.configure(view: self, cellHeight: bounds.height / CGFloat(t.rows)) }
+        // Resync the smooth-scroll cell height: a resize or font change moves it, and
+        // SwiftTerm's own `cellDimension` is internal, so derive it the same way.
+        smoothScroll.cellHeight = terminalCellSize.height
     }
 
     private func ensureSearchOverlay() -> SearchHighlightOverlay {
@@ -219,8 +219,6 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
         // plain clicks stay free for text selection and mouse reporting, and ⌘ is
         // the intentional "I want the link" gesture. Source: `Mac/MacTerminalView.swift:893`.
         linkHighlightMode = .hoverWithModifier
-        // Wire smooth-scroll callbacks. `scrollUp/Down` are public on AppleTerminalView.
-
     }
 
     /// Required companion to the frame-based initialiser above.
@@ -229,15 +227,33 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
 
     // MARK: - Link activation
 
-    /// Route through `openSafeURL(_:)` (scheme allow-list + GOBLIN_PORTAL_DIAG logging).
-    /// Overrides rather than reassigning `terminalDelegate` — see `TerminalPane+Links.swift`.
+    /// Override the inherited `requestOpenLink` to route through `openSafeURL(_:)`,
+    /// which filters to safe schemes and logs under `GOBLIN_PORTAL_DIAG`.
+    ///
+    /// `LocalProcessTerminalView` is its own `TerminalViewDelegate` and provides a
+    /// default `requestOpenLink` that calls `openLink(_:)` → `NSWorkspace.shared.open`.
+    /// We override rather than replace so the subclass controls every outbound URL
+    /// without needing to reassign `terminalDelegate` (explicitly warned against in
+    /// `MacLocalTerminalView.swift:59-64`). See `TerminalPane+Links.swift` for the
+    /// full architecture and rationale.
     override func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
         openSafeURL(link)
     }
 
-    /// Bell not on `LocalProcessTerminalViewDelegate` (4 members, no bell). The safe hook
-    /// is override `bell(source: Terminal)` — reassigning `terminalDelegate` is warned
-    /// against upstream (`MacLocalTerminalView.swift:59-64`). Full rationale in TerminalPane.
+    /// Separate from `processDelegate` because the bell is *not* on
+    /// `LocalProcessTerminalViewDelegate` — that protocol carries exactly four
+    /// members (`MacLocalTerminalView.swift:14-43`: sizeChanged,
+    /// setTerminalTitle, hostCurrentDirectoryUpdate, processTerminated) and the bell
+    /// is on the lower-level `TerminalViewDelegate` instead
+    /// (`Apple/TerminalViewDelegate.swift:64`). `LocalProcessTerminalView` *is* its own
+    /// `TerminalViewDelegate` and does not forward the bell onward — it simply
+    /// inherits the default that calls `NSSound.beep()`
+    /// (`MacTerminalView.swift:3032-3035`). Reassigning `terminalDelegate` to reach it
+    /// is explicitly warned against upstream ("you might inadvertently break the
+    /// internal working", `MacLocalTerminalView.swift:59-64`), so the safe hook is to
+    /// override the `open` `bell(source: Terminal)` on `TerminalView` itself
+    /// (`MacTerminalView.swift:2869`) — which is what this subclass already exists to
+    /// do for key handling.
     weak var bellDelegate: GoblinPortalTerminalViewDelegate?
 
     /// `bell(source: Terminal)` rather than `bell(source: TerminalView)`: the former is
@@ -296,18 +312,16 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     }
 
     /// Event monitor handle for smooth scroll interception -- see
-    /// `GoblinPortalTerminalView+SmoothScroll.swift` for the wiring.
+    /// `GoblinPortalTerminalView+SmoothScroll.swift` for the wiring and its `@objc` overrides.
     var scrollMonitor: Any?
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil { installScrollMonitor() } else { removeScrollMonitor() }
-    }
-
-    /// Cancel in-flight momentum before text selection begins.
-    override func mouseDown(with event: NSEvent) {
-        smoothScroll.snapToGrid()
-        super.mouseDown(with: event)
+    /// Typing snaps to the grid. All user input reaches the pty via `send(data:)` →
+    /// `terminalDelegate?.send` (AppleTerminalView.swift:2269-2279; the delegate is this view,
+    /// MacLocalTerminalView.swift:145), which also jumps to the prompt. Lives in the class, not
+    /// the extension: a non-`@objc` protocol method cannot be overridden in an extension.
+    override func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        smoothScroll.snapToGrid(reason: "input")
+        super.send(source: source, data: data)
     }
 
     // MARK: - Paste guard
@@ -328,11 +342,5 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
             return  // User cancelled or nothing on clipboard
         }
         super.paste(sender as Any)
-    }
-
-    // Clip the parent so a sub-cell pixel offset doesn't reveal a gap at the edges.
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        superview?.wantsLayer = true; superview?.layer?.masksToBounds = true
     }
 }
