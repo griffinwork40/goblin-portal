@@ -1,0 +1,91 @@
+0011-cache-empty-glyphs-and-font-names.patch
+
+Stop asking CoreText about blank cells on every row rebuild.
+
+MetalTerminalRenderer.glyphEntry(for:glyph:) cached only SUCCESSFUL rasterizations.
+CoreTextGlyphRasterizer.rasterize(font:glyph:) returns nil for a zero-bounds glyph
+(CoreTextGlyphRasterizer.swift:10-13), and the space glyph has zero bounds, so every
+blank cell of every rebuilt row called CTFontGetBoundingRectsForGlyphs again. A pane
+whose only activity is an agent spinner rebuilds its row ~12 times a second, and a
+3s `sample` of such a pane put 23 of 37 row-build stacks in that call. The cache key
+also called CTFontCopyPostScriptName per glyph, which showed in the same sample.
+
+Two changes, both in Apple/Metal/MetalTerminalRenderer.swift:
+
+1. emptyGlyphs: Set<GlyphKey> remembers a rasterizer miss, so a blank glyph reaches
+   CoreText once per (font, size, glyph) instead of once per cell per rebuild. It is
+   cleared with glyphCache on an atlas reset. Atlas-full nils are NOT cached; they
+   are retried after the reset exactly as before.
+
+2. postScriptName(of:) memoizes the key's font name by CTFont identity (the font is
+   held strongly, so the identifier cannot be reused). Both glyphEntry call sites
+   pass a scaledFontFor result, so it holds one entry per scaledFontCache entry.
+
+No change to what is drawn: a nil entry was already skipped by both callers.
+
+Gate: app/Scripts/check-metal-renderer.sh and check-metal-throughput.sh (no
+regression); the CPU effect is measured, not gated (see the PR).
+
+--- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
++++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+@@ -199,6 +199,17 @@
+     private let colorAtlas: GlyphAtlas
+     private let rasterizer = CoreTextGlyphRasterizer()
+     private var glyphCache: [GlyphKey: GlyphEntry] = [:]
++    // Glyphs the rasterizer declined (zero bounds: the SPACE glyph, and any other
++    // blank). glyphCache only ever held successes, so every blank cell of every rebuilt
++    // row went back to CTFontGetBoundingRectsForGlyphs — the dominant cost of an
++    // otherwise idle pane whose only activity is an agent spinner repainting its row.
++    private var emptyGlyphs: Set<GlyphKey> = []
++    // PostScript name per scaled font, so glyphEntry builds its key without calling
++    // CTFontCopyPostScriptName (a CF copy + bridge) once per glyph. Keyed by identity;
++    // the font is held strongly so an ObjectIdentifier can never be reused for a
++    // different font. Both glyphEntry call sites pass a scaledFontFor result, so this
++    // holds exactly one entry per scaledFontCache entry and grows no faster than it.
++    private var fontNameCache: [ObjectIdentifier: (font: CTFont, name: String)] = [:]
+     private var scaledFontCache: [GlyphKey: CTFont] = [:]
+     private var customGlyphCache: [CustomGlyphKey: CustomGlyphEntry] = [:]
+     private let imageTextureCache = NSMapTable<AnyObject, MTLTexture>(keyOptions: .weakMemory, valueOptions: .strongMemory)
+@@ -1464,6 +1475,7 @@
+     private func handleAtlasChange(_ atlas: GlyphAtlas, previousSize: Int) {
+         if atlas.didReset {
+             glyphCache.removeAll()
++            emptyGlyphs.removeAll()
+             customGlyphCache.removeAll()
+             rowCache.removeAll()
+             atlasInvalidatedDuringBuild = true
+@@ -1473,14 +1485,33 @@
+         }
+     }
+ 
++    private func postScriptName(of font: CTFont) -> String {
++        let id = ObjectIdentifier(font)
++        if let cached = fontNameCache[id] {
++            return cached.name
++        }
++        let name = CTFontCopyPostScriptName(font) as String
++        fontNameCache[id] = (font, name)
++        return name
++    }
++
+     private func glyphEntry(for font: CTFont, glyph: CGGlyph) -> GlyphEntry? {
+-        let key = GlyphKey(fontName: CTFontCopyPostScriptName(font) as String,
++        let key = GlyphKey(fontName: postScriptName(of: font),
+                            size: CTFontGetSize(font),
+                            glyph: glyph)
+         if let cached = glyphCache[key] {
+             return cached
++        }
++        if emptyGlyphs.contains(key) {
++            return nil
+         }
+         guard let bitmap = rasterizer.rasterize(font: font, glyph: glyph) else {
++            // Remember the miss: the answer depends only on (font, size, glyph), so asking
++            // CoreText again per blank cell per row rebuild is pure waste. An atlas reset
++            // clears this set with glyphCache, which also bounds a (never observed)
++            // transient CGContext failure in the rasterizer to one atlas generation.
++            // Atlas-full nils below are NOT cached: they are retried after the reset.
++            emptyGlyphs.insert(key)
+             return nil
+         }
+         let atlasKind: GlyphAtlasKind = bitmap.isColor ? .color : .grayscale

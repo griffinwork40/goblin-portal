@@ -1,6 +1,7 @@
 # Sourced by verify-vendor.sh — never run on its own. The VIEW-LAYER half of the vendor
-# verdict: every check on the files patches 0006-0010 touch (MacTerminalView.swift,
-# AppleTerminalView.swift, TerminalViewSearch.swift, MacDisplayLinkPacer.swift).
+# verdict: every check on the files patches 0006-0011 touch (MacTerminalView.swift,
+# AppleTerminalView.swift, TerminalViewSearch.swift, MacDisplayLinkPacer.swift,
+# Apple/Metal/MetalTerminalRenderer.swift).
 #
 # Split out of verify-vendor.sh when 0010 pushed it past the 350-line ceiling. The seam
 # is the file layer: verify-vendor.sh keeps the pin plumbing and the model/parser checks
@@ -130,5 +131,24 @@ GOT_TVS="$(sha256_of "$TVS")"
 if [ "$GOT_TVS" != "$WANT_TVS" ]; then
   err "error: TerminalViewSearch.swift hash mismatch (expected $WANT_TVS, got $GOT_TVS)."
   err "  Regenerate: shasum -a 256 $TVS"
+  exit 3
+fi
+
+# --- seventh check: are blank-glyph misses cached (0011)? -------------------------
+# Severity: SILENT. Without 0011 the Metal renderer draws identically but re-asks
+# CoreText (CTFontGetBoundingRectsForGlyphs) about every blank cell on every row
+# rebuild, so a pane showing only an agent spinner burns CPU it never needed.
+MTR="$VENDOR/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift"
+if [ ! -f "$MTR" ]; then err "error: Apple/Metal/MetalTerminalRenderer.swift missing."; exit 1; fi
+GOT_MTR="$(sha256_of "$MTR")"
+if [ "$GOT_MTR" == "$(pin_value upstream_metal_terminal_renderer)" ]; then
+  err "error: Apple/Metal/MetalTerminalRenderer.swift is UNPATCHED upstream $UPSTREAM_TAG."
+  err "Patch 0011 caches blank-glyph rasterizer misses; without it idle spinner panes burn CPU."
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0011-cache-empty-glyphs-and-font-names.patch"
+  exit 2
+fi
+if [ "$GOT_MTR" != "$(pin_value patched_metal_terminal_renderer)" ]; then
+  err "error: MetalTerminalRenderer.swift hash mismatch (got $GOT_MTR)."
+  err "  Regenerate: shasum -a 256 $MTR  # then update patched_metal_terminal_renderer"
   exit 3
 fi
