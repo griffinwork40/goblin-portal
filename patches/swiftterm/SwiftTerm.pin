@@ -25,6 +25,10 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
+# As of 2026-10-04 the tree differs from upstream in NINE places. 0011 modifies
+# Apple/Metal/MetalTerminalRenderer.swift (caches rasterizer misses and the per-font
+# PostScript name), making ELEVEN patches. The paragraph below is the 2026-09-27 state.
+#
 # As of 2026-09-27 the tree differs from upstream in EIGHT places. 0010 adds
 # MacDisplayLinkPacer.swift new and touches MacTerminalView.swift and
 # AppleTerminalView.swift again, making TEN patches. The paragraph below is the
@@ -50,6 +54,7 @@
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/TerminalViewSearch.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
 
 upstream_repo   = https://github.com/migueldeicaza/SwiftTerm
 upstream_tag    = v1.15.0
@@ -276,3 +281,21 @@ patched_terminal_view_search  = 59314eda53d681038224cd9525f65a1f1ced1bad21d5983c
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
 mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae67765795bd200
+
+# Apple/Metal/MetalTerminalRenderer.swift AFTER 0011-cache-empty-glyphs-and-font-names.patch,
+# and the pristine v1.15.0 file (no earlier patch touches it). Checked in
+# verify-vendor-views.sh.
+#
+# What 0011 does: glyphEntry(for:glyph:) cached only successful rasterizations, and
+# CoreTextGlyphRasterizer returns nil for zero-bounds glyphs (the space), so every blank
+# cell of every rebuilt row re-asked CTFontGetBoundingRectsForGlyphs; the key also called
+# CTFontCopyPostScriptName per glyph. A pane whose only activity is a 12 Hz agent spinner
+# spent most of its row-build time there (23 of 37 sampled stacks). 0011 remembers misses
+# in emptyGlyphs (cleared on atlas reset) and memoizes the name per scaled font.
+#
+# Severity: SILENT. A tree missing 0011 draws identically; it just burns idle CPU.
+#
+# Regenerate with:
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+patched_metal_terminal_renderer  = 86ecd69a9dcf7d58040ba48ab2766eeb1b15f839aca45a2133e22255ee7c3577
+upstream_metal_terminal_renderer = 916d4e1cb0ecf36bcb3dcd8d8b0d9cb79b2c5b5653c0f075ecce6a603133b166

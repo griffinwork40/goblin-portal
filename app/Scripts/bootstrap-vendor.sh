@@ -73,7 +73,9 @@ pin_value() {
 # highlighting needs (it was missing from this array while verify-vendor.sh
 # already pinned it, so a fresh bootstrap failed its own verdict); 0010 paces redraws
 # on the display link instead of a free-running 16.67ms timer, which dropped every
-# other frame of a 60fps producer. A tree missing any
+# other frame of a 60fps producer; 0011 caches rasterizer misses (blank glyphs) and the
+# per-font PostScript name so an idle spinner pane stops re-asking CoreText about every
+# blank cell on every row rebuild. A tree missing any
 # one of them is not the tree this project is tested against, which is the whole
 # reason the pin records hashes rather than a version.
 PATCHES=(
@@ -87,6 +89,7 @@ PATCHES=(
   "0008-make-draw-open-for-subclass-override.patch"
   "0009-expose-search-state-changed-hook.patch"
   "0010-pace-redraws-on-display-link.patch"
+  "0011-cache-empty-glyphs-and-font-names.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then

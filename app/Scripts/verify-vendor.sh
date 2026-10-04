@@ -1,14 +1,15 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its ten local patches applied.
+# WITH its eleven local patches applied.
 #
 # Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
 # fine while silently corrupting scrollback (0002), bleeding stale cells across
 # tmux panes (0003), shipping a release-build abort() (0004), dropping DCS Ptmux
 # sequences (0005), breaking copy/paste (0006, 0007), and painting on a free-running
-# timer that drops every other frame of a 60fps producer (0010). This script makes that
-# silent case loud. The view-file checks (0006-0010) live in verify-vendor-views.sh. Called first by make-app-bundle.sh.
+# timer that drops every other frame of a 60fps producer (0010), and re-asking CoreText
+# about every blank cell on every Metal row rebuild (0011). This script makes that
+# silent case loud. The view-file checks (0006-0011) live in verify-vendor-views.sh. Called first by make-app-bundle.sh.
 #
 # Buffer.swift carries 0002/0003/0004 under ONE combined hash — half-patched
 # matches neither and lands in the exit-3 "unknown" branch by design. See the
@@ -45,6 +46,7 @@ PATCH_PTMUX="$REPO_ROOT/patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
 PATCH_LFSEL="$REPO_ROOT/patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
 PATCH_FEEDSEL="$REPO_ROOT/patches/swiftterm/0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
 PATCH_PACE="$REPO_ROOT/patches/swiftterm/0010-pace-redraws-on-display-link.patch"
+PATCH_GLYPHMISS="$REPO_ROOT/patches/swiftterm/0011-cache-empty-glyphs-and-font-names.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -58,7 +60,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -86,16 +88,16 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it:"
   err "  ./Scripts/bootstrap-vendor.sh"
   err ""
-  err "That clones $UPSTREAM_TAG, applies all ten patches in order, and re-runs this"
+  err "That clones $UPSTREAM_TAG, applies all eleven patches in order, and re-runs this"
   err "check for the verdict. app/README.md documents the manual equivalent if you"
   err "would rather see the steps than trust a script."
   err ""
-  err "ALL TEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
+  err "ALL ELEVEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
   err "narrowing), 0003 fixes the alt-buffer resize defect (stale cells bleeding across tmux"
   err "panes on widening), 0004 stops an upstream release-build abort() on every resize, 0005"
   err "adds DCS Ptmux passthrough, 0006 keeps the selection alive during linefeed at a plain"
-  err "prompt, 0007 keeps the selection alive during pty output (feedPrepare), and 0010"
-  err "paces redraws on the display link;"
+  err "prompt, 0007 keeps the selection alive during pty output (feedPrepare), 0010"
+  err "paces redraws on the display link, and 0011 caches blank-glyph rasterizer misses;"
   err "check-reflow.sh and check-altbuffer-resize.sh are what prove 0002 and 0003 applied."
   exit 1
 fi
@@ -260,9 +262,9 @@ if [[ "$GOT_PTMUX" != "$WANT_PTMUX" ]]; then
   exit 3
 fi
 
-# --- view-layer checks (0006-0010) live in a sibling -----------------------------
-# MacTerminalView.swift, AppleTerminalView.swift, TerminalViewSearch.swift and 0010's
-# MacDisplayLinkPacer.swift. Sourced, not executed, so its exits are this script's.
+# --- view-layer checks (0006-0011) live in a sibling -----------------------------
+# MacTerminalView.swift, AppleTerminalView.swift, TerminalViewSearch.swift, 0010's
+# MacDisplayLinkPacer.swift and 0011's MetalTerminalRenderer.swift. Sourced, not executed, so its exits are this script's.
 . "$APP_ROOT/Scripts/verify-vendor-views.sh"
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 10 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 11 local patches"
