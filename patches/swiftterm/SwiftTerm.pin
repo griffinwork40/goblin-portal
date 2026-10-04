@@ -290,12 +290,16 @@ mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae6776
 # CoreTextGlyphRasterizer returns nil for zero-bounds glyphs (the space), so every blank
 # cell of every rebuilt row re-asked CTFontGetBoundingRectsForGlyphs; the key also called
 # CTFontCopyPostScriptName per glyph. A pane whose only activity is a 12 Hz agent spinner
-# spent most of its row-build time there (23 of 37 sampled stacks). 0011 remembers misses
-# in emptyGlyphs (cleared on atlas reset) and memoizes the name per scaled font.
+# spent most of its row-build time there (23 of 37 sampled stacks). 0011 remembers
+# ZERO-BOUNDS misses in emptyGlyphs (cleared on atlas reset) — only that nil path is
+# deterministic for a given (font, size, glyph) and safe to cache permanently. The other
+# three rasterize() nil paths (empty baseAddress, CGColorSpace, CGContext) fire after the
+# bounds check and are NOT cached; caching them would leave a real glyph blank until the
+# next atlas reset (GlyphAtlas.swift:123-165). 0011 also memoizes the name per scaled font.
 #
 # Severity: SILENT. A tree missing 0011 draws identically; it just burns idle CPU.
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-patched_metal_terminal_renderer  = 86ecd69a9dcf7d58040ba48ab2766eeb1b15f839aca45a2133e22255ee7c3577
+patched_metal_terminal_renderer  = 218758ebbf1a1a3b4d68cb7a226cc07f001eef4bb0060ec28f4f8aa0dad5bd3c
 upstream_metal_terminal_renderer = 916d4e1cb0ecf36bcb3dcd8d8b0d9cb79b2c5b5653c0f075ecce6a603133b166

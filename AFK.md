@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A native macOS terminal written in Swift 6 / AppKit, deliberately with **no AI features** — built to host [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s REPL properly. The agent lives *in* the terminal; the terminal is a fast, correct, native window that gets out of the way. The bar is "beautiful and user-friendly as hell" before clever. Rendering is [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (vendored, v1.15.0 + ten patches); everything else is 42 small AppKit files, none over 350 LOC. Personal project, private repo `griffinwork40/goblin-portal`, single `main` branch.
+A native macOS terminal written in Swift 6 / AppKit, deliberately with **no AI features** — built to host [`agent-afk`](https://github.com/griffinwork40/agent-afk)'s REPL properly. The agent lives *in* the terminal; the terminal is a fast, correct, native window that gets out of the way. The bar is "beautiful and user-friendly as hell" before clever. Rendering is [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (vendored, v1.15.0 + eleven patches); everything else is 42 small AppKit files, none over 350 LOC. Personal project, private repo `griffinwork40/goblin-portal`, single `main` branch.
 
 Naming: the app was renamed from MacTerminal to **Umber** on 2026-07-27 (commit `faf1291`), then from Umber to **Goblin Portal** on 2026-09-15 (commit `caeb9167`). Code, scripts, bundle id, env var, and config path are all `goblin-portal`/`GoblinPortal`/`GOBLIN_PORTAL_`. The theme preset `"umber"` survives as an easter egg. The checkout directory was renamed from `mac-terminal` to `umber` on 2026-08-18. Remaining `MacTerminal`/`MT_DIAG` strings in `.afk/` are historical records, not stale code; `MacTerminalView` in `KeyBindings.swift` is SwiftTerm's own upstream type name.
 
@@ -269,7 +269,7 @@ The following features have all landed on `main`. Moved here from the old "Not B
 - **Search** -- ⌘F scrollback search via SwiftTerm's find bar. Known gap: one match at a time, no all-match highlighting.
 - **App icon** -- shipped at `243fcfb`.
 - **Tier 1 UI polish** -- unfocused pane dimming default 0.7 (was 1.0/off), theme-aware split divider (`SplitContainerView+Appearance.swift`), `.running` status dot wired via OSC 133 C, hollow cursor in unfocused pane (already provided by SwiftTerm's `hasFocus`/`CaretView.drawCursor` — no code change needed).
-- **Engine decision: SwiftTerm is the sole engine.** libghostty probe completed; decision made 2026-08-18 to stay with SwiftTerm. All ghostty code removed (commits `45f2e6ab`, `e7df3bf4` / PR #95). The SwiftTerm patches (now `0001`-`0010`) are long-term maintenance surface.
+- **Engine decision: SwiftTerm is the sole engine.** libghostty probe completed; decision made 2026-08-18 to stay with SwiftTerm. All ghostty code removed (commits `45f2e6ab`, `e7df3bf4` / PR #95). The SwiftTerm patches (now `0001`-`0011`) are long-term maintenance surface.
 - **`.running` tab indicator** -- OSC 133 `C` (command start) now sets `DocumentStatus.running`, showing a dim dot on the tab while a command is in flight. Clears to idle on completion when the outcome is `.ignore` (fast success on the active tab). Wired through `ShellIntegration.State.onCommandStart`; gated by `check-shell-integration.sh` (4 new cases). The presentation was already painted in `DocumentStatus+Presentation.swift` -- this connected the wire.
 
 ## Not Built Yet

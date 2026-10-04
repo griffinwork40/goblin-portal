@@ -12,10 +12,19 @@ also called CTFontCopyPostScriptName per glyph, which showed in the same sample.
 
 Two changes, both in Apple/Metal/MetalTerminalRenderer.swift:
 
-1. emptyGlyphs: Set<GlyphKey> remembers a rasterizer miss, so a blank glyph reaches
-   CoreText once per (font, size, glyph) instead of once per cell per rebuild. It is
-   cleared with glyphCache on an atlas reset. Atlas-full nils are NOT cached; they
-   are retried after the reset exactly as before.
+1. emptyGlyphs: Set<GlyphKey> remembers ZERO-BOUNDS rasterizer misses only — the
+   space glyph and any other glyph whose CTFontGetBoundingRectsForGlyphs rect is
+   zero-width or zero-height. Only this nil path is deterministic for a given
+   (font, size, glyph), so it is the only one safe to cache permanently within an
+   atlas generation. The other three nil paths in rasterize() — empty baseAddress,
+   CGColorSpace failure, CGContext failure — fire AFTER the bounds check passes and
+   are theoretically transient; caching them would leave a real glyph blank until
+   the next atlas reset (GlyphAtlas.swift:123-165, reset only after grow fails at
+   max size). glyphEntry now calls CTFontGetBoundingRectsForGlyphs directly (one
+   extra call per key, once) and inserts only on zero bounds; rasterize() nil after
+   a non-zero bounds result falls through uncached. emptyGlyphs is cleared with
+   glyphCache on an atlas reset. Atlas-full nils are NOT cached; they are retried
+   after the reset exactly as before.
 
 2. postScriptName(of:) memoizes the key's font name by CTFont identity (the font is
    held strongly, so the identifier cannot be reused). Both glyphEntry call sites
@@ -28,14 +37,19 @@ regression); the CPU effect is measured, not gated (see the PR).
 
 --- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
 +++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-@@ -199,6 +199,17 @@
+@@ -199,6 +199,22 @@
      private let colorAtlas: GlyphAtlas
      private let rasterizer = CoreTextGlyphRasterizer()
      private var glyphCache: [GlyphKey: GlyphEntry] = [:]
-+    // Glyphs the rasterizer declined (zero bounds: the SPACE glyph, and any other
-+    // blank). glyphCache only ever held successes, so every blank cell of every rebuilt
-+    // row went back to CTFontGetBoundingRectsForGlyphs — the dominant cost of an
-+    // otherwise idle pane whose only activity is an agent spinner repainting its row.
++    // Glyphs with zero bounding rect (the SPACE glyph and any other genuinely blank
++    // glyph). These are the only misses worth caching: CTFontGetBoundingRectsForGlyphs
++    // returning zero is deterministic for a given (font, size, glyph), so repeating the
++    // call per cell per row rebuild is pure waste (23 of 37 row-build stacks on an
++    // otherwise-idle spinner pane). Other rasterizer nil paths — empty baseAddress,
++    // CGColorSpace failure, CGContext failure — are theoretically transient and occur
++    // AFTER the bounds check passes, so they are NOT cached: a real glyph that hit one
++    // of those would stay blank until the next atlas reset (GlyphAtlas.swift:123-165).
++    // Cleared with glyphCache on atlas reset.
 +    private var emptyGlyphs: Set<GlyphKey> = []
 +    // PostScript name per scaled font, so glyphEntry builds its key without calling
 +    // CTFontCopyPostScriptName (a CF copy + bridge) once per glyph. Keyed by identity;
@@ -46,7 +60,7 @@ regression); the CPU effect is measured, not gated (see the PR).
      private var scaledFontCache: [GlyphKey: CTFont] = [:]
      private var customGlyphCache: [CustomGlyphKey: CustomGlyphEntry] = [:]
      private let imageTextureCache = NSMapTable<AnyObject, MTLTexture>(keyOptions: .weakMemory, valueOptions: .strongMemory)
-@@ -1464,6 +1475,7 @@
+@@ -1464,6 +1480,7 @@
      private func handleAtlasChange(_ atlas: GlyphAtlas, previousSize: Int) {
          if atlas.didReset {
              glyphCache.removeAll()
@@ -54,7 +68,7 @@ regression); the CPU effect is measured, not gated (see the PR).
              customGlyphCache.removeAll()
              rowCache.removeAll()
              atlasInvalidatedDuringBuild = true
-@@ -1473,14 +1485,33 @@
+@@ -1473,14 +1490,42 @@
          }
      }
  
@@ -75,17 +89,26 @@ regression); the CPU effect is measured, not gated (see the PR).
                             glyph: glyph)
          if let cached = glyphCache[key] {
              return cached
-+        }
+         }
 +        if emptyGlyphs.contains(key) {
 +            return nil
-         }
-         guard let bitmap = rasterizer.rasterize(font: font, glyph: glyph) else {
-+            // Remember the miss: the answer depends only on (font, size, glyph), so asking
-+            // CoreText again per blank cell per row rebuild is pure waste. An atlas reset
-+            // clears this set with glyphCache, which also bounds a (never observed)
-+            // transient CGContext failure in the rasterizer to one atlas generation.
-+            // Atlas-full nils below are NOT cached: they are retried after the reset.
++        }
++        // Check bounds before calling rasterize: a zero-bounds glyph is the only miss
++        // worth caching (deterministic; the space glyph always has zero bounds). Other
++        // rasterizer nil paths fire after this point and are not cached — they are
++        // theoretically transient (CGContext allocation failure), and caching them would
++        // leave a real glyph blank until the next atlas reset. One extra CoreText call
++        // per key, once. See CoreTextGlyphRasterizer.swift:8-13.
++        var glyphVar = glyph
++        let rect = CTFontGetBoundingRectsForGlyphs(font, .default, &glyphVar, nil, 1)
++        if rect.width <= 0 || rect.height <= 0 {
 +            emptyGlyphs.insert(key)
++            return nil
++        }
+         guard let bitmap = rasterizer.rasterize(font: font, glyph: glyph) else {
++            // rasterize() returned nil after the bounds check passed — transient context
++            // failure (empty baseAddress, CGColorSpace, or CGContext). Not cached: a
++            // real glyph that hit this would stay blank until the next atlas reset.
              return nil
          }
          let atlasKind: GlyphAtlasKind = bitmap.isColor ? .color : .grayscale

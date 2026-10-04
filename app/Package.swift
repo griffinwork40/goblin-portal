@@ -9,7 +9,7 @@ let package = Package(
     name: "GoblinPortal",
     platforms: [.macOS(.v14)],
     dependencies: [
-        // Upstream SwiftTerm v1.15.0, vendored at ../vendor/SwiftTerm with SIX
+        // Upstream SwiftTerm v1.15.0, vendored at ../vendor/SwiftTerm with eleven
         // local patches — 0001 ships the Metal shader as a `.copy` resource so the
         // GPU renderer is reachable, 0002/0003 are required correctness fixes
         // (SwiftTerm #494 scrollback reflow, and the alt-buffer resize that bled
