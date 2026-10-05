@@ -141,7 +141,7 @@ fi
 MTR="$VENDOR/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift"
 if [ ! -f "$MTR" ]; then err "error: Apple/Metal/MetalTerminalRenderer.swift missing."; exit 1; fi
 GOT_MTR="$(sha256_of "$MTR")"
-if [ "$GOT_MTR" == "$(pin_value upstream_metal_terminal_renderer)" ]; then
+if [ "$GOT_MTR" = "$(pin_value upstream_metal_terminal_renderer)" ]; then
   err "error: Apple/Metal/MetalTerminalRenderer.swift is UNPATCHED upstream $UPSTREAM_TAG."
   err "Patch 0011 caches blank-glyph rasterizer misses; without it idle spinner panes burn CPU."
   err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0011-cache-empty-glyphs-and-font-names.patch"
