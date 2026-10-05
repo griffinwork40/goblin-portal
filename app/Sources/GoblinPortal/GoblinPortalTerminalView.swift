@@ -84,7 +84,8 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
 
     /// Transparent overlay that draws translucent rects at every search match.
     /// Lazily created on the first search; removed when the find bar is dismissed.
-    private(set) var searchOverlay: SearchHighlightOverlay?
+    /// Internal (not private) so `+SearchOverlay.swift` can set it via `ensureSearchOverlay()`.
+    var searchOverlay: SearchHighlightOverlay?
 
     /// Override `draw(_:)` only to inject font dilation before SwiftTerm's own
     /// glyph pass. Every actual drawing is done by `super.draw(dirtyRect)`.
@@ -143,54 +144,9 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
 
     /// Remembered search state so `updateSearchOverlayGeometry` can refresh
     /// the active-match index after a scroll without re-querying the term.
-    private var lastSearchTerm: String = ""
-    private var lastSearchOptions: SearchOptions = SearchOptions()
-
-    /// Cell size derived from view bounds and grid dimensions.
-    /// `cellDimension` on `MacTerminalView` is internal, so we compute it.
-    var terminalCellSize: CGSize {
-        let terminal = getTerminal()
-        guard terminal.cols > 0, terminal.rows > 0 else { return .zero }
-        return CGSize(
-            width: bounds.width / CGFloat(terminal.cols),
-            height: bounds.height / CGFloat(terminal.rows)
-        )
-    }
-
-    /// Update the overlay geometry after a scroll or resize.  The overlay is
-    /// a sibling view drawn independently, so it must be told when the
-    /// viewport moves.  Called by `selectionChanged(source:)` below — which
-    /// fires on every scroll and selection change — and by `layout()`.
-    func updateSearchOverlayGeometry() {
-        guard let overlay = searchOverlay, !overlay.matches.isEmpty else { return }
-        let terminal = getTerminal()
-        overlay.scrollOffset = terminal.buffer.yDisp
-        overlay.visibleRows = terminal.rows
-        overlay.cellSize = terminalCellSize
-        if !lastSearchTerm.isEmpty {
-            let summary = searchMatchSummary(lastSearchTerm, options: lastSearchOptions)
-            overlay.activeMatchIndex = summary.index > 0 ? summary.index - 1 : -1
-        }
-        overlay.frame = bounds
-        overlay.needsDisplay = true
-    }
-
-    override func layout() {
-        super.layout()
-        updateSearchOverlayGeometry()
-        // Resync the smooth-scroll cell height: a resize or font change moves it, and
-        // SwiftTerm's own `cellDimension` is internal, so derive it the same way.
-        smoothScroll.cellHeight = terminalCellSize.height
-    }
-
-    private func ensureSearchOverlay() -> SearchHighlightOverlay {
-        if let existing = searchOverlay { return existing }
-        let overlay = SearchHighlightOverlay(frame: bounds)
-        overlay.autoresizingMask = [.width, .height]
-        addSubview(overlay)
-        searchOverlay = overlay
-        return overlay
-    }
+    /// Internal (not private) so `+SearchOverlay.swift` can read them in `updateSearchOverlayGeometry`.
+    var lastSearchTerm: String = ""
+    var lastSearchOptions: SearchOptions = SearchOptions()
 
     // MARK: - Initialisation
 
@@ -319,12 +275,23 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     /// focus/mouse reports) arrive here by the same route (MacTerminalView.swift:860-862), so
     /// `source` cannot tell them apart: snap only when a key event is being handled. Paste
     /// snaps in `paste(_:)`. In the class: a non-`@objc` method cannot be overridden in an extension.
+    ///
+    /// Tradeoff: `NSApp.currentEvent?.type == .keyDown` is a heuristic — it is nil when
+    /// `send` is called outside of event dispatch (e.g. a programmatic `sendResponse`
+    /// that arrives between events). In that case the guard safely falls through and no
+    /// snap fires, which is correct: there is no user keystroke to snap for. Daily-drive
+    /// item (#139 item 3).
     override func send(source: TerminalView, data: ArraySlice<UInt8>) {
         if NSApp.currentEvent?.type == .keyDown { smoothScroll.snapToGrid(reason: "input") }
         super.send(source: source, data: data)
     }
 
     // MARK: - Paste guard
+    //
+    // `paste(_:)` must stay in the class body: `MacTerminalView` declares it `@objc open` as
+    // a Swift method, which is not inherently dynamic. Swift disallows overriding a non-dynamic
+    // Swift class method from an extension (MacTerminalView.swift:2369). The overlay utility
+    // methods that ARE moveable (our own non-override methods) live in `+SearchOverlay.swift`.
 
     /// Intercept ⌘V to guard against accidental multi-line or large pastes.
     ///
