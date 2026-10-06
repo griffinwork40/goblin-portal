@@ -56,7 +56,7 @@ extension GoblinPortalTerminalView {
 
     /// `NSView.layout()` from Obj-C — overridable here because `MacTerminalView` does not
     /// interpose its own `layout()`, so this extension overrides the Obj-C declaration directly.
-    /// Drives overlay re-sync after any resize or font change, and resync's the smooth-scroll
+    /// Drives overlay re-sync after any resize or font change, and resyncs the smooth-scroll
     /// cell height for the same events (smooth-scroll state is in `+SmoothScroll.swift` but
     /// the height read belongs with the geometry pass that already runs here).
     override func layout() {

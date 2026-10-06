@@ -97,7 +97,8 @@ extension GoblinPortalTerminalView {
     /// Wire `SmoothScroll` to the terminal view. Called from `TerminalPane.apply(config:)` on
     /// every config load, so it must be idempotent. The callbacks are wired unconditionally,
     /// even when the cell height is still zero (a zero-size initial frame): `layout()` fills
-    /// in the height later, and an unwired callback would make the monitor swallow scrolls.
+    /// in the height later (`layout()` is owned by `GoblinPortalTerminalView+SearchOverlay.swift`),
+    /// and an unwired callback would make the monitor swallow scrolls.
     func configureSmoothScroll() {
         smoothScroll.cellHeight = terminalCellSize.height
 

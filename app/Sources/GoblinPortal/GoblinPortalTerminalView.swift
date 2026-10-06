@@ -288,10 +288,10 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
 
     // MARK: - Paste guard
     //
-    // `paste(_:)` must stay in the class body: `MacTerminalView` declares it `@objc open` as
-    // a Swift method, which is not inherently dynamic. Swift disallows overriding a non-dynamic
-    // Swift class method from an extension (MacTerminalView.swift:2369). The overlay utility
-    // methods that ARE moveable (our own non-override methods) live in `+SearchOverlay.swift`.
+    // `paste(_:)` must stay in the class body: `MacTerminalView` declares it as `open func paste`
+    // (MacTerminalView.swift:2369), which, being declared in the SwiftTerm module, cannot be
+    // overridden from an extension in this module. The overlay utility methods that ARE moveable
+    // (our own non-override methods) live in `+SearchOverlay.swift`.
 
     /// Intercept ⌘V to guard against accidental multi-line or large pastes.
     ///
