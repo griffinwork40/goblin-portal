@@ -39,6 +39,8 @@ protocol FileTreeViewControllerDelegate: AnyObject {
     /// cwd-follow, the shell-to-tree direction being `setRoot(_:)`
     /// (`SpaceViewController.fileTree(_:didRequestChangeDirectory:)`).
     func fileTree(_ controller: FileTreeViewController, didRequestChangeDirectory url: URL)
+    /// A file was renamed, moved, or trashed. `newURL` is nil when trashed.
+    func fileTree(_ controller: FileTreeViewController, didMutate oldURL: URL, newURL: URL?)
 }
 
 @MainActor
@@ -70,8 +72,8 @@ final class FileTreeViewController: NSViewController {
     /// `+ContextMenu` reads `clickedRow` to know which row was hit, and `+Git` reloads
     /// row views in place when a status snapshot changes. Both only ever read it — the
     /// view is still built and owned here, and nothing outside this type may replace it.
-    let outlineView = NSOutlineView()
-    private let scrollView = NSScrollView()
+    let outlineView = FileTreeOutlineView()
+    let scrollView = NSScrollView()
     private let rowMenu = NSMenu()
 
     /// The git-status poller. Nil until the Space's window first becomes key, because a
@@ -191,6 +193,7 @@ final class FileTreeViewController: NSViewController {
     /// moment the tree is stale. FSEvents is the obvious upgrade if it ever feels
     /// behind.
     func refresh() {
+        guard !isEditingInline else { pendingReload = true; return }
         let expanded = (0..<outlineView.numberOfRows)
             .compactMap { outlineView.item(atRow: $0) as? FileNode }
             .filter { outlineView.isItemExpanded($0) }
@@ -258,6 +261,7 @@ final class FileTreeViewController: NSViewController {
         applyFilter("")
         guard url.resolvingSymlinksInPath().path != root.url.resolvingSymlinksInPath().path
         else { return }
+        guard !isEditingInline else { pendingReload = true; return }
         root = FileNode(url: url, isDirectory: true)
         root.reloadChildren()
         outlineView.reloadData()

@@ -59,6 +59,18 @@ extension FileTreeViewController: NSMenuDelegate {
             withTitle: "Reveal in Finder", action: #selector(menuReveal(_:)), keyEquivalent: "")
         menu.addItem(
             withTitle: "Copy Path", action: #selector(menuCopyPath(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "New File",   action: #selector(performNewFile(_:)),   keyEquivalent: "")
+        menu.addItem(withTitle: "New Folder", action: #selector(performNewFolder(_:)), keyEquivalent: "")
+        if !node.isDirectory {
+            menu.addItem(withTitle: "Rename…", action: #selector(menuRename(_:)), keyEquivalent: "")
+        }
+        menu.addItem(withTitle: "Move to Trash", action: #selector(performTrash(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Cut",       action: #selector(performCut(_:)),       keyEquivalent: "")
+        menu.addItem(withTitle: "Copy",      action: #selector(performCopy(_:)),      keyEquivalent: "")
+        menu.addItem(withTitle: "Paste",     action: #selector(performPaste(_:)),     keyEquivalent: "")
+        menu.addItem(withTitle: "Duplicate", action: #selector(performDuplicate(_:)), keyEquivalent: "")
 
         for item in menu.items where item.action != nil {
             item.target = self
@@ -110,5 +122,10 @@ extension FileTreeViewController: NSMenuDelegate {
         guard let node = node(from: sender) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(node.url.path, forType: .string)
+    }
+
+    @objc private func menuRename(_ sender: Any?) {
+        guard let node = node(from: sender) else { return }
+        beginInlineEdit(for: node, isNew: false)
     }
 }

@@ -73,6 +73,14 @@ extension FileTreeViewController {
             return false
         }
         space.installSourceControl(in: stack)
+        // Install the activity switcher above the Explorer and SCM views, and
+        // store references so +SidebarActivity can show/hide them.
+        space.scmPanelViewController = space.sourceControlPanel
+        space.scmDividerView = stack.arrangedSubviews.first(where: {
+            $0 !== self.gitHeader && $0 !== self.filterField &&
+            $0 !== self.sidebarScrollView && $0 !== space.sourceControlPanel.view
+        })
+        space.installActivitySwitcher(in: stack)
         return true
     }
 

@@ -43,6 +43,19 @@ final class FileNode {
 
     var name: String { url.lastPathComponent }
 
+    /// Insert a transient placeholder child at `index` (or append if nil).
+    /// Used by `FileTreeViewController+FileOps` to show a new-file/folder
+    /// row before the file exists on disk. The placeholder is removed when
+    /// `reloadChildren()` is next called (since the URL won't exist yet).
+    func insertChild(_ node: FileNode, at index: Int? = nil) {
+        if children == nil { children = [] }
+        if let i = index, i <= (children?.count ?? 0) {
+            children?.insert(node, at: i)
+        } else {
+            children?.append(node)
+        }
+    }
+
     /// Read the directory, **reusing existing child nodes by URL**. Identity has to
     /// survive a refresh or `NSOutlineView` loses every expanded row: it tracks
     /// disclosure state by item identity, so handing it fresh objects for unchanged

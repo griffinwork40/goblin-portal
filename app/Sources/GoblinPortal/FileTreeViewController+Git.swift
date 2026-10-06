@@ -334,6 +334,7 @@ extension FileTreeViewController {
                 let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false)
                     as? NSTableCellView
             else { continue }
+            guard !(isEditingInline && outlineView.editedRow == row) else { continue }
             applyGitDecoration(to: cell, for: node)
         }
         gitHeader.update(summary: gitFollow?.branchSummary)

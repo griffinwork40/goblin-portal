@@ -206,6 +206,23 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
             host.documentDidBecomeActive()
         }
     }
+
+    /// A file was renamed, moved, or trashed by the file tree's inline-edit or
+    /// context-menu operations. Update any open FileViewerPane showing that URL.
+    func fileTree(_ controller: FileTreeViewController, didMutate oldURL: URL, newURL: URL?) {
+        for document in documents {
+            guard let viewer = document as? FileViewerPane, viewer.url == oldURL else { continue }
+            if newURL == nil {
+                // Trashed — close the pane.
+                if let idx = documents.firstIndex(where: { $0 === viewer }) {
+                    closeDocument(at: idx)
+                }
+            }
+            // Rename/move: FileViewerPane is read-only so re-opening is the simplest path.
+            // A full rename-in-place API can be added when FileViewerPane gains that.
+            break
+        }
+    }
 }
 
 // MARK: - Auto-reveal helper

@@ -294,6 +294,15 @@ extension AppDelegate {
             item.keyEquivalentModifierMask = [.command, .shift]
             viewMenu.addItem(item)
         }
+        viewMenu.addItem(.separator())
+        let showExplorerItem = NSMenuItem(
+            title: "Show Explorer", action: Selector(("showExplorerSidebar:")), keyEquivalent: "e")
+        showExplorerItem.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(showExplorerItem)
+        let showSCMItem = NSMenuItem(
+            title: "Show Source Control", action: Selector(("showSourceControlSidebar:")), keyEquivalent: "g")
+        showSCMItem.keyEquivalentModifierMask = [.control, .shift]
+        viewMenu.addItem(showSCMItem)
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)
 

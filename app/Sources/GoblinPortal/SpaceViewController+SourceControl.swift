@@ -167,6 +167,8 @@ extension SpaceViewController: SourceControlDelegate {
         // it exists before the first data push, without forcing creation on every
         // `gitStatusDidChange` when the panel has never been opened.
         sourceControlPanel.update(snapshot: snapshot, repository: repository)
+        pushBadgeCount(snapshot.entries.count)
+        updateSwitcherVisibility(hasRepo: repository != nil)
     }
 
     // MARK: Private helpers
