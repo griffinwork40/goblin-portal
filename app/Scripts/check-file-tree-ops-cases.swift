@@ -192,7 +192,7 @@ extension Harness {
     // Similarly, trashing the only open file closed the Space.
     // These two cases prove the fixed handler keeps the window alive in both scenarios.
 
-    static func runCases12to13() {
+    static func runCases12to14() {
 
         // ─────────────────────────────────────────────────────────────────────
         // CASE 12 — Rename of the Space's sole FileViewerPane keeps the window open
@@ -280,6 +280,32 @@ extension Harness {
             ok("case 13: sole tab left open after trash (no last-document close)")
         } else {
             fail("case 13: want the sole tab left open, have \(svc.documents.count) docs")
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // CASE 14 — Rename onto a path that ALREADY has an open (stale) tab.
+        // `openFile` dedupes onto that tab and appends nothing, so the handler must
+        // reorder the tab it got back, not whatever sits at `count - 1`. Layout is
+        // chosen so the position-based bug visibly moves an UNRELATED tab:
+        // [after, p, q, r] + rename p -> after. Correct: [q, after, r]. Bug: [after, r, q].
+        // ─────────────────────────────────────────────────────────────────────
+        print("\n  [case 14] rename onto an already-open tab: no unrelated tab moves")
+        let dir14 = treeRoot.appendingPathComponent("mutation_case14")
+        try? FileManager.default.createDirectory(at: dir14, withIntermediateDirectories: true)
+        let p14 = dir14.appendingPathComponent("p.txt"), q14 = dir14.appendingPathComponent("q.txt")
+        let r14 = dir14.appendingPathComponent("r.txt")
+        for u in [p14, q14, r14] { FileManager.default.createFile(atPath: u.path, contents: Data("z".utf8)) }
+        for u in [p14, q14, r14] { svc.openFile(url: u) }
+        pump(0.2)
+        func names() -> [String] { svc.documents.compactMap { ($0 as? FileViewerPane)?.url.lastPathComponent } }
+        guard names() == ["after.txt", "p.txt", "q.txt", "r.txt"] else {
+            fail("case 14: precondition — want [after, p, q, r], have \(names())"); return }
+        svc.handleFileMutation(oldURL: p14, newURL: newFile12)   // p.txt -> case 12's after.txt
+        pump(0.3)
+        if names() == ["q.txt", "after.txt", "r.txt"] {
+            ok("case 14: deduped replacement moved to p's slot; q and r untouched")
+        } else {
+            fail("case 14: want [q, after, r], have \(names()) — wrong tab reordered")
         }
     }
 }

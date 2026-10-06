@@ -84,20 +84,25 @@ extension SpaceViewController {
                 // Opening first means documents[] is never empty between the two
                 // operations, so `closeDocument` cannot trigger
                 // `spaceViewControllerDidCloseLastDocument` and close the window
-                // (SpaceViewController.swift:253-255). The new tab lands at
-                // documents.endIndex; we reorder it back to `idx` afterwards.
-                openFile(url: dest)
-                // `openFile` appended; `idx` is still valid for the original viewer
-                // because no removal has happened yet.
+                // (SpaceViewController.swift:253-255). The replacement is then
+                // reordered back to `idx`.
+                //
+                // Keep the pane `openFile` hands back. It is usually a NEW tab appended at
+                // the end, but `openFile` dedupes (SpaceViewController.swift:168-176): if
+                // a tab is already open at `dest` (e.g. the stale tab a sole-pane trash
+                // leaves behind) it selects THAT tab and appends nothing. Assuming the
+                // replacement sits at `count - 1` then reorders an unrelated last tab,
+                // so the replacement is located by identity, never by position.
+                let replacement = openFile(url: dest)
+                // `idx` is still valid for the original viewer: `openFile` either
+                // appended after it or appended nothing, and nothing was removed yet.
                 closeDocument(at: idx)
-                // Move the newly-appended tab back to the original position so the
-                // tab strip does not jump. After closeDocument the old slot is gone,
-                // so the new tab is at documents.count - 1 (endIndex - 1).
-                let newIdx = documents.count - 1
-                if newIdx != idx && idx <= documents.endIndex {
-                    // Re-derive indices from the current array — documents[] was mutated
-                    // by selectDocument indirectly. A simple re-order is sufficient;
-                    // applyDocumentOrder handles the strip repaint.
+                // Move the replacement back to the original position so the tab strip
+                // does not jump.
+                if let newIdx = documents.firstIndex(where: { $0 === replacement }),
+                   newIdx != idx && idx <= documents.endIndex {
+                    // A simple re-order is sufficient; applyDocumentOrder handles the
+                    // strip repaint and lands the active tab on `idx`.
                     var reordered = documents
                     let moved = reordered.remove(at: newIdx)
                     reordered.insert(moved, at: min(idx, reordered.endIndex))

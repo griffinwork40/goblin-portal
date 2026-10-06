@@ -75,7 +75,7 @@ enum Harness {
     static var treeRoot: URL!
     // trashConfirmAnswer is read by the confirmTrash closure; written per-case.
     static var trashConfirmAnswer: Bool = false
-    // svc: the container — needed by cases 12-13 (file-mutation window-survival gate).
+    // svc: the container — needed by cases 12-14 (file-mutation gate).
     static var svc: SpaceViewController!
 
     // MARK: — Shared helpers
@@ -188,10 +188,10 @@ enum Harness {
 
         runCases1to5()
         runCases6to11()   // defined in check-file-tree-ops-cases.swift
-        runCases12to13()  // defined in check-file-tree-ops-cases.swift — window-survival gate
+        runCases12to14()  // defined in check-file-tree-ops-cases.swift — file-mutation gate
 
         print()
-        if gBad == 0 { print("all file-tree-ops cases passed (13 cases)") }
+        if gBad == 0 { print("all file-tree-ops cases passed (14 cases)") }
         else { print("\(gBad) file-tree-ops case(s) FAILED") }
         return gBad == 0 ? 0 : 1
     }
