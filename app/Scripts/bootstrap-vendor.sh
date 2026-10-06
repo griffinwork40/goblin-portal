@@ -194,7 +194,7 @@ if [[ "$GOT_COMMIT" != "$UPSTREAM_COMMIT" ]]; then
 fi
 
 # The clone's .git is a depth-1 stub carrying no history worth keeping, and leaving
-# it makes `git status` inside vendor/ report the six applied patches as if they
+# it makes `git status` inside vendor/ report the applied patches as if they
 # were someone's uncommitted edits. Removing it also matches the shape a maintainer's
 # machine already has, so every check script sees one tree shape rather than two.
 rm -rf "$STAGE/SwiftTerm/.git"

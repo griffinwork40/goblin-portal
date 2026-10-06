@@ -24,7 +24,7 @@
 //  no public setter that clears the cache *and* re-fills with a different ligature
 //  attribute. A vendored patch adding `var disableLigatures: Bool` to `TerminalView`
 //  and threading it into `getAttributes(_:withUrl:)` would be the correct fix.
-//  Patching the vendor carries merge cost, and this project already has seven patches.
+//  Patching the vendor carries merge cost, and this project already has twelve patches.
 //  Since the default terminal behaviour is ligature-off for most monospaced fonts
 //  (SF Mono and Menlo ship no programming ligatures at all; only Fira Code and JetBrains
 //  Mono do, and those are opt-in font choices), the feature is omitted rather than

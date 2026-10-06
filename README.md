@@ -74,7 +74,7 @@ open build/GoblinPortal.app
 ```
 
 `bootstrap-vendor.sh` exists because `vendor/SwiftTerm` is gitignored: it clones the pinned
-upstream revision, applies the six local patches in order, and verifies the result against
+upstream revision, applies the twelve local patches in order, and verifies the result against
 recorded hashes. It is idempotent — run it again and it says so and stops.
 
 `swift run GoblinPortal` is a faster iteration loop, but the bundle is what you want for real
@@ -107,7 +107,7 @@ reference — font, cursor, scrollback, shell, theme, renderer, engine — is in
 |------|------|
 | `app/` | The application. SwiftPM package, 99 source files, **none over 350 lines**. See [`app/README.md`](app/README.md) for the configuration reference and the dependency note. |
 | `app/Scripts/` | Bundle assembly, icon generation, and the verification scripts. |
-| `vendor/SwiftTerm` | **Gitignored.** Upstream [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) v1.15.0 plus **six** local patches in `patches/swiftterm/`. Run `app/Scripts/bootstrap-vendor.sh`. |
+| `vendor/SwiftTerm` | **Gitignored.** Upstream [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) v1.15.0 plus **twelve** local patches in `patches/swiftterm/`. Run `app/Scripts/bootstrap-vendor.sh`. |
 | `.afk/` | Plans and research — the reasoning behind the structural decisions, kept in the repo on purpose. `.afk/plans/native-swift-terminal-afk-host.md` is the plan of record. |
 
 There is no `.xcodeproj` — first-party source stays all text, so it is diffable and
@@ -128,7 +128,7 @@ cd app
 ./Scripts/check-keybindings.sh      # 17-case truth table over the ⌘-chord table
 ./Scripts/check-theme-contrast.sh   # 560 assertions, incl. falsification cases
 ./Scripts/check-git-status.sh       # 58 cases over real git fixtures
-./Scripts/verify-vendor.sh          # is vendor/ the pinned revision, with all six patches?
+./Scripts/verify-vendor.sh          # is vendor/ the pinned revision, with all twelve patches?
 ```
 
 Twelve of the nineteen run on a fresh clone with no build; the rest need `swift build`, a
