@@ -25,6 +25,11 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
+# As of 2026-10-05 the tree differs from upstream in TEN places. 0012 modifies
+# Apple/Metal/CoreTextGlyphRasterizer.swift (new to the pin) and
+# Apple/Metal/MetalTerminalRenderer.swift again, making TWELVE patches. The paragraph
+# below is the 2026-10-04 state.
+#
 # As of 2026-10-04 the tree differs from upstream in NINE places. 0011 modifies
 # Apple/Metal/MetalTerminalRenderer.swift (caches rasterizer misses and the per-font
 # PostScript name), making ELEVEN patches. The paragraph below is the 2026-09-27 state.
@@ -55,6 +60,7 @@
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/TerminalViewSearch.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
 
 upstream_repo   = https://github.com/migueldeicaza/SwiftTerm
 upstream_tag    = v1.15.0
@@ -282,9 +288,12 @@ patched_terminal_view_search  = 59314eda53d681038224cd9525f65a1f1ced1bad21d5983c
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
 mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae67765795bd200
 
-# Apple/Metal/MetalTerminalRenderer.swift AFTER 0011-cache-empty-glyphs-and-font-names.patch,
-# and the pristine v1.15.0 file (no earlier patch touches it). Checked in
-# verify-vendor-views.sh.
+# Apple/Metal/MetalTerminalRenderer.swift AFTER 0011-cache-empty-glyphs-and-font-names.patch
+# AND 0012-rasterize-color-glyphs-at-logical-size.patch (one combined hash, the Buffer.swift
+# rule: a tree with only one of them matches neither), and the pristine v1.15.0 file (no
+# earlier patch touches it). Checked in verify-vendor-views.sh. 0012's part is three
+# hunks: GlyphKey gains backingScale, the frame sets rasterizer.backingScale beside
+# fontSmoothing, and glyphEntry keys on it. See the 0012 entry below for why.
 #
 # What 0011 does: glyphEntry(for:glyph:) cached only successful rasterizations, and
 # CoreTextGlyphRasterizer returns nil for zero-bounds glyphs (the space), so every blank
@@ -301,5 +310,27 @@ mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae6776
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-patched_metal_terminal_renderer  = 218758ebbf1a1a3b4d68cb7a226cc07f001eef4bb0060ec28f4f8aa0dad5bd3c
+patched_metal_terminal_renderer  = f7be237b4ebd3549e22fb5353c8f1ecc391b092f3c6b14918ace84a927784666
 upstream_metal_terminal_renderer = 916d4e1cb0ecf36bcb3dcd8d8b0d9cb79b2c5b5653c0f075ecce6a603133b166
+
+# Apple/Metal/CoreTextGlyphRasterizer.swift AFTER 0012-rasterize-color-glyphs-at-logical-size.patch,
+# and the pristine v1.15.0 file (no earlier patch touches it; the upstream hash was
+# confirmed against the v1.15.0 raw file on GitHub). Checked in verify-vendor-views.sh,
+# BEFORE the MetalTerminalRenderer.swift hash, so a tree missing 0012 is named.
+#
+# What 0012 fixes (N4, .afk/research/rendering-audit-2026-10-05.md): under Metal, colour
+# emoji were ~20% smaller than under Core Text and sat left/low in their 2-cell slot. The
+# Metal renderer rasterizes a font already scaled to DEVICE size (scaledFontFor) at 1:1.
+# For outline glyphs that equals Core Text's logical size under a 2x CTM. For Apple Color
+# Emoji it does not: the font picks its bitmap strike and its metrics by point size,
+# non-linearly (U+1F600: 17.5pt wide at 14pt, but 28.0pt, not 35, at 28pt; drawn, 28pt@1x
+# is 27x26 px of ink where 14pt@2x is 33x33). 0012 rasterizes COLOUR glyphs only at
+# logical size under a scaled CTM, Core Text's own recipe; outline glyphs are untouched.
+#
+# Severity: VISIBLE. app/Scripts/check-render-parity.sh case (d) FAILS with 0012 reverted
+# (emoji bbox 8px off, ink 0.62-0.69x) and passes with it (bbox <= 1px, ink 0.98-1.00x).
+#
+# Regenerate with:
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
+patched_core_text_glyph_rasterizer  = fb2d4d84d983b866360f3554bb0944aa3df27f918c101090608b73dcf325aa8f
+upstream_core_text_glyph_rasterizer = 004b090d29af185136598aeed372dee4ad2d5611018441b64e0e57f39723082c

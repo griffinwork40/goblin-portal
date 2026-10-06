@@ -1,0 +1,117 @@
+0012-rasterize-color-glyphs-at-logical-size.patch
+
+Draw colour emoji under Metal at the size and position Core Text draws them.
+
+N4 (.afk/research/rendering-audit-2026-10-05.md): under the Metal renderer colour emoji
+were ~20% smaller than under Core Text and sat left/low in their 2-cell slot. U+1F600 in
+a 36px slot at 2x: Core Text ink x2-34 / y1-33, Metal x0-26 / y4-30; total ink on the row
+828k vs 565k. Same with the system font and with JetBrains Mono.
+
+ROOT CAUSE. MetalTerminalRenderer hands the rasterizer a font already scaled to DEVICE
+size -- scaledFontFor(font:scale:) is CTFontCreateCopyWithAttributes(font, size * scale)
+-- and CoreTextGlyphRasterizer.rasterize draws it 1:1 (CoreTextGlyphRasterizer.swift:9-10
+and :62-63 upstream). For an outline font that equals drawing the logical size under a
+2x CTM, which is what the Core Text renderer does. For Apple Color Emoji it does not:
+the font picks its bitmap strike AND its metrics by point size, non-linearly. Measured
+for U+1F600 (.AppleColorEmojiUI): bounding rect at 14pt is 17.5 x 17.5pt with origin
+(1.006, -3.5); at 28pt it is 28.0 x 28.0 (not 35) with origin (1.498, -3.5) (not
+(2.01, -7.0)). Drawn, 28pt at 1x is 27x26 px of ink where 14pt at 2x is 33x33. So the
+bitmap is smaller AND its bearing is wrong, which is exactly the size + offset seen.
+glyphSlotFit (MetalTerminalRenderer.swift ~:1234) is NOT the cause: it is computed on the
+logical font, returns scale 1 for an emoji (its ink fits the slot), and both renderers
+apply the same dx.
+
+FIX. Colour glyphs only (kCTFontTraitColorGlyphs): the rasterizer rebuilds the LOGICAL
+font (device size / backingScale), measures it, scales the bitmap context's CTM by
+backingScale and draws at a logical-point origin -- the Core Text renderer's own recipe.
+Outline glyphs keep upstream's device-size path untouched, so every non-colour glyph is
+byte-for-byte what it was (check-render-parity.sh's box/block cases stay at 0 px).
+The renderer sets rasterizer.backingScale once per frame, beside fontSmoothing, and the
+glyph cache key gains backingScale, because a colour glyph's bitmap now depends on it and
+not only on the device size (28pt@1x and 14pt@2x must not share an entry).
+
+Severity: VISIBLE, not silent. Gate: app/Scripts/check-render-parity.sh case (d), which
+FAILS with this patch reverted (all four emoji slots: bbox 8px off, ink 0.62-0.69x) and
+passes with it (bbox <= 1px, ink 0.98-1.00x). Transcripts in the PR.
+
+--- a/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
++++ b/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
+@@ -4,10 +4,30 @@
+ 
+ final class CoreTextGlyphRasterizer {
+     var fontSmoothing: Bool = true
++    // Device pixels per point for the frame being built (patch 0012). Callers hand
++    // rasterize() a font already scaled to DEVICE size (MetalTerminalRenderer.scaledFontFor),
++    // which is equivalent to drawing the logical size under a scaled CTM for an outline
++    // font, but NOT for a colour bitmap font: Apple Color Emoji picks its strike and its
++    // metrics by POINT size, non-linearly, so 28pt drawn 1:1 is ~20% smaller than 14pt drawn
++    // at 2x (27x26 px of ink vs 33x33 for U+1F600), and its bearing differs too. The Core
++    // Text path draws the logical size under the view's 2x CTM, so Metal emoji came out
++    // smaller and shifted left/down in their slot (N4, .afk/research/rendering-audit-2026-10-05.md).
++    var backingScale: CGFloat = 1
+ 
+     func rasterize(font: CTFont, glyph: CGGlyph) -> GlyphBitmap? {
+         var glyphVar = glyph
+-        let rect = CTFontGetBoundingRectsForGlyphs(font, .default, &glyphVar, nil, 1)
++        // Colour glyphs only: rasterize the LOGICAL-size font under a scale CTM, exactly as
++        // the Core Text renderer does. Outline glyphs keep the upstream device-size path,
++        // so every non-colour glyph is byte-for-byte what it was before 0012.
++        let ctmScale: CGFloat = {
++            guard backingScale > 0, backingScale != 1 else { return 1 }
++            return CTFontGetSymbolicTraits(font).contains(.traitColorGlyphs) ? backingScale : 1
++        }()
++        let drawFont = ctmScale == 1
++            ? font
++            : CTFontCreateCopyWithAttributes(font, CTFontGetSize(font) / ctmScale, nil, nil)
++        let logicalRect = CTFontGetBoundingRectsForGlyphs(drawFont, .default, &glyphVar, nil, 1)
++        let rect = logicalRect.applying(CGAffineTransform(scaleX: ctmScale, y: ctmScale))
+         if rect.width <= 0 || rect.height <= 0 {
+             return nil
+         }
+@@ -59,8 +79,11 @@
+             context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+             context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+ 
+-            var positions = [CGPoint(x: -minX, y: -minY)]
+-            CTFontDrawGlyphs(font, &glyphVar, &positions, 1, context)
++            // With ctmScale == 1 this is upstream's call unchanged. Otherwise the origin is
++            // expressed in logical points, because the CTM multiplies it back to pixels.
++            context.scaleBy(x: ctmScale, y: ctmScale)
++            var positions = [CGPoint(x: -minX / ctmScale, y: -minY / ctmScale)]
++            CTFontDrawGlyphs(drawFont, &glyphVar, &positions, 1, context)
+             return true
+         }
+         if !drew {
+--- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
++++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+@@ -16,6 +16,10 @@
+     let fontName: String
+     let size: CGFloat
+     let glyph: CGGlyph
++    // 0012: a colour glyph's bitmap depends on the backing scale, not just the device
++    // size (CoreTextGlyphRasterizer.backingScale), so 28pt@1x and 14pt@2x must not share
++    // an entry. Defaulted so scaledFontFor's key (glyph 0) is unchanged.
++    var backingScale: CGFloat = 1
+ }
+ 
+ struct GlyphEntry {
+@@ -351,6 +355,9 @@
+ #else
+         let scale = terminalView.backingScaleFactor()
+ #endif
++        // 0012: colour glyphs are rasterized at LOGICAL size under this scale, the way the
++        // Core Text renderer draws them; see CoreTextGlyphRasterizer.backingScale.
++        rasterizer.backingScale = scale
+         view.drawableSize = CGSize(width: view.bounds.width * scale, height: view.bounds.height * scale)
+         let cursorStyle = terminalView.terminal.options.cursorStyle
+         let shouldBlink = isBlinkStyle(cursorStyle) && !terminalView.terminal.cursorHidden
+@@ -1503,7 +1510,8 @@
+     private func glyphEntry(for font: CTFont, glyph: CGGlyph) -> GlyphEntry? {
+         let key = GlyphKey(fontName: postScriptName(of: font),
+                            size: CTFontGetSize(font),
+-                           glyph: glyph)
++                           glyph: glyph,
++                           backingScale: rasterizer.backingScale)
+         if let cached = glyphCache[key] {
+             return cached
+         }

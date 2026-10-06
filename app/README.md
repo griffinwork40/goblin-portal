@@ -36,7 +36,7 @@ of pure logic would have caught. So the checks are ten `check-*.sh` scripts, a v
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all six patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all twelve patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
@@ -46,6 +46,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-reflow.sh        # does narrowing corrupt scrollback? (#494) — headless
 ./Scripts/check-altbuffer-resize.sh # does an alt-buffer resize resurrect stale cells? — headless
 ./Scripts/check-metal-renderer.sh # does the GPU renderer actually ship AND come up? — offscreen GUI
+./Scripts/check-render-parity.sh  # do Core Text and Metal draw the same pixels? (incl. emoji, patch 0012) — offscreen GUI
 ./Scripts/check-renderer-config.sh # does a `renderer` string reach the renderer it names? — fast, headless
 ./Scripts/check-engine-config.sh  # does an `engine` string reach the emulator core it names? — fast, headless
 ./Scripts/check-light-theme.sh   # are the palettes well-formed, and is `afk-light` light enough to flip the chrome? — fast, headless
@@ -408,7 +409,7 @@ existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **six** local patches:
+Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **twelve** local patches:
 
 1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
    shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
@@ -463,9 +464,29 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **six** local pat
    prompt (`mouseMode == .off`) each newline in streaming output wiped the user's selection
    before ⌘C could copy it, making copy/paste feel broken. Every other `allowMouseReporting`
    guard in that file already checked `mouseMode`; linefeed was the sole omission.
+7. `0007-gate-feedprepare-selection-clear-on-mouse-mode.patch` — the same gate as `0006`,
+   in `feedPrepare()` (`AppleTerminalView.swift`): any pty output between selecting and ⌘C
+   used to clear `selection.active` and silently disable Copy.
+8. `0008-make-draw-open-for-subclass-override.patch` — makes `draw(_:)` `open` so
+   `GoblinPortalTerminalView` can override it.
+9. `0009-expose-search-state-changed-hook.patch` — adds `searchStateDidChange` and
+   `findAllMatchPositions`, the hooks all-match search highlighting needs.
+10. `0010-pace-redraws-on-display-link.patch` — paces redraws on `NSView.displayLink`
+    instead of upstream's free-running 16.67ms timer, which dropped every other frame of a
+    60fps producer; adds `MacDisplayLinkPacer.swift`. Gated by `check-display-link.sh`.
+11. `0011-cache-empty-glyphs-and-font-names.patch` — the Metal glyph cache remembers
+    zero-bounds rasterizer misses (the space glyph), so an idle spinner pane stops
+    re-asking CoreText about every blank cell on every row rebuild. Draws identically.
+12. `0012-rasterize-color-glyphs-at-logical-size.patch` — under Metal, colour emoji were
+    ~20% smaller than under Core Text and off-centre in their slot (N4). The Metal path
+    rasterized a font pre-scaled to **device** size at 1:1, which matches Core Text's
+    logical-size-under-2x-CTM only for outline fonts; Apple Color Emoji picks its strike
+    and metrics by point size, non-linearly. `0012` rasterizes colour glyphs only at
+    logical size under a scaled CTM. Gated by `check-render-parity.sh`, whose emoji cases
+    fail with it reverted.
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0006` in `../patches/swiftterm/`, all pinned by
+`0001` through `0012` in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -491,14 +512,15 @@ patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-ab
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
-patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all six patches)
+for p in patches/swiftterm/00{07,08,09,10,11,12}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all twelve patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader
+(cd app && ./Scripts/check-render-parity.sh)     # proves 0012 (Metal emoji match Core Text)
 ```
 
-All six patches are required. `verify-vendor.sh` exits `2` naming the specific file if one
+All twelve patches are required. `verify-vendor.sh` exits `2` naming the specific file if one
 is missing. Note that `0002`, `0003` and `0004` patch the **same file**, so the pin carries a
 single combined `Buffer.swift` hash: a tree with only some of them matches neither the patched
 nor the upstream hash and lands in the exit-`3` "unknown revision" branch. That is

@@ -1,7 +1,7 @@
 # Sourced by verify-vendor.sh — never run on its own. The VIEW-LAYER half of the vendor
-# verdict: every check on the files patches 0006-0011 touch (MacTerminalView.swift,
+# verdict: every check on the files patches 0006-0012 touch (MacTerminalView.swift,
 # AppleTerminalView.swift, TerminalViewSearch.swift, MacDisplayLinkPacer.swift,
-# Apple/Metal/MetalTerminalRenderer.swift).
+# Apple/Metal/MetalTerminalRenderer.swift, Apple/Metal/CoreTextGlyphRasterizer.swift).
 #
 # Split out of verify-vendor.sh when 0010 pushed it past the 350-line ceiling. The seam
 # is the file layer: verify-vendor.sh keeps the pin plumbing and the model/parser checks
@@ -134,6 +134,29 @@ if [ "$GOT_TVS" != "$WANT_TVS" ]; then
   exit 3
 fi
 
+# --- 0012 first: are colour glyphs rasterized at logical size? ---------------------
+# Checked BEFORE the MetalTerminalRenderer.swift hash for the same reason 0010's file is
+# checked before the view hashes: 0012 also edits MetalTerminalRenderer.swift, so a tree
+# carrying 0011 but not 0012 would otherwise fail below as an anonymous "hash mismatch".
+# An upstream CoreTextGlyphRasterizer.swift is the symptom that NAMES the cause.
+# Severity: VISIBLE but easy to miss. Without 0012 Metal draws colour emoji ~20% small
+# and left/low in their 2-cell slot (N4); check-render-parity.sh case (d) is the gate.
+CTGR="$VENDOR/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift"
+if [ ! -f "$CTGR" ]; then err "error: Apple/Metal/CoreTextGlyphRasterizer.swift missing."; exit 1; fi
+GOT_CTGR="$(sha256_of "$CTGR")"
+if [ "$GOT_CTGR" = "$(pin_value upstream_core_text_glyph_rasterizer)" ]; then
+  err "error: Apple/Metal/CoreTextGlyphRasterizer.swift is UNPATCHED upstream $UPSTREAM_TAG."
+  err "Patch 0012 rasterizes colour glyphs at logical size under a scaled CTM; without it"
+  err "Metal draws emoji ~20% small and off-centre. check-render-parity.sh is the gate."
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0012-rasterize-color-glyphs-at-logical-size.patch"
+  exit 2
+fi
+if [ "$GOT_CTGR" != "$(pin_value patched_core_text_glyph_rasterizer)" ]; then
+  err "error: CoreTextGlyphRasterizer.swift hash mismatch (got $GOT_CTGR)."
+  err "  Regenerate: shasum -a 256 $CTGR  # then update patched_core_text_glyph_rasterizer"
+  exit 3
+fi
+
 # --- seventh check: are blank-glyph misses cached (0011)? -------------------------
 # Severity: SILENT. Without 0011 the Metal renderer draws identically but re-asks
 # CoreText (CTFontGetBoundingRectsForGlyphs) about every blank cell on every row
@@ -149,6 +172,7 @@ if [ "$GOT_MTR" = "$(pin_value upstream_metal_terminal_renderer)" ]; then
 fi
 if [ "$GOT_MTR" != "$(pin_value patched_metal_terminal_renderer)" ]; then
   err "error: MetalTerminalRenderer.swift hash mismatch (got $GOT_MTR)."
+  err "  The pinned hash covers 0011 AND 0012; a tree with only one of them lands here."
   err "  Regenerate: shasum -a 256 $MTR  # then update patched_metal_terminal_renderer"
   exit 3
 fi
