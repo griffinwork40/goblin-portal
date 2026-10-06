@@ -1,13 +1,16 @@
 //
 //  FileTreeViewController+FileOps.swift
-//  Inline rename, New File/Folder, Move to Trash, Cut/Copy/Paste/Duplicate,
-//  and drag-and-drop — all routed through FileOperationPolicy.
+//  Inline rename and New File/Folder (the edit lifecycle), plus the responder
+//  actions for Move to Trash, Cut/Copy/Paste and Duplicate — all routed through
+//  FileOperationPolicy.
 //
-//  Associated-object storage provides the four pieces of state this extension
-//  needs without touching `FileTreeViewController.swift` (at 348/350 LOC).
+//  Associated-object storage provides the state this extension needs because
+//  Swift extensions cannot add stored properties. The shared helpers these actions
+//  lean on (target resolution, post-mutation refresh, error reporting, the trash
+//  confirmation seam, the deferred root) live in `+Mutation.swift`.
 //
-//  isEditingInline is read by guards injected into refresh() and setRoot(_:)
-//  in FileTreeViewController.swift, and by the git guard in +Git.swift.
+//  isEditingInline is read by guards in refresh() and setRoot(_:) in
+//  FileTreeViewController.swift, and by the git guard in +Git.swift.
 //
 
 import AppKit
@@ -18,11 +21,10 @@ import ObjectiveC
 nonisolated(unsafe) private var editingInlineKey:  UInt8 = 0
 nonisolated(unsafe) private var pendingReloadKey:  UInt8 = 0
 nonisolated(unsafe) private var editedRowURLKey:   UInt8 = 0
+nonisolated(unsafe) private var editedNodeKey:     UInt8 = 0
 nonisolated(unsafe) private var pasteboardItemsKey: UInt8 = 0
 nonisolated(unsafe) private var isNewNodeKey:      UInt8 = 0
 nonisolated(unsafe) private var isCutOperationKey: UInt8 = 0
-
-// MARK: - FileTreeViewController extension (computed properties + operations)
 
 extension FileTreeViewController {
 
@@ -34,7 +36,7 @@ extension FileTreeViewController {
         set { objc_setAssociatedObject(self, &editingInlineKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    /// When true, a reload was requested while editing; fires on commit/cancel.
+    /// When true, a reload was requested while editing; replayed on commit/cancel.
     var pendingReload: Bool {
         get { objc_getAssociatedObject(self, &pendingReloadKey) as? Bool ?? false }
         set { objc_setAssociatedObject(self, &pendingReloadKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
@@ -44,6 +46,14 @@ extension FileTreeViewController {
     var editedRowURL: URL? {
         get { objc_getAssociatedObject(self, &editedRowURLKey) as? URL }
         set { objc_setAssociatedObject(self, &editedRowURLKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    /// The node being edited. Kept as well as its URL because `outlineView.editedRow`
+    /// is -1 throughout a view-based `editColumn` session (measured), so the row is
+    /// found with `row(forItem:)` on this, never through `editedRow`.
+    private var editedNode: FileNode? {
+        get { objc_getAssociatedObject(self, &editedNodeKey) as? FileNode }
+        set { objc_setAssociatedObject(self, &editedNodeKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
     /// URLs placed on the internal clipboard by Cut or Copy.
@@ -64,8 +74,7 @@ extension FileTreeViewController {
         set { objc_setAssociatedObject(self, &isNewNodeKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    /// Exposes the private `scrollView` to `SpaceViewController+SidebarActivity.swift`.
-    /// (scrollView was changed from `private` to `internal` in FileTreeViewController.swift.)
+    /// Exposes `scrollView` to `SpaceViewController+SidebarActivity.swift`.
     var sidebarScrollView: NSScrollView { scrollView }
 
     // MARK: Inline edit lifecycle
@@ -73,11 +82,14 @@ extension FileTreeViewController {
     /// Begin inline rename for `node`. If `isNew` is true, a placeholder row was already
     /// inserted into the tree and the file does not yet exist on disk.
     func beginInlineEdit(for node: FileNode, isNew: Bool) {
+        // One edit at a time: a second begin would orphan the first field's state.
+        guard !isEditingInline else { return }
         let row = outlineView.row(forItem: node)
         guard row >= 0 else { return }
-
-        // Make the cell's text field editable.
-        guard let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false)
+        outlineView.scrollRowToVisible(row)
+        // `makeIfNecessary: true` because a just-inserted placeholder may not have a
+        // cell view yet; without one there is nothing to edit.
+        guard let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true)
                 as? NSTableCellView,
               let tf = cell.textField else { return }
 
@@ -88,196 +100,176 @@ extension FileTreeViewController {
         isEditingInline = true
         isNewNode = isNew
         editedRowURL = node.url
-        // Wire the key delegate so Return/Escape reach us.
-        outlineView.fileOpsDelegate = self
+        editedNode = node
+        outlineView.selectRowIndexes([row], byExtendingSelection: false)
         outlineView.editColumn(0, row: row, with: nil, select: true)
     }
 
     /// Commit the current inline edit to `name`.
     func commitEditedName(_ name: String) {
         guard isEditingInline, let oldURL = editedRowURL else { return }
+        // Captured BEFORE endEditSession() clears them (C1): reading them after made
+        // every commit look like a rename and every placeholder look like a file.
+        let wasNew = isNewNode
+        let wasDirectory = editedNode?.isDirectory ?? false
         endEditSession()
 
-        guard FileOperationPolicy.isValidName(name) else { NSSound.beep(); reloadAfterEdit(); return }
         let parent = oldURL.deletingLastPathComponent()
-        let newURL  = parent.appendingPathComponent(name)
-
+        // Unchanged name on an existing item: nothing to do, and attempting the
+        // rename would only report a collision with itself.
+        if !wasNew && name == oldURL.lastPathComponent {
+            finishEditReplay(select: oldURL); return
+        }
+        guard FileOperationPolicy.isValidName(name) else {
+            reportFileOpError("“\(name)” is not a valid name.", nil)
+            finishEditReplay(select: wasNew ? nil : oldURL); return
+        }
+        let newURL = parent.appendingPathComponent(name)
         do {
-            if isNewNode {
-                // Placeholder — actually create the file or directory now.
-                // Use the FileNode's `isDirectory` flag, not a path-extension heuristic
-                // (which misidentifies extensionless files like Makefile or LICENSE).
-                let wasDirectory = (nodeForURL(oldURL) ?? nodeForURL(oldURL.deletingLastPathComponent())
-                    .flatMap { $0.children?.first { $0.url == oldURL } })?.isDirectory ?? false
+            if wasNew {
                 if wasDirectory {
                     try FileOperationPolicy.createDirectory(at: newURL)
                 } else {
                     try FileOperationPolicy.createFile(at: newURL)
                 }
+                finishEditReplay(select: newURL)
             } else {
                 try FileOperationPolicy.rename(from: oldURL, to: newURL)
+                notifyDelegateOfMutation(oldURL: oldURL, newURL: newURL)
+                finishEditReplay(select: newURL, rebasing: [(oldURL, newURL)])
             }
-            notifyDelegateOfMutation(oldURL: oldURL, newURL: newURL)
         } catch {
-            NSSound.beep()
+            reportFileOpError(wasNew ? "Could not create “\(name)”." : "Could not rename to “\(name)”.", error)
+            finishEditReplay(select: wasNew ? nil : oldURL)
         }
-        reloadAfterEdit()
     }
 
-    /// Cancel the current inline edit. If a new-node placeholder, remove it.
+    /// Cancel the current inline edit. A new-node placeholder vanishes with the
+    /// refresh (it never reached disk, and `reloadChildren()` reads disk); nothing
+    /// is created.
     func cancelInlineEdit() {
         guard isEditingInline, let oldURL = editedRowURL else { return }
+        let wasNew = isNewNode  // captured before endEditSession() clears it (C1)
         endEditSession()
-        if isNewNode {
-            // Remove the placeholder: it was never committed to disk.
-            let parent = oldURL.deletingLastPathComponent()
-            let parentNode = nodeForURL(parent)
-            parentNode?.reloadChildren()
-            outlineView.reloadItem(parentNode, reloadChildren: true)
-        }
-        reloadAfterEdit()
+        finishEditReplay(select: wasNew ? nil : oldURL)
+    }
+
+    /// The edited row's text field, found through the node (fact: `editedRow` is -1).
+    fileprivate func editedTextField() -> NSTextField? {
+        guard let node = editedNode else { return nil }
+        let row = outlineView.row(forItem: node)
+        guard row >= 0 else { return nil }
+        return (outlineView.view(atColumn: 0, row: row, makeIfNecessary: false)
+            as? NSTableCellView)?.textField
+    }
+
+    /// Clear the edit state FIRST, then end the field editor: `abortEditing()` posts
+    /// `controlTextDidEndEditing`, and that handler must see `isEditingInline == false`
+    /// or it would commit/cancel a second time.
+    private func endEditSession() {
+        let tf = editedTextField()
+        isEditingInline = false
+        isNewNode = false
+        editedRowURL = nil
+        editedNode = nil
+        tf?.isEditable = false
+        tf?.isSelectable = false
+        outlineView.abortEditing()
     }
 
     // MARK: File operation responder actions
 
     @objc func performNewFile(_ sender: Any? = nil) {
-        let target = selectedDirectoryURL() ?? root.url
-        let name = collisionFreeName(base: "untitled", in: target, isDirectory: false)
-        let url = target.appendingPathComponent(name)
-        insertPlaceholder(url: url, isDirectory: false)
+        guard !isEditingInline else { return }
+        let target = targetDirectory(sender)
+        insertPlaceholder(url: target.appendingPathComponent(freeName("untitled", in: target)),
+                          isDirectory: false)
     }
 
     @objc func performNewFolder(_ sender: Any? = nil) {
-        let target = selectedDirectoryURL() ?? root.url
-        let name = collisionFreeName(base: "untitled folder", in: target, isDirectory: true)
-        let url = target.appendingPathComponent(name)
-        insertPlaceholder(url: url, isDirectory: true)
+        guard !isEditingInline else { return }
+        let target = targetDirectory(sender)
+        insertPlaceholder(url: target.appendingPathComponent(freeName("untitled folder", in: target)),
+                          isDirectory: true)
     }
 
+    /// Asks first (S-1/H8), through the `confirmTrash` seam. Trash, never delete:
+    /// nothing in the file-ops path deletes permanently.
     @objc func performTrash(_ sender: Any? = nil) {
-        let rows = outlineView.selectedRowIndexes
-        guard !rows.isEmpty else { return }
-        let nodes = rows.compactMap { outlineView.item(atRow: $0) as? FileNode }
-        guard !nodes.isEmpty else { return }
-        for node in nodes {
+        guard !isEditingInline else { return }
+        let urls = topLevel(targetNodes(sender).map(\.url))
+        guard !urls.isEmpty, Self.confirmTrash(urls) else { return }
+        for url in urls {
             do {
-                let old = node.url
-                try FileOperationPolicy.trashItem(at: node.url)
-                notifyDelegateOfMutation(oldURL: old, newURL: nil)
-            } catch { NSSound.beep() }
+                try FileOperationPolicy.trashItem(at: url)
+                notifyDelegateOfMutation(oldURL: url, newURL: nil)
+            } catch {
+                reportFileOpError("Could not move “\(url.lastPathComponent)” to the Trash.", error)
+            }
         }
-        root.reloadChildren()
-        outlineView.reloadData()
+        refreshAfterMutation(select: nil)
     }
 
     @objc func performCut(_ sender: Any? = nil) {
-        let rows = outlineView.selectedRowIndexes
-        pasteboardItems = rows.compactMap { (outlineView.item(atRow: $0) as? FileNode)?.url }
+        pasteboardItems = topLevel(targetNodes(sender).map(\.url))
         isCutOperation = true
     }
 
     @objc func performCopy(_ sender: Any? = nil) {
-        let rows = outlineView.selectedRowIndexes
-        pasteboardItems = rows.compactMap { (outlineView.item(atRow: $0) as? FileNode)?.url }
+        pasteboardItems = topLevel(targetNodes(sender).map(\.url))
         isCutOperation = false
     }
 
     @objc func performPaste(_ sender: Any? = nil) {
-        guard let items = pasteboardItems, !items.isEmpty else { return }
-        let dest = selectedDirectoryURL() ?? root.url
-        let wascut = isCutOperation
+        guard !isEditingInline, let items = pasteboardItems, !items.isEmpty else { return }
+        let dest = targetDirectory(sender)
+        let wasCut = isCutOperation
+        var last: URL?
+        var rebase: [(URL, URL)] = []
         for url in items {
+            // Into itself or below itself is a cycle for a move and an unbounded
+            // recursion risk for a copy; refuse both rather than let FileManager decide.
+            if FileOperationPolicy.isDescendant(url: resolvedLocation(dest), of: resolvedLocation(url)) {
+                reportFileOpError("Cannot paste “\(url.lastPathComponent)” into itself.", nil)
+                continue
+            }
             do {
-                if wascut {
+                if wasCut {
+                    // Cutting and pasting into the same folder is a no-op, not a collision.
+                    if resolvedLocation(url.deletingLastPathComponent()).path == resolvedLocation(dest).path { continue }
                     let finalURL = dest.appendingPathComponent(url.lastPathComponent)
-                    try FileOperationPolicy.move(from: url, to: dest)  // dest is a directory; policy appends lastPathComponent
+                    try FileOperationPolicy.move(from: url, to: dest)
                     notifyDelegateOfMutation(oldURL: url, newURL: finalURL)
+                    rebase.append((url, finalURL)); last = finalURL
                 } else {
-                    try FileOperationPolicy.copy(from: url, into: dest)
+                    // Free-or-suffix: keeps the name when the destination lacks it (M1).
+                    last = try FileOperationPolicy.copy(from: url, into: dest)
                 }
-            } catch { NSSound.beep() }
+            } catch {
+                reportFileOpError("Could not paste “\(url.lastPathComponent)”.", error)
+            }
         }
-        if wascut { pasteboardItems = nil; isCutOperation = false }  // clipboard consumed
-        root.reloadChildren()
-        outlineView.reloadData()
+        if wasCut { pasteboardItems = nil; isCutOperation = false }  // a cut is consumed once
+        refreshAfterMutation(select: last, rebasing: rebase)
     }
 
     @objc func performDuplicate(_ sender: Any? = nil) {
-        let rows = outlineView.selectedRowIndexes
-        let urls = rows.compactMap { (outlineView.item(atRow: $0) as? FileNode)?.url }
-        for url in urls {
-            let parent = url.deletingLastPathComponent()
-            do { try FileOperationPolicy.copy(from: url, into: parent) } catch { NSSound.beep() }
+        guard !isEditingInline else { return }
+        var last: URL?
+        for url in topLevel(targetNodes(sender).map(\.url)) {
+            do {
+                // ALWAYS suffixes: a duplicate lands beside its original by definition.
+                last = try FileOperationPolicy.copy(
+                    from: url, into: url.deletingLastPathComponent(), alwaysSuffix: true)
+            } catch {
+                reportFileOpError("Could not duplicate “\(url.lastPathComponent)”.", error)
+            }
         }
-        root.reloadChildren()
-        outlineView.reloadData()
+        refreshAfterMutation(select: last)
     }
-
-    // MARK: Delegate notification
 
     func notifyDelegateOfMutation(oldURL: URL, newURL: URL?) {
         delegate?.fileTree(self, didMutate: oldURL, newURL: newURL)
-    }
-
-    // MARK: Private helpers
-
-    private func endEditSession() {
-        isEditingInline = false
-        isNewNode = false
-        editedRowURL = nil
-        // Restore text field to read-only after the editor resigns.
-        if outlineView.editedRow >= 0,
-           let cell = outlineView.view(atColumn: 0, row: outlineView.editedRow, makeIfNecessary: false)
-               as? NSTableCellView {
-            cell.textField?.isEditable = false
-            cell.textField?.isSelectable = false
-        }
-        outlineView.abortEditing()
-    }
-
-    private func reloadAfterEdit() {
-        root.reloadChildren()
-        outlineView.reloadData()
-        pendingReload = false
-    }
-
-    private func selectedDirectoryURL() -> URL? {
-        guard outlineView.selectedRow >= 0 else { return nil }
-        guard let node = outlineView.item(atRow: outlineView.selectedRow) as? FileNode else { return nil }
-        return node.isDirectory ? node.url : node.url.deletingLastPathComponent()
-    }
-
-    private func nodeForURL(_ url: URL) -> FileNode? {
-        for row in 0..<outlineView.numberOfRows {
-            if let node = outlineView.item(atRow: row) as? FileNode, node.url == url { return node }
-        }
-        return nil
-    }
-
-    private func collisionFreeName(base: String, in directory: URL, isDirectory: Bool) -> String {
-        let existing = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return FileOperationPolicy.collisionSafeNewName(base: base, existingNames: existing)
-    }
-
-    private func insertPlaceholder(url: URL, isDirectory: Bool) {
-        let parentURL = url.deletingLastPathComponent()
-        // Expand parent if needed.
-        if let parentNode = nodeForURL(parentURL) {
-            outlineView.expandItem(parentNode)
-            parentNode.reloadChildren()
-            // Insert a transient placeholder node.
-            let placeholder = FileNode(url: url, isDirectory: isDirectory)
-            parentNode.insertChild(placeholder)
-            outlineView.reloadItem(parentNode, reloadChildren: true)
-            beginInlineEdit(for: placeholder, isNew: true)
-        } else {
-            // Fallback: create at root level.
-            root.reloadChildren()
-            let placeholder = FileNode(url: url, isDirectory: isDirectory)
-            root.insertChild(placeholder)
-            outlineView.reloadData()
-            beginInlineEdit(for: placeholder, isNew: true)
-        }
     }
 }
 
@@ -286,49 +278,38 @@ extension FileTreeViewController {
 extension FileTreeViewController: FileTreeOutlineViewKeyDelegate {
     func deleteSelectedRows() { performTrash() }
     func beginEditingSelected() {
-        guard outlineView.selectedRow >= 0 else { return }
-        guard let node = outlineView.item(atRow: outlineView.selectedRow) as? FileNode else { return }
+        guard outlineView.selectedRow >= 0,
+              let node = outlineView.item(atRow: outlineView.selectedRow) as? FileNode else { return }
         beginInlineEdit(for: node, isNew: false)
     }
     func commitEdit() {
-        guard let tf = activeTextField() else { return }
+        guard let tf = editedTextField() else { return }
         commitEditedName(tf.stringValue)
     }
     func cancelEdit() { cancelInlineEdit() }
-
-    private func activeTextField() -> NSTextField? {
-        guard outlineView.editedRow >= 0,
-              let cell = outlineView.view(atColumn: 0, row: outlineView.editedRow,
-                                         makeIfNecessary: false) as? NSTableCellView
-        else { return nil }
-        return cell.textField
-    }
+    var hasFileClipboard: Bool { !(pasteboardItems ?? []).isEmpty }
 }
 
 // MARK: - NSTextFieldDelegate conformance
 
 extension FileTreeViewController: NSTextFieldDelegate {
+    /// Focus left the field without Return or Escape (a click elsewhere, Tab):
+    /// commit, as Finder does. Return and Escape are consumed by `doCommandBy` below
+    /// and by then `isEditingInline` is false, so they never reach this twice.
     func controlTextDidEndEditing(_ obj: Notification) {
-        guard let tf = obj.object as? NSTextField, isEditingInline else { return }
-        let movement = (obj.userInfo?["NSTextMovement"] as? Int) ?? 0
-        // NSReturnTextMovement = 16. ESC is intercepted by control(_:textView:doCommandBy:)
-        // before controlTextDidEndEditing fires; the else branch handles Tab and other exits.
-        if movement == 16 {
-            commitEditedName(tf.stringValue)
-        } else {
-            cancelInlineEdit()
-        }
+        guard isEditingInline, let tf = obj.object as? NSTextField else { return }
+        commitEditedName(tf.stringValue)
     }
 
+    /// The typed text is read from `control`, the field being edited (M3) — the
+    /// only reliable handle, since `editedRow` is -1 during the session.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        if selector == #selector(NSResponder.insertNewline(_:)) { commitEdit(); return true }
+        guard isEditingInline else { return false }
+        if selector == #selector(NSResponder.insertNewline(_:)) {
+            commitEditedName((control as? NSTextField)?.stringValue ?? textView.string)
+            return true
+        }
         if selector == #selector(NSResponder.cancelOperation(_:)) { cancelInlineEdit(); return true }
         return false
     }
-}
-
-// MARK: - Default implementation of new delegate method
-
-extension FileTreeViewControllerDelegate {
-    func fileTree(_ controller: FileTreeViewController, didMutate oldURL: URL, newURL: URL?) {}
 }

@@ -62,9 +62,8 @@ extension FileTreeViewController: NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "New File",   action: #selector(performNewFile(_:)),   keyEquivalent: "")
         menu.addItem(withTitle: "New Folder", action: #selector(performNewFolder(_:)), keyEquivalent: "")
-        if !node.isDirectory {
-            menu.addItem(withTitle: "Rename…", action: #selector(menuRename(_:)), keyEquivalent: "")
-        }
+        // Directories too: a folder is renamed far more often than it is trashed.
+        menu.addItem(withTitle: "Rename…", action: #selector(menuRename(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "Move to Trash", action: #selector(performTrash(_:)), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Cut",       action: #selector(performCut(_:)),       keyEquivalent: "")

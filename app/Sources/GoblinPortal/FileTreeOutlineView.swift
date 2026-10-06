@@ -1,7 +1,7 @@
 //
 //  FileTreeOutlineView.swift
-//  Thin NSOutlineView subclass: routes ⌘⌫, Return, F2 and Escape to the
-//  file-ops delegate, leaving everything else to super.
+//  Thin NSOutlineView subclass: routes ⌘⌫, Return, F2 and Escape, and the Edit
+//  menu's Cut/Copy/Paste, to the file-ops delegate, leaving everything else to super.
 //
 //  No logic lives here — only key routing. All file operation logic lives in
 //  `FileTreeViewController+FileOps.swift`, which conforms to the protocol below.
@@ -26,6 +26,14 @@ protocol FileTreeOutlineViewKeyDelegate: AnyObject {
     func commitEdit()
     /// Escape while a cell text field is active — cancel the current edit.
     func cancelEdit()
+    /// True while an inline rename/new-item editor is open.
+    var isEditingInline: Bool { get }
+    /// True when Cut or Copy has put file URLs on the tree's internal clipboard.
+    var hasFileClipboard: Bool { get }
+    /// ⌘X / ⌘C / ⌘V, forwarded from the Edit menu through the responder chain.
+    func performCut(_ sender: Any?)
+    func performCopy(_ sender: Any?)
+    func performPaste(_ sender: Any?)
 }
 
 /// `NSOutlineView` subclass that routes file-operation key events to a typed delegate.
@@ -73,8 +81,30 @@ final class FileTreeOutlineView: NSOutlineView {
         super.keyDown(with: event)
     }
 
-    /// `true` while the outline view has an active cell editor.
-    ///
-    /// `editedColumn` and `editedRow` are both `-1` when no cell is being edited.
-    private var isEditingCell: Bool { editedColumn >= 0 && editedRow >= 0 }
+    /// `true` while an inline edit is open. Asked of the delegate, NOT derived from
+    /// `editedRow`: on this view-based outline `editedRow` stays -1 for the whole
+    /// `editColumn` session (measured), so that test was never true.
+    private var isEditingCell: Bool { fileOpsDelegate?.isEditingInline ?? false }
+
+    // MARK: Edit menu (H7)
+    //
+    // NSTableView answers none of these selectors, so before this the Edit menu's
+    // Copy and Paste greyed out over the tree and ⌘C/⌘V did nothing. While a rename
+    // field is open the field editor is first responder and gets these first, which
+    // is what keeps ⌘C copying TEXT there rather than files.
+
+    @objc func cut(_ sender: Any?) { fileOpsDelegate?.performCut(sender) }
+    @objc func copy(_ sender: Any?) { fileOpsDelegate?.performCopy(sender) }
+    @objc func paste(_ sender: Any?) { fileOpsDelegate?.performPaste(sender) }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard let action = item.action,
+              [#selector(cut(_:)), #selector(copy(_:)), #selector(paste(_:))].contains(action)
+        else { return super.validateUserInterfaceItem(item) }
+        guard let delegate = fileOpsDelegate, !delegate.isEditingInline else { return false }
+        // Paste needs something on the clipboard, not a selection: with nothing
+        // selected it pastes into the root.
+        if action == #selector(paste(_:)) { return delegate.hasFileClipboard }
+        return selectedRow >= 0
+    }
 }
