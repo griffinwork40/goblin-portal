@@ -92,7 +92,11 @@ extension SpaceViewController: SourceControlDelegate {
     ///
     /// The file tree's `.defaultLow` hugging means it still wins the extra space in
     /// a tall sidebar; both sections can grow in a very tall window.
-    func installSourceControl(in stack: NSStackView) {
+    /// Append the source control panel to the sidebar's root `NSStackView`.
+    /// Returns the divider view it created so the caller can store a direct
+    /// reference — no positional `first(where:)` heuristic required (L1).
+    @discardableResult
+    func installSourceControl(in stack: NSStackView) -> NSView {
         let divider = makeSourceControlDivider()
         divider.setContentHuggingPriority(.required, for: .vertical)
 
@@ -111,6 +115,7 @@ extension SpaceViewController: SourceControlDelegate {
         // visible even in a narrow sidebar. The panel can grow beyond this — the
         // stack distributes any remaining height between the two .defaultLow views.
         panel.view.heightAnchor.constraint(greaterThanOrEqualToConstant: 150).isActive = true
+        return divider
     }
 
     // MARK: SourceControlDelegate
@@ -167,6 +172,8 @@ extension SpaceViewController: SourceControlDelegate {
         // it exists before the first data push, without forcing creation on every
         // `gitStatusDidChange` when the panel has never been opened.
         sourceControlPanel.update(snapshot: snapshot, repository: repository)
+        pushBadgeCount(snapshot.entries.count)
+        updateSwitcherVisibility(hasRepo: repository != nil)
     }
 
     // MARK: Private helpers

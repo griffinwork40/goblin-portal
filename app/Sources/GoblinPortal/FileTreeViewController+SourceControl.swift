@@ -72,7 +72,17 @@ extension FileTreeViewController {
             // control is additive, not load-bearing.
             return false
         }
-        space.installSourceControl(in: stack)
+        // installSourceControl returns the divider it created — use the direct
+        // reference rather than a positional first(where:) heuristic (L1).
+        let divider = space.installSourceControl(in: stack)
+        // Store references so +SidebarActivity can show/hide the views.
+        space.scmPanelViewController = space.sourceControlPanel
+        space.scmDividerView = divider
+        space.installActivitySwitcher(in: stack)
+        // C2: apply the current activity immediately so exactly one of the two
+        // groups (Explorer or SCM) is visible from the first frame. Without this
+        // call the divider and panel remain visible alongside Explorer on install.
+        space.switchSidebarActivity(space.currentSidebarActivity)
         return true
     }
 

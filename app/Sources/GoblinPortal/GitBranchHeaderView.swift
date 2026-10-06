@@ -41,6 +41,12 @@ final class GitBranchHeaderView: NSView {
     private let glyph = NSImageView()
     private let label = NSTextField(labelWithString: "")
 
+    /// When `true`, `update(summary:)` updates the label text and accessibility
+    /// string but never sets `isHidden = false`. The SCM activity view sets this
+    /// so a git-status tick while in SCM mode cannot re-show the Explorer header
+    /// (M2). The flag is cleared when switching back to Explorer.
+    var chromeSuppressed = false
+
     init() {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -106,7 +112,6 @@ final class GitBranchHeaderView: NSView {
             isHidden = true
             return
         }
-        isHidden = false
         label.stringValue = summary
         // VoiceOver would otherwise read the raw string, and "main ↑2" is not a sentence.
         // The arrows are the compact form for a glance; this is the same information for
@@ -114,5 +119,11 @@ final class GitBranchHeaderView: NSView {
         setAccessibilityLabel("Git branch: " + summary
             .replacingOccurrences(of: "↑", with: "ahead ")
             .replacingOccurrences(of: "↓", with: "behind "))
+        // Only make the header visible when the Explorer chrome is not suppressed.
+        // While in SCM view, chromeSuppressed is true and this call must not
+        // re-show the Explorer header (M2). The flag is cleared by switchSidebarActivity.
+        if !chromeSuppressed {
+            isHidden = false
+        }
     }
 }

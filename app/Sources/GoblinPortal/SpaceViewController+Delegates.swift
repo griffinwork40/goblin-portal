@@ -206,6 +206,16 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
             host.documentDidBecomeActive()
         }
     }
+
+    /// A file or directory was renamed, moved, or trashed by the file tree.
+    ///
+    /// The full logic lives in `SpaceViewController+FileMutation.swift`, extracted
+    /// when the corrected implementation (PR #157) would have pushed this file past
+    /// the 350-LOC ceiling. See `handleFileMutation(oldURL:newURL:)` for the contract
+    /// and the fix rationale.
+    func fileTree(_ controller: FileTreeViewController, didMutate oldURL: URL, newURL: URL?) {
+        handleFileMutation(oldURL: oldURL, newURL: newURL)
+    }
 }
 
 // MARK: - Auto-reveal helper

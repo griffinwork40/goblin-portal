@@ -15,33 +15,6 @@
 import AppKit
 
 @MainActor
-protocol FileTreeViewControllerDelegate: AnyObject {
-    /// A file (not a directory) was activated — double-click, or "Open" from the
-    /// row's context menu. The Space opens it as a document tab
-    /// (`SpaceViewController.fileTree(_:didActivate:)`).
-    func fileTree(_ controller: FileTreeViewController, didActivate url: URL)
-
-    /// ⌥-double-click, or "Insert Path in Terminal". Types the quoted path into the
-    /// Space's focused terminal without opening anything — the terminal-first
-    /// gesture, which used to be bound to plain double-click and confused everyone.
-    func fileTree(_ controller: FileTreeViewController, didRequestPathInsert url: URL)
-
-    /// "New Terminal Here". Opens a new terminal document rooted at `url`, which is
-    /// always a **directory** — the menu resolves a clicked file to its parent before
-    /// calling, so the Space never has to ask what kind of row was hit
-    /// (`SpaceViewController.fileTree(_:didRequestNewTerminalAt:)`).
-    func fileTree(_ controller: FileTreeViewController, didRequestNewTerminalAt url: URL)
-
-    /// "cd Here". The user asked to make `url` — always a **directory**, resolved
-    /// from a clicked file to its parent exactly like `didRequestNewTerminalAt`
-    /// above — the focused shell's working directory. Unlike the other three
-    /// members this does not touch the tree itself; it is the other half of
-    /// cwd-follow, the shell-to-tree direction being `setRoot(_:)`
-    /// (`SpaceViewController.fileTree(_:didRequestChangeDirectory:)`).
-    func fileTree(_ controller: FileTreeViewController, didRequestChangeDirectory url: URL)
-}
-
-@MainActor
 final class FileTreeViewController: NSViewController {
     weak var delegate: FileTreeViewControllerDelegate?
 
@@ -70,8 +43,8 @@ final class FileTreeViewController: NSViewController {
     /// `+ContextMenu` reads `clickedRow` to know which row was hit, and `+Git` reloads
     /// row views in place when a status snapshot changes. Both only ever read it — the
     /// view is still built and owned here, and nothing outside this type may replace it.
-    let outlineView = NSOutlineView()
-    private let scrollView = NSScrollView()
+    let outlineView = FileTreeOutlineView()
+    let scrollView = NSScrollView()
     private let rowMenu = NSMenu()
 
     /// The git-status poller. Nil until the Space's window first becomes key, because a
@@ -133,6 +106,12 @@ final class FileTreeViewController: NSViewController {
         outlineView.delegate = self
         outlineView.target = self
         outlineView.doubleAction = #selector(handleDoubleClick)
+        // ONLY the private type: registering `.fileURL` accepted Finder and other-app
+        // drops as MOVES out of their source (S-3). Internal drags only, for now.
+        outlineView.registerForDraggedTypes([Self.draggedFileURLType])
+        // Key routing (⌘⌫, Return, F2, Esc) and ⌘X/⌘C/⌘V reach the controller through
+        // this; it was only set when an edit began, so the first ⌘⌫ did nothing (H1).
+        outlineView.fileOpsDelegate = self
         outlineView.autoresizingMask = [.width, .height]
 
         // Right-click affordances. This is also where "insert path in terminal"
@@ -191,6 +170,7 @@ final class FileTreeViewController: NSViewController {
     /// moment the tree is stale. FSEvents is the obvious upgrade if it ever feels
     /// behind.
     func refresh() {
+        guard !isEditingInline else { pendingReload = true; return }
         let expanded = (0..<outlineView.numberOfRows)
             .compactMap { outlineView.item(atRow: $0) as? FileNode }
             .filter { outlineView.isItemExpanded($0) }
@@ -253,6 +233,10 @@ final class FileTreeViewController: NSViewController {
     /// rebuilt the tree and discarded the user's expansion and selection twice a second:
     /// precisely the damage the guard exists to prevent, in the shape of a passing test.
     func setRoot(_ url: URL) {
+        // FIRST, before the filter is touched: clearing the filter reloads the outline,
+        // which would destroy an open inline editor. Remember the root and replay it
+        // when the edit ends (`finishEditReplay()` in +Mutation.swift) (H4).
+        guard !isEditingInline else { pendingRoot = url; return }
         filterField.stringValue = ""
         preFilterExpansion = nil
         applyFilter("")
