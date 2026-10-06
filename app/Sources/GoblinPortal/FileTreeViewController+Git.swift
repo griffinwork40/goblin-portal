@@ -334,7 +334,12 @@ extension FileTreeViewController {
                 let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false)
                     as? NSTableCellView
             else { continue }
-            guard !(isEditingInline && outlineView.editedRow == row) else { continue }
+            // Skip decoration while an inline edit is active on ANY row.
+            // editedRow is documented as "Not applicable" in view-based NSTableView
+            // (NSTableView.h:269-273) and measures as -1 during a live edit, so the
+            // per-row guard `outlineView.editedRow == row` never fires (M3). The
+            // post-edit refresh in FileTreeViewController+FileOps.swift re-decorates.
+            guard !isEditingInline else { continue }
             applyGitDecoration(to: cell, for: node)
         }
         gitHeader.update(summary: gitFollow?.branchSummary)

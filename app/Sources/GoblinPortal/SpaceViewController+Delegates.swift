@@ -207,24 +207,107 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
         }
     }
 
-    /// A file was renamed, moved, or trashed by the file tree's inline-edit or
-    /// context-menu operations. Update any open FileViewerPane showing that URL.
+    /// A file or directory was renamed, moved, or trashed by the file tree.
+    ///
+    /// Matches every open FileViewerPane whose URL equals `oldURL` or is a
+    /// descendant of it (e.g. a file inside a renamed directory). For each match:
+    ///
+    /// - Dirty pane: leave it open and show one informational NSAlert. Calling
+    ///   closeDocument on a dirty pane triggers Save/Cancel/Don’t Save, and Save
+    ///   would write the file back to the old (now invalid) path.
+    /// - Clean pane + `newURL` nil (trashed): close it.
+    /// - Clean pane + rebased `newURL`: close and reopen at the rebased path,
+    ///   preserving the original tab position where possible.
+    ///
+    /// URL comparison resolves symlinks on both sides so /tmp and /private/tmp
+    /// are treated as the same path (H6).
     func fileTree(_ controller: FileTreeViewController, didMutate oldURL: URL, newURL: URL?) {
+        // Resolve symlinks on the operation's source URL once.
+        let resolvedOld = oldURL.resolvingSymlinksInPath()
+        var dirtyNames: [String] = []
+
+        // Collect matched panes first to avoid mutating documents[] mid-iteration.
+        // Each entry is (viewer, rebased destination URL or nil for trash).
+        var matched: [(viewer: FileViewerPane, dest: URL?)] = []
         for document in documents {
-            guard let viewer = document as? FileViewerPane, viewer.url == oldURL else { continue }
-            if newURL == nil {
-                // Trashed — close the pane.
-                if let idx = documents.firstIndex(where: { $0 === viewer }) {
-                    closeDocument(at: idx)
+            guard let viewer = document as? FileViewerPane else { continue }
+            let resolvedViewer = viewer.url.resolvingSymlinksInPath()
+            // Match an exact rename/trash OR any file inside a renamed directory.
+            let isExact = resolvedViewer == resolvedOld
+            let isChild = !isExact && FileOperationPolicy.isDescendant(
+                url: resolvedViewer, of: resolvedOld)
+            guard isExact || isChild else { continue }
+
+            if let newURL {
+                // Rebase: for an exact match the destination is newURL itself;
+                // for a descendant, append the relative path suffix.
+                if isExact {
+                    matched.append((viewer, newURL))
+                } else {
+                    // Compute the path suffix after oldURL and graft it onto newURL.
+                    let oldPath = resolvedOld.path
+                    let viewPath = resolvedViewer.path
+                    let suffix = String(viewPath.dropFirst(oldPath.count))
+                    let rebased = URL(fileURLWithPath: newURL.path + suffix)
+                    matched.append((viewer, rebased))
                 }
-            } else if let newURL {
-                // Renamed or moved — close the stale pane and re-open at the new URL.
-                if let idx = documents.firstIndex(where: { $0 === viewer }) {
-                    closeDocument(at: idx)
-                }
-                openFile(url: newURL)
+            } else {
+                matched.append((viewer, nil))
             }
-            break
+        }
+
+        for (viewer, dest) in matched {
+            if viewer.isDirty {
+                // Never close a dirty pane — that path offers Save/Cancel which
+                // would write to the now-invalid old path. Just inform the user.
+                dirtyNames.append(viewer.url.lastPathComponent)
+                continue
+            }
+            guard let idx = documents.firstIndex(where: { $0 === viewer }) else { continue }
+            closeDocument(at: idx)
+            if let dest {
+                // Reopen at the rebased URL. Insert at the original tab index
+                // when possible so the tab order is preserved.
+                openFile(url: dest)
+                // openFile appends; move the new tab back to idx if we can.
+                if let newIdx = documents.lastIndex(where: {
+                    ($0 as? FileViewerPane)?.url == dest
+                }), newIdx != idx && idx <= documents.endIndex {
+                    // Swap into position — documents[] is mutated by selectDocument
+                    // indirectly, so we re-derive indices from the current array.
+                    // A simple re-order is sufficient; applyDocumentOrder handles the strip.
+                    var reordered = documents
+                    let moved = reordered.remove(at: newIdx)
+                    reordered.insert(moved, at: min(idx, reordered.endIndex))
+                    applyDocumentOrder(reordered, landedAt: min(idx, reordered.indices.last ?? 0))
+                }
+            }
+        }
+
+        if !dirtyNames.isEmpty {
+            let destination: String
+            if let newURL {
+                destination = newURL.path
+            } else {
+                destination = "the Trash"
+            }
+            let names = dirtyNames.joined(separator: "\n• ")
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = dirtyNames.count == 1
+                ? "\u{201c}\(dirtyNames[0])\u{201d} has unsaved changes"
+                : "\(dirtyNames.count) open files have unsaved changes"
+            alert.informativeText = "The file\(dirtyNames.count == 1 ? "" : "s") "
+                + "\u{2014} \u{2022} \(names) \u{2014} "
+                + "\(dirtyNames.count == 1 ? "was" : "were") moved to \(destination). "
+                + "Save or close the tab\(dirtyNames.count == 1 ? "" : "s") manually "
+                + "before saving to avoid writing to the old path."
+            alert.addButton(withTitle: "OK")
+            if let window = view.window {
+                alert.beginSheetModal(for: window)
+            } else {
+                alert.runModal()
+            }
         }
     }
 }

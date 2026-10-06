@@ -104,7 +104,13 @@ extension SpaceViewController {
     }
 
     /// Show the Explorer section (file tree + filter + branch header); hide SCM.
+    ///
+    /// Clears `chromeSuppressed` on the branch header so the next git-status tick
+    /// can show the header normally (M2 fix).
     func showExplorerViews() {
+        // Clear suppression first so isHidden = false below is not immediately
+        // overridden by a concurrent gitHeader.update(_:) call.
+        fileTree.gitHeader.chromeSuppressed = false
         fileTree.gitHeader.isHidden   = false
         fileTree.filterField.isHidden = false
         fileTree.sidebarScrollView.isHidden = false
@@ -113,7 +119,13 @@ extension SpaceViewController {
     }
 
     /// Show the SCM section; hide Explorer views.
+    ///
+    /// Sets `chromeSuppressed` on the branch header so git-status ticks while
+    /// in SCM view cannot re-show Explorer chrome (M2 fix).
     func showSCMViews() {
+        // Suppress before hiding so a concurrent gitHeader.update(_:) does not
+        // race with the isHidden = true below.
+        fileTree.gitHeader.chromeSuppressed = true
         fileTree.gitHeader.isHidden   = true
         fileTree.filterField.isHidden = true
         fileTree.sidebarScrollView.isHidden = true   // FALSIFICATION TARGET: removing this line
@@ -129,8 +141,15 @@ extension SpaceViewController {
     }
 
     /// Hide the switcher entirely when there is no repository.
+    ///
+    /// When the repo disappears while in SCM view, switch back to Explorer so
+    /// the tree is visible rather than leaving the sidebar showing a panel with
+    /// no data behind a hidden tree (M2).
     func updateSwitcherVisibility(hasRepo: Bool) {
         sidebarActivitySwitcher.isHidden = !hasRepo
+        if !hasRepo && currentSidebarActivity == .scm {
+            switchSidebarActivity(.explorer)
+        }
     }
 
     // MARK: Responder actions (wired from AppMenu.swift)
