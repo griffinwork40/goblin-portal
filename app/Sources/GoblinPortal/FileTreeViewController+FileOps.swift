@@ -296,8 +296,16 @@ extension FileTreeViewController: NSTextFieldDelegate {
     /// Focus left the field without Return or Escape (a click elsewhere, Tab):
     /// commit, as Finder does. Return and Escape are consumed by `doCommandBy` below
     /// and by then `isEditingInline` is false, so they never reach this twice.
+    ///
+    /// IMPORTANT: `editColumn(_:row:with:select:)` steals focus from any other text
+    /// field in the window (e.g. the NSSearchField filter), which fires that field's
+    /// `textDidEndEditing` notification — and FileTreeViewController is that field's
+    /// delegate too. The `obj.object === editedTextField()` guard prevents the filter
+    /// field's notification from being mistaken for the inline-edit ending.
     func controlTextDidEndEditing(_ obj: Notification) {
-        guard isEditingInline, let tf = obj.object as? NSTextField else { return }
+        guard isEditingInline,
+              let tf = obj.object as? NSTextField,
+              tf === editedTextField() else { return }
         commitEditedName(tf.stringValue)
     }
 

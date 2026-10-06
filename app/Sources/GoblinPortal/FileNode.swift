@@ -71,24 +71,35 @@ final class FileNode {
                 includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey],
                 options: [])) ?? []
 
+        // Re-root each child URL under `url` rather than using the URL returned by
+        // contentsOfDirectory directly. On macOS, FileManager resolves symlinks in
+        // the path it returns (e.g. /var/folders → /private/var/folders) even when
+        // `url` itself was not resolved. Using appendingPathComponent preserves the
+        // caller's path prefix, so walk(to:) never sees a /private discrepancy.
+        let normalized = contents.map { child -> (URL, URL) in
+            (url.appendingPathComponent(child.lastPathComponent), child)
+        }
+
         children =
-            contents
-            .filter { Self.isVisible($0) }
-            .map { child -> FileNode in
+            normalized
+            .filter { Self.isVisible($0.0) }
+            .map { (normURL, child) -> FileNode in
                 let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isHiddenKey])
                 let isDir = values?.isDirectory ?? false
                 // Falls back to the dot convention rather than to "not hidden": a
                 // failed resource read should degrade to the mostly-right answer,
                 // not silently promote every dotfile to the top of the tree.
                 let isHidden = values?.isHidden ?? child.lastPathComponent.hasPrefix(".")
+                // Reuse check: look up by the normalized URL so identity survives
+                // a refresh even when FileManager changes its symlink resolution.
                 // Both facts gate reuse. A reused node is returned as-is, so a flag
                 // that flipped on disk would otherwise never reach the UI.
-                if let reused = existing[child], reused.isDirectory == isDir,
+                if let reused = existing[normURL], reused.isDirectory == isDir,
                     reused.isHidden == isHidden
                 {
                     return reused
                 }
-                return FileNode(url: child, isDirectory: isDir, isHidden: isHidden)
+                return FileNode(url: normURL, isDirectory: isDir, isHidden: isHidden)
             }
             .sorted { lhs, rhs in
                 // Directories first, then case-insensitive name — Finder's order,
