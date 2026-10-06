@@ -135,6 +135,7 @@ final class FileTreeViewController: NSViewController {
         outlineView.delegate = self
         outlineView.target = self
         outlineView.doubleAction = #selector(handleDoubleClick)
+        outlineView.registerForDraggedTypes([Self.draggedFileURLType, .fileURL])
         outlineView.autoresizingMask = [.width, .height]
 
         // Right-click affordances. This is also where "insert path in terminal"

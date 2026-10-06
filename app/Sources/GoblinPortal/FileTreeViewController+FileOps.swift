@@ -189,8 +189,9 @@ extension FileTreeViewController {
         for url in items {
             do {
                 if wascut {
-                    try FileOperationPolicy.move(from: url, to: dest.appendingPathComponent(url.lastPathComponent))
-                    notifyDelegateOfMutation(oldURL: url, newURL: dest.appendingPathComponent(url.lastPathComponent))
+                    let finalURL = dest.appendingPathComponent(url.lastPathComponent)
+                    try FileOperationPolicy.move(from: url, to: dest)  // dest is a directory; policy appends lastPathComponent
+                    notifyDelegateOfMutation(oldURL: url, newURL: finalURL)
                 } else {
                     try FileOperationPolicy.copy(from: url, into: dest)
                 }
@@ -310,7 +311,8 @@ extension FileTreeViewController: NSTextFieldDelegate {
     func controlTextDidEndEditing(_ obj: Notification) {
         guard let tf = obj.object as? NSTextField, isEditingInline else { return }
         let movement = (obj.userInfo?["NSTextMovement"] as? Int) ?? 0
-        // NSReturnTextMovement = 16, NSCancelTextMovement = 0 (after ESC)
+        // NSReturnTextMovement = 16. ESC is intercepted by control(_:textView:doCommandBy:)
+        // before controlTextDidEndEditing fires; the else branch handles Tab and other exits.
         if movement == 16 {
             commitEditedName(tf.stringValue)
         } else {

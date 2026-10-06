@@ -217,9 +217,13 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
                 if let idx = documents.firstIndex(where: { $0 === viewer }) {
                     closeDocument(at: idx)
                 }
+            } else if let newURL {
+                // Renamed or moved — close the stale pane and re-open at the new URL.
+                if let idx = documents.firstIndex(where: { $0 === viewer }) {
+                    closeDocument(at: idx)
+                }
+                openFile(url: newURL)
             }
-            // Rename/move: FileViewerPane is read-only so re-opening is the simplest path.
-            // A full rename-in-place API can be added when FileViewerPane gains that.
             break
         }
     }
