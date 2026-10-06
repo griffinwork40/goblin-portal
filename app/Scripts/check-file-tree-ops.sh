@@ -30,6 +30,10 @@
 #   9.  Drag: pasteboardWriterForItem returns non-nil; validateDrop refuses descendant.
 #  10.  Expansion survives a sibling rename.
 #  11.  CONTROL: a deliberately wrong assertion must fail inside a sub-check.
+#  12.  Rename of the Space's sole FileViewerPane keeps the window open; tab URL
+#       updated (PR #157 window-survival fix — close-before-open regression guard).
+#  13.  Trash of the Space's sole FileViewerPane keeps the window open; tab left
+#       open with stale URL rather than closing the Space (PR #157 fix).
 #
 set -uo pipefail
 

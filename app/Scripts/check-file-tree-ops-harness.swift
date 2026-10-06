@@ -75,6 +75,8 @@ enum Harness {
     static var treeRoot: URL!
     // trashConfirmAnswer is read by the confirmTrash closure; written per-case.
     static var trashConfirmAnswer: Bool = false
+    // svc: the container — needed by cases 12-13 (file-mutation window-survival gate).
+    static var svc: SpaceViewController!
 
     // MARK: — Shared helpers
 
@@ -174,6 +176,7 @@ enum Harness {
         guard let window = wc.window else {
             print("  ENV  SpaceWindowController produced no window"); return 2 }
         vc = wc.space.fileTree
+        svc = wc.space
         ov = vc.outlineView
         window.setFrame(NSRect(x: -20000, y: -20000, width: 900, height: 600), display: false)
         window.orderFront(nil)
@@ -185,9 +188,10 @@ enum Harness {
 
         runCases1to5()
         runCases6to11()   // defined in check-file-tree-ops-cases.swift
+        runCases12to13()  // defined in check-file-tree-ops-cases.swift — window-survival gate
 
         print()
-        if gBad == 0 { print("all file-tree-ops cases passed (11 cases)") }
+        if gBad == 0 { print("all file-tree-ops cases passed (13 cases)") }
         else { print("\(gBad) file-tree-ops case(s) FAILED") }
         return gBad == 0 ? 0 : 1
     }

@@ -182,4 +182,104 @@ extension Harness {
             fail("control: inner failure not recorded — assert helper is a no-op")
         }
     }
+
+    // MARK: — Cases 12–13 (PR #157 window-survival gate)
+
+    // WHY THESE CASES EXIST. Before PR #157 the file-mutation handler called
+    // closeDocument BEFORE openFile for renames. When the pane was the Space's only
+    // document, closeDocument emptied documents[] and triggered
+    // spaceViewControllerDidCloseLastDocument, which closed the window.
+    // Similarly, trashing the only open file closed the Space.
+    // These two cases prove the fixed handler keeps the window alive in both scenarios.
+
+    static func runCases12to13() {
+
+        // ─────────────────────────────────────────────────────────────────────
+        // CASE 12 — Rename of the Space's sole FileViewerPane keeps the window open
+        //           and updates the tab URL to the new path.
+        // ─────────────────────────────────────────────────────────────────────
+        print("\n  [case 12] rename sole file pane: window survives, tab URL updated")
+
+        // Create a temp file and open it as the only document in a fresh Space.
+        let tempDir12 = treeRoot.appendingPathComponent("mutation_case12")
+        let oldFile12 = tempDir12.appendingPathComponent("before.txt")
+        let newFile12 = tempDir12.appendingPathComponent("after.txt")
+        try? FileManager.default.createDirectory(at: tempDir12,
+            withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: oldFile12.path, contents: Data("x".utf8))
+
+        // PRECONDITION: the harness never calls openFirstDocument() (it only
+        // orderFront()s the window), so the Space starts with ZERO documents. If that
+        // ever changes this case would silently stop testing the sole-pane path, so
+        // assert it rather than assume it.
+        guard svc.documents.isEmpty else {
+            fail("case 12: precondition — Space starts with \(svc.documents.count) docs, want 0"); return }
+        // Use openFile to land exactly one clean FileViewerPane.
+        svc.openFile(url: oldFile12)
+        pump(0.2)
+        guard svc.documents.count == 1 else {
+            fail("case 12: precondition — want exactly 1 doc, have \(svc.documents.count)"); return }
+
+        guard let window12 = svc.view.window else {
+            print("  ENV  SpaceViewController has no window in case 12"); return }
+
+        // Deliver the rename mutation — this is the exact call the file tree makes.
+        svc.handleFileMutation(oldURL: oldFile12, newURL: newFile12)
+        pump(0.3)
+
+        if window12.isVisible {
+            ok("case 12: window still open after rename of sole pane (PR #157 fix)")
+        } else {
+            fail("case 12: window closed after rename — old close-before-open bug regressed")
+        }
+
+        let hasNewURL = svc.documents.contains(where: {
+            ($0 as? FileViewerPane)?.url == newFile12
+        })
+        if hasNewURL {
+            ok("case 12: tab URL updated to new path after rename")
+        } else {
+            fail("case 12: no tab at new URL after rename — \(svc.documents.count) docs")
+        }
+        let hasOldURL = svc.documents.contains(where: {
+            ($0 as? FileViewerPane)?.url == oldFile12
+        })
+        if !hasOldURL {
+            ok("case 12: old-URL tab removed after rename")
+        } else {
+            fail("case 12: stale old-URL tab still present after rename")
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // CASE 13 — Trash of the Space's sole FileViewerPane keeps the window open.
+        // The tab is intentionally left open (stale URL) — same contract as dirty
+        // panes — rather than closing the Space entirely (PR #157 fix).
+        // ─────────────────────────────────────────────────────────────────────
+        print("\n  [case 13] trash sole file pane: window survives (tab stays open)")
+
+        // Reuse case 12's survivor: it is the Space's ONLY document, which is the
+        // state the trash guard exists for. Opening a second file here (as this case
+        // first did) left 2 documents, so the guard was never reached and the case
+        // only "failed" under the bug because case 12 had already closed the window.
+        let trashFile13 = newFile12
+        guard svc.documents.count == 1 else {
+            fail("case 13: precondition — want exactly 1 doc, have \(svc.documents.count)"); return }
+        guard let window13 = svc.view.window, window13.isVisible else {
+            print("  ENV  window not visible entering case 13"); return }
+        try? FileManager.default.removeItem(at: trashFile13)  // temp tree; never the real Trash
+
+        svc.handleFileMutation(oldURL: trashFile13, newURL: nil)
+        pump(0.3)
+
+        if window13.isVisible {
+            ok("case 13: window still open after trash of sole pane (PR #157 fix)")
+        } else {
+            fail("case 13: window closed after trash — close-when-last bug regressed")
+        }
+        if svc.documents.count == 1 {
+            ok("case 13: sole tab left open after trash (no last-document close)")
+        } else {
+            fail("case 13: want the sole tab left open, have \(svc.documents.count) docs")
+        }
+    }
 }
