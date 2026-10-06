@@ -49,15 +49,38 @@
 # where `feed(byteArray:)` requires `ArraySlice<UInt8>`; it always exited 2 and the
 # broken harness hid behind the "no GPU / no WindowServer" excuse.)
 #
+# LOAD GUARD (N6, rendering-audit-2026-10-05). The gate failed five consecutive runs on
+# main (ratios 0.67–0.72 vs a 0.741 floor) at load average 12–15 on 14 cores, then
+# passed (ratio 0.801) the following day on the same code and the same machine. Root
+# cause: scheduler starvation; under heavy competing load the Metal drawable pool stalls
+# before the 20 ms gap expires, so the timed interval includes GPU-scheduler wait that
+# the gap was supposed to eliminate. The frame-time ratio is accurate only on a machine
+# where the GPU scheduler is not contended.
+#
+# Guard: `sysctl -n vm.loadavg` returns three fields ({1m 5m 15m} on macOS); we measure
+# the 1-minute load before AND after the run.  If either sample exceeds
+# LOAD_PER_CPU_THRESHOLD × ncpu, we exit 2 (environmental) rather than exit 1 (renderer
+# regression) — exactly as compile failure does.  The threshold is 0.7 per CPU: at that
+# level the scheduler has clear headroom and GPU starvation is implausible; at 0.9+
+# (machine load 12–15 on 14 cores) it is the observed failure mode.  "Does not trip on a
+# quiet machine, does trip under synthetic load" is verified in the falsification block
+# below; the transcripts are in .afk/tmp/rendering-audit/N6-loadguard-falsification.md.
+#
+# Falsification: we spawn `yes > /dev/null` workers (one per CPU minus one for headroom),
+# measure load after a settle period, confirm the guard fires, then SIGTERM the workers
+# and confirm the guard passes.  The trap cleans up workers on any exit so they never
+# leak.  Run with LOADGUARD_FALSIFY=1 to execute this block; normal runs skip it.
+#
 # Exit codes:
 #   0  Metal median ≤ CoreText median × 1.35 (validates the default flip)
 #   1  Metal regresses by more than 35% vs CoreText (investigate before shipping)
 #   2  environmental — no swiftc, no Metal device, no WindowServer, build failed,
-#      or the harness would not compile. Never conflated with 1.
+#      harness would not compile, or machine load exceeds threshold. Never conflated with 1.
 #
 # Usage:
 #   ./Scripts/check-metal-throughput.sh           # run the measurement
 #   ./Scripts/check-metal-throughput.sh --quiet   # summary line and failures only
+#   LOADGUARD_FALSIFY=1 ./Scripts/check-metal-throughput.sh  # run falsification block
 
 set -uo pipefail
 
@@ -68,7 +91,57 @@ say() { [ "$QUIET" = "1" ] || echo "$@"; }
 cd "$(dirname "$0")/.."
 APP_ROOT="$(pwd)"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+WORKERS=()
+# Clean up tmp AND any synthetic load workers on any exit.
+trap '[ ${#WORKERS[@]} -gt 0 ] && kill "${WORKERS[@]}" 2>/dev/null; rm -rf "$TMP"' EXIT
+
+LOAD_PER_CPU_THRESHOLD="0.70"
+NCPU="$(sysctl -n hw.ncpu 2>/dev/null || echo 1)"
+
+# load1(): current 1-minute load average as a decimal string.
+load1() { sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}'; }
+
+# load_busy(): returns 0 (true) if load/CPU > threshold, 1 (false) otherwise.
+load_busy() {
+  local load; load="$(load1)"
+  awk -v l="$load" -v n="$NCPU" -v t="$LOAD_PER_CPU_THRESHOLD" \
+    'BEGIN { exit (l/n > t) ? 0 : 1 }'
+}
+
+# --- falsification block (LOADGUARD_FALSIFY=1 only) -------------------------------
+# Spawn `yes > /dev/null` workers, confirm the guard fires under synthetic load,
+# then SIGTERM the workers and confirm the guard passes on a quiet machine.
+# Workers are tracked in WORKERS[] and killed by the EXIT trap even on Ctrl+C.
+if [ "${LOADGUARD_FALSIFY:-0}" = "1" ]; then
+  say "==> falsification: spawning synthetic load workers ($((NCPU - 1)) yes-workers)…"
+  for _i in $(seq 1 $((NCPU - 1))); do
+    yes > /dev/null &
+    WORKERS+=($!)
+  done
+  say "   waiting 8 s for load to climb…"
+  sleep 8
+  _fload="$(load1)"
+  say "   load1=$_fload  ncpu=$NCPU  threshold=$LOAD_PER_CPU_THRESHOLD/cpu"
+  if load_busy; then
+    say "   FALSIFICATION OK — guard fires under synthetic load (load1=$_fload, ncpu=$NCPU)"
+  else
+    echo "FALSIFICATION INCONCLUSIVE — load did not reach threshold (load1=$_fload)." >&2
+    echo "  The machine may already be under load. Re-run on a quieter system." >&2
+  fi
+  say "==> killing workers, waiting 10 s for load to settle…"
+  kill "${WORKERS[@]}" 2>/dev/null; WORKERS=()
+  sleep 10
+  _qload="$(load1)"
+  say "   load1=$_qload  ncpu=$NCPU  threshold=$LOAD_PER_CPU_THRESHOLD/cpu"
+  if load_busy; then
+    say "   NOTE: load still above threshold ($LOAD_PER_CPU_THRESHOLD/cpu) after workers stopped."
+    say "   This machine had background load before the test; the quiet-machine assertion cannot be made."
+  else
+    say "   FALSIFICATION OK — guard does not fire on quiet machine (load1=$_qload)"
+  fi
+  say "   falsification done; continuing to normal run"
+  say
+fi
 
 # --- environment ------------------------------------------------------------------
 if ! command -v swiftc >/dev/null 2>&1; then
@@ -82,166 +155,10 @@ fi
 resolve_vendored_module          # sets PRODUCTS, or exits 2
 
 # --- compile the harness ----------------------------------------------------------
-cat > "$TMP/main.swift" <<'SWIFT'
-import AppKit
-import Metal
-import MetalKit
-import SwiftTerm
+# The harness is in check-metal-throughput-harness.swift, extracted when the 350-LOC
+# ceiling was reached after adding the N6 load guard. Same pattern as check-git-status.sh.
+cp "$APP_ROOT/Scripts/check-metal-throughput-harness.swift" "$TMP/main.swift"
 
-// Same posture as check-metal-renderer.sh — accessory policy, window offscreen.
-// No focus is stolen, no Dock icon, no menu bar.
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-
-guard MTLCreateSystemDefaultDevice() != nil else {
-    print("RESULT env_fail NO_METAL_DEVICE")
-    exit(0)
-}
-
-// --- helpers -------------------------------------------------------------------
-// A simple TerminalViewDelegate that discards all callbacks. We feed the terminal
-// buffer directly via feed() so we do not need a real pty.
-class SilentDelegate: NSObject, LocalProcessTerminalViewDelegate {
-    func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
-    func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
-    func processTerminated(source: TerminalView, exitCode: Int32?) {}
-}
-
-func makeView() -> LocalProcessTerminalView {
-    let v = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 960, height: 480))
-    let d = SilentDelegate()
-    // Hold delegate alive for the view's lifetime inside this function scope.
-    objc_setAssociatedObject(v, Unmanaged.passUnretained(v).toOpaque(), d, .OBJC_ASSOCIATION_RETAIN)
-    v.processDelegate = d
-    return v
-}
-
-func makeWindow(view: NSView) -> NSWindow {
-    let win = NSWindow(
-        contentRect: NSRect(x: -20000, y: -20000, width: 960, height: 480),
-        styleMask: [.titled, .closable],
-        backing: .buffered,
-        defer: false
-    )
-    win.contentView = view
-    win.makeKeyAndOrderFront(nil)
-    return win
-}
-
-// High-throughput ANSI payload: colour escapes, bold, mixed ASCII. 40 lines worth.
-func buildPayload() -> [UInt8] {
-    var s = ""
-    let colours = [31, 32, 33, 34, 35, 36, 37]
-    for row in 0..<40 {
-        let c = colours[row % colours.count]
-        s += "\u{1B}[\(c)m\u{1B}[1mRow \(String(format: "%02d", row)):  "
-        s += "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do "
-        s += "eiusmod tempor incididunt ut labore et dolore\u{1B}[0m\r\n"
-    }
-    return Array(s.utf8)
-}
-
-// stats: emit per-renderer summary for the measurement log.
-func stats(_ name: String, _ a: [Double]) {
-    let s = a.sorted()
-    let median = s[s.count / 2]
-    let p95 = s[min(s.count - 1, Int(Double(s.count) * 0.95))]
-    let mean = a.reduce(0, +) / Double(a.count)
-    let meanEx10 = a.dropFirst(10).reduce(0, +) / Double(a.count - 10)
-    print(String(format: "STAT %@ median=%.3f p95=%.3f mean=%.3f mean_excl_first10=%.3f",
-                 name, median, p95, mean, meanEx10))
-}
-
-let payload = buildPayload()
-let FRAMES = 150
-
-// --- CoreText measurement -------------------------------------------------------
-let ctView = makeView()
-let ctWin = makeWindow(view: ctView)
-// Let the view settle into the window before timing.
-RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-
-// Prime the cache with the payload once before timing.
-// feed(byteArray:) takes ArraySlice<UInt8>; payload[...] converts [UInt8] to a slice.
-ctView.feed(byteArray: payload[...])
-RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-
-var ctSamples: [Double] = []
-for _ in 0..<FRAMES {
-    // 20 ms untimed gap: lets CoreText's backing store settle between frames.
-    RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-    ctView.feed(byteArray: payload[...])
-    let t0 = CFAbsoluteTimeGetCurrent()
-    ctView.display()       // synchronous: draw(_:) runs on the calling thread
-    let t1 = CFAbsoluteTimeGetCurrent()
-    ctSamples.append((t1 - t0) * 1000.0)
-}
-
-ctWin.orderOut(nil)
-RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-
-// --- Metal measurement ----------------------------------------------------------
-let mtView = makeView()
-let mtWin = makeWindow(view: mtView)
-RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-
-var threw = "none"
-do {
-    try mtView.setUseMetal(true)
-} catch {
-    threw = "\(error)"
-}
-RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-
-if !mtView.isUsingMetalRenderer {
-    print("RESULT env_fail METAL_UNAVAILABLE threw=\(threw)")
-    exit(0)
-}
-
-// Locate the MTKView that setUseMetal installed as a subview.
-func findMTKView(in parent: NSView) -> MTKView? {
-    for sub in parent.subviews {
-        if let mtk = sub as? MTKView { return mtk }
-        if let found = findMTKView(in: sub) { return found }
-    }
-    return nil
-}
-
-guard let mtkView = findMTKView(in: mtView) else {
-    print("RESULT env_fail NO_MTKVIEW")
-    exit(0)
-}
-
-mtView.feed(byteArray: payload[...])
-RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-
-var mtSamples: [Double] = []
-for _ in 0..<FRAMES {
-    // 20 ms untimed gap: lets Metal's drawable pool recycle so the timed interval
-    // measures GPU encoding cost, not vsync wait. Without the gap, draw() blocks
-    // for ~8.3 ms on a 120 Hz display waiting for a free drawable (issue #137, bug 2).
-    RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-    mtView.feed(byteArray: payload[...])
-    let t0 = CFAbsoluteTimeGetCurrent()
-    mtkView.draw()         // synchronous MTKView draw: encodes + commits the frame
-    let t1 = CFAbsoluteTimeGetCurrent()
-    mtSamples.append((t1 - t0) * 1000.0)
-}
-
-mtWin.orderOut(nil)
-
-// --- report --------------------------------------------------------------------
-stats("coretext", ctSamples)
-stats("metal",    mtSamples)
-
-let ctMedian = ctSamples.sorted()[ctSamples.count / 2]
-let mtMedian = mtSamples.sorted()[mtSamples.count / 2]
-let ratio = ctMedian / mtMedian   // > 1.0 means Metal is faster; tie is ~1.0
-
-print(String(format: "RESULT ct_median_ms=%.3f mt_median_ms=%.3f ratio=%.3f frames=%d",
-             ctMedian, mtMedian, ratio, FRAMES))
-SWIFT
 
 # A harness that does not compile exits 2 — environmental, not a Metal regression.
 # The compile log is printed so it is not silently excused (issue #137, bug 1).
@@ -255,9 +172,35 @@ if ! swiftc -O -o "$PRODUCTS/throughputcheck" "$TMP/main.swift" \
   exit 2
 fi
 
+# --- load guard -------------------------------------------------------------------
+# Check the 1-minute load average before we run. Under heavy scheduler contention
+# (observed: load 12-15 on 14 cores = ~0.9/cpu) Metal's drawable pool stalls inside
+# the 20 ms gap and the timed interval measures GPU-scheduler wait, not render cost.
+# The resulting ratio (0.67-0.72 on main, five runs) is below the 0.741 floor even
+# though the renderer is correct, producing a false exit 1.
+# Exit 2 (environmental) instead — the same contract as "no Metal device" or "no GPU".
+_pre_load="$(load1)"
+say "==> load check before run: load1=${_pre_load}, ncpu=${NCPU}, threshold=${LOAD_PER_CPU_THRESHOLD}/cpu"
+if load_busy; then
+  echo "error: environmental: machine busy — load1=${_pre_load} on ${NCPU} cpus" \
+       "exceeds ${LOAD_PER_CPU_THRESHOLD}/cpu threshold." >&2
+  echo "  A busy machine makes the drawable-gap ineffective; ratio would measure scheduler" >&2
+  echo "  wait, not renderer cost. Re-run when the machine is quieter." >&2
+  exit 2
+fi
+
 say "==> running throughput measurement (150 frames each renderer)"
 : > "$TMP/harness.err"
 out="$("$PRODUCTS/throughputcheck" 2>"$TMP/harness.err" || echo "CRASH")"
+
+_post_load="$(load1)"
+say "==> post-run load: load1=${_post_load}"
+if load_busy; then
+  echo "error: environmental: machine became busy during the run" \
+       "(post-run load1=${_post_load} on ${NCPU} cpus > ${LOAD_PER_CPU_THRESHOLD}/cpu)." >&2
+  echo "  Results may reflect scheduler contention rather than renderer cost. Discarded." >&2
+  exit 2
+fi
 
 if [ "$out" = "CRASH" ]; then
   echo "error: the throughput harness died — environmental, not a verdict." >&2

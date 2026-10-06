@@ -56,18 +56,26 @@ PRODUCTS="$ROOT/.build/out/Products/Debug"
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }
 
+BFLAGS=(); swift build --help 2>&1 | grep -q -- '--build-system' && BFLAGS=(--build-system swiftbuild)
 say "==> building (the harness links Goblin Portal's own objects, so they must be current)"
-if ! swift build >/dev/null 2>&1; then
+if ! swift build "${BFLAGS[@]}" >/dev/null 2>&1; then
   echo "error: swift build failed — fix the build before running this gate." >&2
-  swift build 2>&1 | grep -E 'error' | head -10 >&2
+  swift build "${BFLAGS[@]}" 2>&1 | grep -E 'error' | head -10 >&2
   exit 2
 fi
 
+# Locate the GoblinPortal object directory produced by the build we JUST ran.
+# The Swift Build backend writes GoblinPortal-p.build/Objects-normal/<arch>/.
+# The old GoblinPortal-*-testable.build glob matched only Xcode-generated artefacts
+# that swift build --build-system swiftbuild never writes, so it silently linked
+# objects from a previous Xcode session — weeks stale, different Swift version
+# (N2, rendering-audit-2026-10-05).  The -p.build glob is unambiguous: that path
+# is only written by the backend we pin, so there is no wrong-session overlap.
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*GoblinPortal-*-testable.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/TerminalPane.o" ]] || {
-  echo "error: no GoblinPortal objects under .build — cannot @testable import GoblinPortal." >&2
-  echo "  Looked for '*GoblinPortal-*-testable.build/Objects-normal/*/TerminalPane.o'. Try: swift build" >&2
+  echo "error: GoblinPortal objects not found under .build/out (expected GoblinPortal-p.build)." >&2
+  echo "  Run: swift build --build-system swiftbuild" >&2
   exit 2; }
 [[ -e "$PRODUCTS/SwiftTerm.o" ]] || {
   echo "error: $PRODUCTS/SwiftTerm.o missing after build." >&2; exit 2; }

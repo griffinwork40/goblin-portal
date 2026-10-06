@@ -30,20 +30,34 @@ PRODUCTS="$ROOT/.build/out/Products/Debug"
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }
 
+BFLAGS=(); swift build --help 2>&1 | grep -q -- '--build-system' && BFLAGS=(--build-system swiftbuild)
 say "==> building (the harness links Goblin Portal's own objects, so they must be current)"
-if ! swift build >/dev/null 2>&1; then
+if ! swift build "${BFLAGS[@]}" >/dev/null 2>&1; then
   echo "error: swift build failed — fix the build before running this gate." >&2
-  swift build 2>&1 | grep -E 'error' | head -10 >&2
+  swift build "${BFLAGS[@]}" 2>&1 | grep -E 'error' | head -10 >&2
   exit 2
 fi
 
-# The testable variant is what exposes Goblin Portal's internals to `@testable import`. The directory
-# carries a build-configuration hash, so glob for it rather than hardcoding one machine's.
+# Locate the GoblinPortal object directory produced by the build we JUST ran.
+#
+# The Swift Build backend (--build-system swiftbuild) writes objects under
+# GoblinPortal-p.build/Objects-normal/<arch>/.  The old glob matched
+# GoblinPortal-*-testable.build which was an Xcode build-system artefact;
+# swift build --build-system swiftbuild NEVER writes it, so the old glob
+# silently linked objects from a previous Xcode session — weeks stale and a
+# different Swift version (N2 in rendering-audit-2026-10-05).
+#
+# The glob change is the fix: there is no ambiguity once we only look for
+# -p.build, because that directory is only written by the backend we pin.
+# A stale-by-mtime check is NOT added: swift build is incremental, so an
+# unchanged source keeps its .o mtime from the original compilation while the
+# binary mtime updates on every link, making mtime comparison unreliable.
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*GoblinPortal-*-testable.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/TerminalPane.o" ]] || {
-  echo "error: no testable GoblinPortal objects under .build — cannot @testable import the real panes." >&2
-  echo "  Looked for '*GoblinPortal-*-testable.build/Objects-normal/*/TerminalPane.o'. Try: swift build" >&2
+  echo "error: GoblinPortal objects not found under .build/out — cannot @testable import." >&2
+  echo "  Expected: .build/out/Intermediates.noindex/.../GoblinPortal-p.build/Objects-normal/<arch>/TerminalPane.o" >&2
+  echo "  (The Swift Build backend writes GoblinPortal-p.build; --enable-testing is not required.)" >&2
   exit 2; }
 [[ -e "$PRODUCTS/SwiftTerm.o" ]] || {
   echo "error: $PRODUCTS/SwiftTerm.o missing after build." >&2; exit 2; }

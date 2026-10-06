@@ -35,12 +35,13 @@ struct ThemePalette {
     let foreground: String
     let cursor: String
     /// The selection background. Consumed by the **editor** since 2026-08-03
-    /// (`FileViewerPane+Document.swift`), and still not by the terminal engine —
-    /// SwiftTerm can express it (`TerminalView.selectedTextBackgroundColor`) but
-    /// is not told. That half of the gap stands, and the reason it went unnoticed for
-    /// so long is worth keeping: the value was measured here from the start but `Theme`
-    /// had no matching field, so it never crossed the AppKit bridge and no consumer
-    /// could have read it even if one had tried.
+    /// (`FileViewerPane+Document.swift`), and by the **terminal** since #31 —
+    /// `TerminalPane.swift:194-196` sets `view.selectedTextBackgroundColor` and
+    /// `view.selectedTextForegroundColor` from `config.effectiveSelectionColors()`.
+    /// A pixel probe on 2026-10-05 confirmed the configured colour in both renderers:
+    /// (38,41,82) under classic-repaired and (69,48,33) under umber (rendering-audit
+    /// finding F3). The earlier claim that "SwiftTerm is not told" was stale as of
+    /// #31; corrected 2026-10-05.
     let selection: String
     /// Exactly 16: 8 normal then 8 bright. SwiftTerm's `installColors` silently does
     /// nothing if the array is not 16 long, so `Config` validates before `Theme` builds.
