@@ -15,7 +15,7 @@ Step 2 of [`../.afk/plans/native-swift-terminal-afk-host.md`](../.afk/plans/nati
 ```sh
 ./Scripts/make-app-bundle.sh          # debug
 ./Scripts/make-app-bundle.sh release  # optimised
-open build/GoblinPortal.app
+open "build/Goblin Portal.app"
 ```
 
 Or, for a quick iteration loop without bundling:
@@ -194,7 +194,7 @@ that is invisible by construction: a config that says
 it was this project's actual state until 2026-07-31, because `0001` used to `exclude:` the
 Metal shader rather than ship it, and `MetalTerminalRenderer` needs the `.metal` source in the
 resource bundle so it can compile it at runtime. Six cases: two static (the shader is in the
-SwiftPM resource bundle, **and** in `GoblinPortal.app/Contents/Resources` — different lookup paths,
+SwiftPM resource bundle, **and** in `Goblin Portal.app/Contents/Resources` — different lookup paths,
 so one proves nothing about the other), three behavioural (asking for `metal` yields metal;
 asking for `coretext` yields coretext; and asking for `metal` *then* `coretext` in one process
 still yields coretext), and one falsification. Only the third behavioural case is a real

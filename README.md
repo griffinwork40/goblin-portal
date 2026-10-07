@@ -70,7 +70,7 @@ git clone https://github.com/griffinwork40/goblin-portal.git
 cd goblin-portal/app
 ./Scripts/bootstrap-vendor.sh          # once: fetches + patches the vendored emulator
 ./Scripts/make-app-bundle.sh release   # omit "release" for a debug build
-open build/GoblinPortal.app
+open "build/Goblin Portal.app"
 ```
 
 `bootstrap-vendor.sh` exists because `vendor/SwiftTerm` is gitignored: it clones the pinned
@@ -89,7 +89,7 @@ reference — font, cursor, scrollback, shell, theme, renderer, engine — is in
 > Developer ID behind this project, so a release binary is not notarised. If you download
 > one rather than building it yourself:
 > ```sh
-> xattr -dr com.apple.quarantine /Applications/GoblinPortal.app
+> xattr -dr com.apple.quarantine "/Applications/Goblin Portal.app"
 > ```
 > A bundle you built locally is not quarantined and needs nothing.
 
