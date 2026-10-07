@@ -112,6 +112,14 @@ final class AppearanceObserver: NSObject {
             // full disk read and would discard any live state (zoom, etc.).
             var updated = controller.space.config
             updated.theme = newTheme
+            // The dimming floor is per palette (PaneDimming.swift): recompute it for the
+            // palette now on screen, or a flip keeps the previous palette's opacity. Load
+            // already warned about an explicit value; a second warning has nowhere to go.
+            var unused: [String] = []
+            updated.unfocusedPaneOpacity = PaneDimming.effectiveOpacity(
+                background: newTheme.background.hexString,
+                foreground: newTheme.foreground.hexString,
+                userOpacity: updated.userPaneOpacity, warnings: &unused)
             // Propagate the new appearance so the sidebar and chrome switch too.
             // The chrome appearance is derived from the theme's background luminance
             // (`Config+Chrome.swift:appearance`), so it updates automatically when

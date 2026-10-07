@@ -130,18 +130,28 @@ extension AppConfig {
         if let p = file.padding {
             config.applyPadding(x: p.x, y: p.y)
         }
-        if let op = file.unfocusedPaneOpacity {
-            // Fail-soft: a value outside [0, 1] is nonsensical (a transparency cannot
-            // be negative or exceed fully-opaque). Report it and keep the default (0.7)
-            // rather than clamping silently — clamping would make a typo ("10" instead
-            // of "1.0") look like success.
-            if op >= 0.0 && op <= 1.0 {
-                config.unfocusedPaneOpacity = op
-            } else {
-                config.warnings.append(
-                    "unfocusedPaneOpacity \(op) is outside 0.0–1.0 — using default (0.7)")
-            }
-        }
+        // unfocusedPaneOpacity — resolved through PaneDimming.effectiveOpacity so the
+        // per-palette Lc floor is enforced (see PaneDimming.swift for the full argument).
+        //
+        // Range-check first: values outside [0, 1] are rejected with a warning rather than
+        // silently clamped — a typo like "10" should be loud, not quietly treated as "1.0".
+        // Valid explicit values are passed to PaneDimming as `userOpacity`; absent values
+        // pass nil so the function binary-searches the floor-safe default for this palette.
+        let validUserOp: Double? = {
+            guard let op = file.unfocusedPaneOpacity else { return nil }
+            if op >= 0.0 && op <= 1.0 { return op }
+            config.warnings.append(
+                "unfocusedPaneOpacity \(op) is outside 0.0–1.0 — using palette-safe default")
+            return nil
+        }()
+        let bgHex = config.theme?.background.hexString ?? "#000000"
+        let fgHex = config.theme?.foreground.hexString ?? "#8A8A8A"
+        config.userPaneOpacity = validUserOp
+        config.unfocusedPaneOpacity = PaneDimming.effectiveOpacity(
+            background: bgHex,
+            foreground: fgHex,
+            userOpacity: validUserOp,
+            warnings: &config.warnings)
         // Sidebar config — fail-soft: bad input keeps the default (true).
         if let s = file.sidebar {
             if let autoReveal = s.autoReveal {
