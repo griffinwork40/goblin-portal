@@ -106,4 +106,24 @@ enum CursorStyle: CaseIterable {
         case underline
         case bar
     }
+
+    /// The canonical spelling to write in a config file — the first token `named(_:)` maps
+    /// back to this case.  Mirrors `Renderer.configName` so the preferences writer can
+    /// derive the correct default from `CursorStyle.default.configName` rather than
+    /// hardcoding a string literal.
+    ///
+    /// Spellings are chosen to be the most human-readable of the several accepted aliases:
+    /// `"block"` is the blinking block (the blink-on case) because that is the most natural
+    /// reading and because users who want blink typically set `"cursor": "block"`.  The steady
+    /// variants use the `"steady-"` prefix for clarity.
+    var configName: String {
+        switch self {
+        case .blinkBlock:      return "block"
+        case .steadyBlock:     return "steady-block"
+        case .blinkBar:        return "bar"
+        case .steadyBar:       return "steady-bar"
+        case .blinkUnderline:  return "underline"
+        case .steadyUnderline: return "steady-underline"
+        }
+    }
 }
