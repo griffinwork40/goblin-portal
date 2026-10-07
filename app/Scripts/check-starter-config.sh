@@ -221,10 +221,35 @@ if let dict = topObject as? [String: Any] {
 }
 
 // -------------------------------------------------------------------------
+// Case 4: The starter must NOT set an explicit unfocusedPaneOpacity value.
+//
+// PaneDimming.swift (PR #163) makes the default palette-aware: it raises the
+// floor for palettes whose undimmed body text is close to Lc 45, and returns
+// 1.0 (no dimming) for classic-repaired whose body text is already below the
+// floor. An explicit 0.7 in the starter config would override that logic via
+// the Case (C) path in PaneDimming.effectiveOpacity, producing a contrast
+// warning on every load for any user who pressed ⌘, under classic-repaired
+// (#160 × #163 interaction). The key must appear only as a comment key
+// (prefixed "// ") in the starter, never as a real value-bearing key.
+// -------------------------------------------------------------------------
+if let dict = topObject as? [String: Any] {
+    let hasExplicitOpacity = dict["unfocusedPaneOpacity"] != nil
+    let ok = !hasExplicitOpacity
+    check("case 4: starter does not set an explicit unfocusedPaneOpacity value",
+          ok, extra: ok ? "" : "found explicit 'unfocusedPaneOpacity' — remove it so PaneDimming.effectiveOpacity computes the palette-aware default")
+    if !ok { failures += 1 }
+} else if parseError == nil {
+    check("case 4: starter does not set an explicit unfocusedPaneOpacity value", false,
+          extra: "top-level JSON value is not an object")
+} else {
+    print("  skip case 4: skipped because case 1 failed")
+}
+
+// -------------------------------------------------------------------------
 // Summary
 // -------------------------------------------------------------------------
 if failures == 0 {
-    print("\nall starter-config cases passed (JSONSerialization, key coverage, type safety)")
+    print("\nall starter-config cases passed (JSONSerialization, key coverage, type safety, no-explicit-opacity)")
 } else {
     print("\n\(failures) starter-config case(s) FAILED")
 }
