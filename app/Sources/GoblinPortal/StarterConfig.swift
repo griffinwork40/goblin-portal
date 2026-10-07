@@ -16,8 +16,29 @@
 /// (`AppDelegate.openConfigFile`); the app never rewrites an existing file. Keep
 /// the values here in step with `AppConfig.defaults()` — that is the source of
 /// truth, this is its annotated copy.
+///
+/// ## Why `#"""..."""#` (a raw string literal)
+///
+/// The padding-uniform and padding-xy comment values show the user example JSON
+/// containing `"padding"` with quotes around the key name. In a plain `"""` literal
+/// `\"` evaluates to a bare `"` at runtime, which produces unescaped quotes inside
+/// the JSON string values and makes JSONSerialization reject the whole file with:
+///   "Badly formed object around line 25, column 28."
+/// The bug is invisible when reading the source (the source escapes look correct);
+/// only the *compiled string* is truth.
+///
+/// A raw string literal (`#"""..."""#`) passes every byte through verbatim — the
+/// Swift compiler performs no escape processing. `\"` in source is `\"` at runtime,
+/// which is exactly the JSON escape sequence for a literal quote inside a string
+/// value. The template is therefore its own ground truth: it compiles to exactly the
+/// bytes the user's editor will show, and those bytes must be valid JSON.
+///
+/// Gate: `app/Scripts/check-starter-config.sh` compiles this file standalone and
+/// feeds `StarterConfig.text` to `JSONSerialization` — a parse of the source is
+/// insufficient because Swift's escape rules make the source and runtime diverge for
+/// `\"` sequences.
 enum StarterConfig {
-    static let text = """
+    static let text = #"""
     {
       "// font": "any installed monospaced family; omit family for SF Mono (the system monospaced face, and the default)",
       "// font.size": "points, 6-48. Default 14. Cmd+ / Cmd- zoom live on top of this and persist; Cmd0 clears the zoom and hands control back to this value.",
@@ -74,5 +95,5 @@ enum StarterConfig {
       }
     }
 
-    """
+    """#
 }
