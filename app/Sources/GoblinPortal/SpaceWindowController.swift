@@ -171,6 +171,9 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
             LiquidGlass.configureWindow(window)
         }
         window.contentViewController = space
+        // That assignment shrinks the window to the split view's 500x500 default (measured
+        // 500x532); restore 1100x680, centred. See `SpaceWindowController+InitialFrame.swift`.
+        Self.applyDefaultFrame(to: window, contentSize: frame.size)
         // Discoverable ⌘B: a button beside the traffic lights, wired to the
         // same responder-chain selector the menu item already used. See
         // `SidebarToggleAccessory.swift`.
