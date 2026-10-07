@@ -35,31 +35,24 @@ one-terminal Goblin Portal still just looks like a terminal.
 **Sidebar.** A file tree that follows the shell's working directory — by asking the
 kernel, not by relying on shell integration, so it cannot be broken by your dotfiles.
 Per-file **git status** badges with directory roll-up and an ambient branch +
-ahead/behind line. Read-only by design: no staging, no commit box, no discard. Double-click
-opens a file in a viewer/editor pane, which is a second document kind sharing the strip.
+ahead/behind line. A **Source Control panel** (stage, unstage, discard, commit, push,
+pull, diff viewer) lives below the file tree (shipped PR #132). Double-click opens a
+file in a viewer/editor pane, which is a second document kind sharing the strip.
 
-**Themes.** `umber` by default — designed and measured for this app rather than ported
-into it, and gated by 560 contrast assertions including falsification cases.
-`classic-repaired`, `afk-dark`, `afk-light` (the light one) and `tokyo-night` are one
+**Themes.** `classic-repaired` by default (was `umber` until 2026-08-20, `Config.swift:265`),
+gated by 560 contrast assertions including falsification cases.
+`umber`, `afk-dark`, `afk-light` (the light one) and `tokyo-night` are one
 config line away, and `classic` installs nothing at all.
 
-**Two emulator cores.** `swiftterm` (default) and `ghostty` are both linked while a probe
-runs; `engine` in config picks which backs a **new** document, so you can open one of each
-in the same window and compare them on the same work. Under `ghostty`, a background tab
-whose command failed shows a red dot and a slow command that succeeded shows a green one
-(OSC 133) — deliberately silent otherwise, because a dot after every `ls` teaches you to
-stop seeing dots.
-
-**Not built:** preferences UI (config is a JSON file) · URL clicking · profiles.
+**Not built:** profiles.
 
 **Partial:** splits (v2 — ⌘⇧\\ splits right, ⌘⇧- splits down, up to 4 panes per tab;
 split state not persisted across launches) · syntax-highlighting in the editor
 (14 languages, regex-based; no tree-sitter, no code intelligence).
 
-**Shell integration ships for both engines.** Under SwiftTerm, set `GOBLIN_PORTAL_INTEGRATION` in
-your shell environment; `shell-integration.zsh` (bundled with the app) sources
-automatically and emits OSC 7 on every `precmd` and OSC 133 A/C/D around commands. Under
-Ghostty, OSC 7 and OSC 133 are handled natively.
+**Shell integration.** Set `GOBLIN_PORTAL_INTEGRATION` in your shell environment;
+`shell-integration.zsh` (bundled with the app) sources automatically and emits
+OSC 7 on every `precmd` and OSC 133 A/C/D around commands.
 
 ## Install
 
@@ -70,7 +63,7 @@ git clone https://github.com/griffinwork40/goblin-portal.git
 cd goblin-portal/app
 ./Scripts/bootstrap-vendor.sh          # once: fetches + patches the vendored emulator
 ./Scripts/make-app-bundle.sh release   # omit "release" for a debug build
-open build/GoblinPortal.app
+open "build/Goblin Portal.app"
 ```
 
 `bootstrap-vendor.sh` exists because `vendor/SwiftTerm` is gitignored: it clones the pinned
@@ -82,14 +75,14 @@ use — Dock icon, Spotlight, behaves like an app rather than a stray process.
 
 First stop after launching is **⌘,**, which writes a commented starter config to
 `~/.config/goblin-portal/config.json` and opens it. **⌘R** reloads it live. The full field
-reference — font, cursor, scrollback, shell, theme, renderer, engine — is in
+reference — font, cursor, scrollback, shell, theme, renderer — is in
 [`app/README.md`](app/README.md).
 
 > **A downloaded build is ad-hoc signed, and Gatekeeper will refuse it.** There is no paid
 > Developer ID behind this project, so a release binary is not notarised. If you download
 > one rather than building it yourself:
 > ```sh
-> xattr -dr com.apple.quarantine /Applications/GoblinPortal.app
+> xattr -dr com.apple.quarantine "/Applications/Goblin Portal.app"
 > ```
 > A bundle you built locally is not quarantined and needs nothing.
 
@@ -111,13 +104,12 @@ reference — font, cursor, scrollback, shell, theme, renderer, engine — is in
 | `.afk/` | Plans and research — the reasoning behind the structural decisions, kept in the repo on purpose. `.afk/plans/native-swift-terminal-afk-host.md` is the plan of record. |
 
 There is no `.xcodeproj` — first-party source stays all text, so it is diffable and
-scriptable. That rule now has one documented exception: the libghostty dependency is a
-prebuilt 51.8 MB binary framework, which is a real loss of auditability rather than a
-clarification of the rule. `AFK.md` argues both sides.
+scriptable. Everything in `app/Sources/GoblinPortal/` is readable, greppable, and under
+the 350-LOC ceiling. `AFK.md` has the full architecture note.
 
 ## Verification
 
-**There is no test target and no CI.** Verification is 19 `check-*.sh` scripts plus
+**There is no test target and no CI.** Verification is 39 `check-*.sh` scripts plus
 `verify-vendor.sh`, each of which compiles a shipped source file standalone and runs a
 truth table against it. That is an unusual choice and it is deliberate: with no test target,
 correctness depends on a reader holding a whole file in context, which is also why the
@@ -165,9 +157,9 @@ test.
 
 MIT — see [`LICENSE`](LICENSE).
 
-Goblin Portal vendors and links MIT-licensed work by others: [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)
-(Miguel de Icaza and the xterm.js authors) and [Ghostty](https://github.com/ghostty-org/ghostty)
-(Mitchell Hashimoto), via [libghostty-spm](https://github.com/Lakr233/libghostty-spm). Two of
-the shipped colour palettes are ports of other people's published themes. Full attribution,
-including which dependencies are resolved but *not* shipped and how that was verified, is in
-[`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
+Goblin Portal vendors MIT-licensed work by others: [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)
+(Miguel de Icaza and the xterm.js authors). [Ghostty](https://github.com/ghostty-org/ghostty)
+(Mitchell Hashimoto) was linked as `libghostty-spm` during a probe phase and is no longer linked
+(removed PR #95). Two of the shipped colour palettes are ports of other people's published themes.
+Full attribution, including which dependencies are resolved but *not* shipped and how that was
+verified, is in [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
