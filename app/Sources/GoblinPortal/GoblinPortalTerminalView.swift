@@ -267,6 +267,26 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
         return true
     }
 
+    // MARK: - Menu validation
+
+    /// Override SwiftTerm's whitelist to also enable `clearBuffer:`.
+    ///
+    /// `MacTerminalView.validateUserInterfaceItem` (MacTerminalView.swift:2144) is `open` and
+    /// its `default:` branch returns `false`, which would grey out `clearBuffer:` even when a
+    /// terminal is first responder — the exact hazard documented in AFK.md ("WhitelistHazard").
+    /// Overriding here (in the class body, not an extension) is the required seam: Swift allows
+    /// extension overrides only for `@objc dynamic` members, and this is neither.
+    ///
+    /// Contract: return `true` for `clearBuffer:`, delegate everything else to `super` so that
+    /// copy/paste/find validation (already correct in SwiftTerm) is completely unaffected.
+    /// A blanket `validateMenuItem` override is explicitly avoided — AppKit prefers it over
+    /// `validateUserInterfaceItem` for menu items and would hijack copy/paste/find; this is why
+    /// the override is here, not in a `validateMenuItem` on the view or on TerminalPane.
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(clearBuffer(_:)) { return true }
+        return super.validateUserInterfaceItem(item)
+    }
+
     /// Event monitor handle for smooth scroll interception -- see
     /// `GoblinPortalTerminalView+SmoothScroll.swift` for the wiring and its `@objc` overrides.
     var scrollMonitor: Any?
