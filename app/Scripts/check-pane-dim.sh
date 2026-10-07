@@ -107,6 +107,19 @@ elif [[ $status -ne 0 ]]; then
     echo "$out" | grep -E '^(FAIL|  -)'
 fi
 
+# CONSUMER GUARD. The harness measures PaneDimming; it cannot link the AppKit code that
+# must CALL it. Both call sites are asserted structurally, comments stripped first so a
+# comment naming the function cannot satisfy the grep (the blind spot check-theme-
+# contrast.sh's preset grep had): load computes the value, and a light/dark flip of an
+# "auto" theme must recompute it for the new palette (review of ce34a6a2 found it did not).
+SRC="Sources/GoblinPortal"
+for consumer in "$SRC/Config+Load.swift" "$SRC/AppearanceObserver.swift"; do
+    if ! sed 's://.*$::' "$consumer" | grep -q 'PaneDimming\.effectiveOpacity('; then
+        echo "FAIL consumer guard: $consumer no longer calls PaneDimming.effectiveOpacity(" >&2
+        status=1
+    fi
+done
+
 if [[ $status -eq 0 ]]; then
     say "check-pane-dim: ALL-OK"
 else

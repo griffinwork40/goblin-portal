@@ -200,11 +200,16 @@ struct AppConfig {
     /// rationale and the parsing details (accepted forms, validation, fail-soft contract).
     /// Default (4, 4) — see `defaults()`.
     var terminalPadding: (x: CGFloat, y: CGFloat)
-    /// Alpha applied to the unfocused pane in a split. Default 0.7 — the unfocused
-    /// pane stays readable but the focused one clearly wins. 1.0 = no dimming.
-    /// Clamped to 0.0–1.0 on load; out-of-range values degrade to the default with a warning.
+    /// Alpha applied to the unfocused pane in a split. When the user sets none, this is
+    /// the palette-safe value `PaneDimming.effectiveOpacity` derives (0.7 unless that
+    /// would push body text under Lc 45; 1.0 for `classic-repaired`). 1.0 = no dimming.
+    /// Out-of-range values degrade to that default with a warning.
     /// Affects the ENTIRE pane view (terminal chrome included), not just the text surface.
     var unfocusedPaneOpacity: Double
+    /// The in-range `unfocusedPaneOpacity` the user wrote, or nil. Kept apart from the
+    /// effective value so a runtime palette switch (`AppearanceObserver`) can recompute
+    /// the default for the NEW palette without overriding an explicit choice.
+    var userPaneOpacity: Double? = nil
     /// When true, switching to a `FileViewerPane` document scrolls to and selects
     /// its file in the sidebar tree — without stealing keyboard focus from the editor.
     /// Default: true. Configured via `"sidebar": { "autoReveal": true }`.

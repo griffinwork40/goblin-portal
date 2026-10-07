@@ -146,6 +146,7 @@ extension AppConfig {
         }()
         let bgHex = config.theme?.background.hexString ?? "#000000"
         let fgHex = config.theme?.foreground.hexString ?? "#8A8A8A"
+        config.userPaneOpacity = validUserOp
         config.unfocusedPaneOpacity = PaneDimming.effectiveOpacity(
             background: bgHex,
             foreground: fgHex,
