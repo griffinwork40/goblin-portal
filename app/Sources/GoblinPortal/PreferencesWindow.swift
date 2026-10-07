@@ -10,6 +10,18 @@
 //  and PreferencesWindow+Layout.swift (form construction, helpers) keeps
 //  both files under the 350-LOC ceiling.
 //
+//  SEED DEFAULTS: every control is seeded from the canonical single source of truth —
+//  `Renderer.default.configName`, `CursorStyle.default.configName`, and
+//  `PreferencesSeed.defaultThemePreset` — rather than hardcoded literals.  The old code
+//  used `?? "coretext"` and `?? "block"`, which silently downgraded a fresh config on
+//  every Apply because `Renderer.default` is `.metal` and `CursorStyle.default` is
+//  `.steadyBlock`.
+//
+//  WRITE ONLY CHANGED KEYS: `saveValues` now calls `PreferencesDiff.changedKeys(from:to:)`
+//  and writes only the keys whose value actually changed.  The old code wrote ALL managed
+//  keys whenever ANY key changed, so a user who changed only font size got renderer,
+//  cursor, and theme injected into their config.json.
+//
 
 import AppKit
 
@@ -37,6 +49,9 @@ final class PreferencesWindow: NSWindowController {
     let themePresets: [String] = ["auto"] + ThemePalette.all.map(\.name) + ["classic"]
 
     // Config-file spellings that CursorStyle.named(_:) accepts as canonical.
+    // Must stay in sync with CursorStyle.configName — the gate
+    // (check-preferences-apply.sh) asserts that the seeded default comes from
+    // CursorStyle.default.configName, which is one of these six.
     let cursorStyleKeys: [String] = [
         "block", "steady-block",
         "bar", "steady-bar",
@@ -70,6 +85,12 @@ final class PreferencesWindow: NSWindowController {
     ///
     /// Uses JSONSerialization (not ConfigFile.decode) so unknown keys that the
     /// user added by hand are preserved when we write back — see `saveValues`.
+    ///
+    /// KEY SEEDING: every absent key falls back to the real app default via
+    /// `PreferencesSeed.*` rather than a literal.  This matters because the
+    /// preferences popup must show the value the app would actually use, not a
+    /// stale guess — and hitting Apply after seeing "coretext" must not write
+    /// "coretext" if the real default is "metal".
     func loadCurrentValues() {
         let dict = rawConfigDict() ?? [:]
 
@@ -92,57 +113,96 @@ final class PreferencesWindow: NSWindowController {
                    ?? AppConfig.defaultFontSize
         fontSizeField.stringValue = "\(Int(size))"
 
-        // Theme
-        let preset = (dict["theme"] as? [String: Any])?["preset"] as? String ?? "classic-repaired"
-        let themeTitle = themePresets.contains(preset) ? preset : "classic-repaired"
+        // Theme — absent key seeds from PreferencesSeed.defaultThemePreset
+        // (ThemePalette.classicRepaired.name), NOT from a literal "classic-repaired".
+        let preset = (dict["theme"] as? [String: Any])?["preset"] as? String
+                     ?? PreferencesSeed.defaultThemePreset
+        let themeTitle = themePresets.contains(preset) ? preset : PreferencesSeed.defaultThemePreset
         themePopup.selectItem(withTitle: themeTitle)
 
-        // Cursor
-        let cursorRaw = dict["cursor"] as? String ?? "block"
-        // Normalise to a canonical key; fall back to "block" if unrecognised.
-        let cursorTitle = cursorStyleKeys.contains(cursorRaw) ? cursorRaw : "block"
+        // Cursor — absent key seeds from CursorStyle.default.configName ("steady-block"),
+        // NOT from the literal "block" which maps to the BLINKING block cursor.
+        let cursorRaw = dict["cursor"] as? String ?? PreferencesSeed.defaultCursorName
+        let cursorTitle = cursorStyleKeys.contains(cursorRaw) ? cursorRaw
+                          : PreferencesSeed.defaultCursorName
         cursorPopup.selectItem(withTitle: cursorTitle)
 
         // Scrollback
-        let scrollback = dict["scrollback"] as? Int ?? 1_000
+        let scrollback = dict["scrollback"] as? Int ?? PreferencesSeed.defaultScrollback
         scrollbackField.integerValue = scrollback
 
         // Checkboxes
-        let optMeta = dict["optionAsMeta"] as? Bool ?? true
+        let optMeta = dict["optionAsMeta"] as? Bool ?? PreferencesSeed.defaultOptionAsMeta
         optionAsMetaCheck.state = optMeta ? .on : .off
 
-        let thicken = dict["fontThicken"] as? Bool ?? false
+        let thicken = dict["fontThicken"] as? Bool ?? PreferencesSeed.defaultFontThicken
         fontThickenCheck.state = thicken ? .on : .off
 
-        // Renderer
-        let rendRaw = dict["renderer"] as? String ?? "coretext"
-        let rendTitle: String
-        switch rendRaw.lowercased() {
-        case "metal", "gpu": rendTitle = "metal"
-        default:             rendTitle = "coretext"
-        }
+        // Renderer — absent key seeds from Renderer.default.configName ("metal"),
+        // NOT from the literal "coretext".  The old literal silently downgraded every
+        // fresh config because Renderer.default is .metal (check-metal-throughput.sh
+        // measures Metal no worse than CoreText by more than 35%).
+        let rendRaw = dict["renderer"] as? String ?? PreferencesSeed.defaultRendererName
+        let rendTitle = Renderer.named(rendRaw)?.configName ?? PreferencesSeed.defaultRendererName
         rendererPopup.selectItem(withTitle: rendTitle)
     }
 
     // MARK: - Save
 
-    /// Write changed fields back into config.json, then trigger a live reload.
+    /// Write ONLY the changed fields back into config.json, then trigger a live reload.
     ///
-    /// Option 1 + Option 2 from issue #71:
-    ///   • Skip the write entirely when nothing the user controls has changed.
-    ///     This prevents both an unnecessary reloadConfig call AND any risk of
-    ///     disturbing the comment-key ordering in the starter template.
-    ///   • When a real change IS made, strip comment-keys before writing so the
-    ///     round-trip through JSONSerialization (which uses .sortedKeys) never
-    ///     scrambles the "// key" grouping again.  The starter template's comments
-    ///     have served their purpose once the user has opened this window and saved.
+    /// The old code wrote all managed keys whenever any key changed, so a user who only
+    /// changed font size got renderer, cursor, and theme added to config.json.  This
+    /// version uses `PreferencesDiff.changedKeys(from:to:)` to find exactly which keys
+    /// differ, builds partial sub-dicts for those keys, and merges them into the existing
+    /// dict — leaving every other key (including user-added unknown keys and comment-keys)
+    /// untouched.
+    ///
+    /// Early-return cases:
+    ///   • If the changed-key set is empty, nothing is written (file and mtime are intact).
+    ///   • Comment-keys (`"// ..."`) are stripped before writing, same as before, because
+    ///     JSONSerialization's .sortedKeys ordering would scramble them anyway.
     @objc func saveValues() {
         let existing = rawConfigDict() ?? [:]
 
-        // Build the new dict from control state.
-        var newDict = existing
+        // Build the full proposed dict (used for diffing, not for writing directly).
+        var proposed = buildProposedDict(from: existing)
 
-        // Font
+        // Find exactly which top-level keys changed.
+        let changed = PreferencesDiff.changedKeys(from: existing, to: proposed)
+        guard !changed.isEmpty else { return }
+
+        // Merge only the changed keys into the existing dict, so unrelated keys survive.
+        var merged = existing
+        for key in changed {
+            if let value = proposed[key] {
+                merged[key] = value
+            } else {
+                merged.removeValue(forKey: key)
+            }
+        }
+
+        // Strip comment-keys before serialising: they only make sense in the
+        // hand-formatted starter template; once we re-write the file as
+        // pretty-printed JSON the sorted ordering would scramble them anyway.
+        let clean = merged.filter { !$0.key.hasPrefix("//") }
+        writeConfigDict(clean)
+
+        // Apply immediately — same path as ⌘R.
+        if let delegate = NSApp.delegate as? AppDelegate {
+            delegate.reloadConfig(nil)
+        }
+    }
+
+    /// Construct the proposed full dict from the current control state.
+    ///
+    /// This always builds the complete picture so `PreferencesDiff.changedKeys` can
+    /// compare it against the existing file.  Only keys in the changed set are ever
+    /// written to disk; everything else is discarded after the diff.
+    private func buildProposedDict(from existing: [String: Any]) -> [String: Any] {
+        var d = existing
+
+        // Font — merge into existing font sub-dict to preserve any user-added font keys.
         var fontDict = existing["font"] as? [String: Any] ?? [:]
         let selectedFamily = fontFamilyPopup.titleOfSelectedItem ?? ""
         if selectedFamily.isEmpty || selectedFamily.hasPrefix("SF Mono") {
@@ -155,109 +215,42 @@ final class PreferencesWindow: NSWindowController {
            sizeVal >= AppConfig.minFontSize && sizeVal <= AppConfig.maxFontSize {
             fontDict["size"] = sizeVal
         }
-        if fontDict.isEmpty { newDict.removeValue(forKey: "font") }
-        else { newDict["font"] = fontDict }
+        if fontDict.isEmpty { d.removeValue(forKey: "font") }
+        else { d["font"] = fontDict }
 
         // Theme
         var themeDict = existing["theme"] as? [String: Any] ?? [:]
-        let themeSelected = themePopup.titleOfSelectedItem ?? "classic-repaired"
+        let themeSelected = themePopup.titleOfSelectedItem ?? PreferencesSeed.defaultThemePreset
         themeDict["preset"] = themeSelected
-        // When the preset is "auto", the theme block also holds "dark" and "light"
-        // sub-keys that name which palette to install per system appearance. These are
-        // not surfaced as controls in this window (the popup only sets the preset), so
-        // they must be carried forward from whatever is already on disk — otherwise a
-        // round-trip through Apply silently discards the user's per-appearance choices.
-        if themeSelected == "auto", let existing = existing["theme"] as? [String: Any] {
-            if let dark  = existing["dark"]  { themeDict["dark"]  = dark  }
-            if let light = existing["light"] { themeDict["light"] = light }
+        // When the preset is "auto", carry forward the dark/light sub-keys that name
+        // which palette to install per system appearance — they are not surfaced as
+        // controls in this window, so a round-trip through Apply must not discard them.
+        if themeSelected == "auto", let ex = existing["theme"] as? [String: Any] {
+            if let dark  = ex["dark"]  { themeDict["dark"]  = dark  }
+            if let light = ex["light"] { themeDict["light"] = light }
         } else {
             themeDict.removeValue(forKey: "dark")
             themeDict.removeValue(forKey: "light")
         }
-        newDict["theme"] = themeDict
+        d["theme"] = themeDict
 
-        // Cursor
-        newDict["cursor"] = cursorPopup.titleOfSelectedItem ?? "block"
+        // Cursor — use the canonical config name from the popup selection.
+        // No literal fallback: the popup is seeded from cursorStyleKeys which are all
+        // valid CursorStyle.configName values, so titleOfSelectedItem is always one of them.
+        d["cursor"] = cursorPopup.titleOfSelectedItem ?? PreferencesSeed.defaultCursorName
 
         // Scrollback
         let sb = scrollbackField.integerValue
-        if sb >= 0 { newDict["scrollback"] = sb }
+        if sb >= 0 { d["scrollback"] = sb }
 
         // Booleans
-        newDict["optionAsMeta"] = optionAsMetaCheck.state == .on
-        newDict["fontThicken"]  = fontThickenCheck.state  == .on
+        d["optionAsMeta"] = optionAsMetaCheck.state == .on
+        d["fontThicken"]  = fontThickenCheck.state  == .on
 
-        // Renderer
-        newDict["renderer"] = rendererPopup.titleOfSelectedItem ?? "coretext"
+        // Renderer — use the canonical config name; no literal fallback.
+        d["renderer"] = rendererPopup.titleOfSelectedItem ?? PreferencesSeed.defaultRendererName
 
-        // Skip the write if nothing the Preferences window controls has changed.
-        // This leaves the on-disk file (including comment-key ordering) untouched
-        // when the user opens the panel and closes it without changing anything.
-        guard prefsValuesChanged(from: existing, to: newDict) else { return }
-
-        // Strip comment-keys before serialising: they only make sense in the
-        // hand-formatted starter template; once we re-write the file as
-        // pretty-printed JSON the sorted ordering would scramble them anyway.
-        let clean = newDict.filter { !$0.key.hasPrefix("//") }
-        writeConfigDict(clean)
-
-        // Apply immediately — same path as ⌘R.
-        if let delegate = NSApp.delegate as? AppDelegate {
-            delegate.reloadConfig(nil)
-        }
-    }
-
-    /// Returns true when any Preferences-controlled value differs between the two dicts.
-    ///
-    /// Compares only the keys this window manages.  Unknown user-added keys are
-    /// intentionally ignored so they do not accidentally block a real save.
-    private func prefsValuesChanged(
-        from old: [String: Any],
-        to new: [String: Any]
-    ) -> Bool {
-        // Font family
-        var oldFamily = (old["font"] as? [String: Any])?["family"] as? String ?? ""
-        if oldFamily.isEmpty || oldFamily.hasPrefix("SF Mono") { oldFamily = "" }
-        var newFamily = (new["font"] as? [String: Any])?["family"] as? String ?? ""
-        if newFamily.isEmpty || newFamily.hasPrefix("SF Mono") { newFamily = "" }
-        if oldFamily != newFamily { return true }
-
-        // Font size
-        let oldSize = (old["font"] as? [String: Any])?["size"] as? Double ?? AppConfig.defaultFontSize
-        let newSize = (new["font"] as? [String: Any])?["size"] as? Double ?? AppConfig.defaultFontSize
-        if oldSize != newSize { return true }
-
-        // Theme preset
-        let oldPreset = (old["theme"] as? [String: Any])?["preset"] as? String ?? "classic-repaired"
-        let newPreset = (new["theme"] as? [String: Any])?["preset"] as? String ?? ""
-        if oldPreset != newPreset { return true }
-
-        // Cursor
-        let oldCursor = old["cursor"] as? String ?? ""
-        let newCursor = new["cursor"] as? String ?? ""
-        if oldCursor != newCursor { return true }
-
-        // Scrollback
-        let oldScroll = old["scrollback"] as? Int ?? AppConfig.defaults().scrollback
-        let newScroll = new["scrollback"] as? Int ?? AppConfig.defaults().scrollback
-        if oldScroll != newScroll { return true }
-
-        // optionAsMeta
-        let oldMeta = old["optionAsMeta"] as? Bool ?? true
-        let newMeta = new["optionAsMeta"] as? Bool ?? true
-        if oldMeta != newMeta { return true }
-
-        // fontThicken
-        let oldThicken = old["fontThicken"] as? Bool ?? false
-        let newThicken = new["fontThicken"] as? Bool ?? false
-        if oldThicken != newThicken { return true }
-
-        // Renderer
-        let oldRenderer = old["renderer"] as? String ?? ""
-        let newRenderer = new["renderer"] as? String ?? ""
-        if oldRenderer != newRenderer { return true }
-
-        return false
+        return d
     }
 
     /// Open config.json in the system editor — the power-user escape hatch.
