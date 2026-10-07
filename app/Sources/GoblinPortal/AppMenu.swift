@@ -46,6 +46,26 @@ extension AppDelegate {
         appMenu.addItem(withTitle: "Reload Config", action: #selector(reloadConfig(_:)), keyEquivalent: "r")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        // Hide Others (⌥⌘H) — safe: MacLineEditing.controlBytes requires `intent ==
+        // [.command]` exactly, so ⌥ keeps it off the pty. Show All has no chord.
+        let hideOthersItem = NSMenuItem(
+            title: "Hide Others",
+            action: #selector(NSApplication.hideOtherApplications(_:)),
+            keyEquivalent: "h")
+        hideOthersItem.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(hideOthersItem)
+        appMenu.addItem(withTitle: "Show All",
+                        action: #selector(NSApplication.unhideAllApplications(_:)),
+                        keyEquivalent: "")
+        appMenu.addItem(.separator())
+        // Services — NSApp.servicesMenu is the system hook the OS fills at launch from
+        // installed apps' service plist entries. Without this assignment the menu is absent.
+        let servicesMenu = NSMenu(title: "Services")
+        let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+        servicesItem.submenu = servicesMenu
+        appMenu.addItem(servicesItem)
+        NSApp.servicesMenu = servicesMenu
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
@@ -203,10 +223,8 @@ extension AppDelegate {
         runItem.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(runItem)
         editMenu.addItem(.separator())
-        // Code folding — indent-based, no AST. ⌘⌥[ collapses the block at the cursor;
-        // ⌘⌥] expands it. Target is nil so AppKit walks the responder chain to the
-        // focused FileViewerPane (which answers `foldAtCursor:` / `unfoldAtCursor:`);
-        // items grey out automatically when a terminal is front.
+        // Code folding — indent-based. ⌘⌥[ collapses, ⌘⌥] expands. Nil target walks
+        // the chain to FileViewerPane; greys out automatically over a terminal.
         let foldItem = NSMenuItem(
             title: "Fold Block",
             action: Selector(("foldAtCursor:")), keyEquivalent: "[")
@@ -217,6 +235,15 @@ extension AppDelegate {
             action: Selector(("unfoldAtCursor:")), keyEquivalent: "]")
         unfoldItem.keyEquivalentModifierMask = [.command, .option]
         editMenu.addItem(unfoldItem)
+        editMenu.addItem(.separator())
+        // Clear Buffer (⌘K) — erase the terminal screen AND scrollback (iTerm2 parity).
+        // Action on GoblinPortalTerminalView, which IS in the responder chain (TerminalPane
+        // is not); see GoblinPortalTerminalView+Clear.swift. Greys out automatically over a
+        // file editor (no view in that chain answers clearBuffer:). ⌘K is free: KeyBindings
+        // maps only backspace/delete/arrows; MacTerminalView has no ⌘K handler (:1986).
+        editMenu.addItem(withTitle: "Clear Buffer",
+                         action: Selector(("clearBuffer:")),
+                         keyEquivalent: "k")
 
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
@@ -224,13 +251,9 @@ extension AppDelegate {
         // View menu
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
-        // Shown as ⌘+ because that is what people read, but a key equivalent of
-        // "+" only matches the literal plus glyph — i.e. ⌘⇧=. Pressing ⌘= (what
-        // everyone actually does, and what every other app honours) matched
-        // nothing in v0.1, so zoom appeared not to work at all. Verified with a
-        // performKeyEquivalent harness: a HIDDEN item still matches its key
-        // equivalent, which is the standard way to register the ⌘= alias without
-        // showing a duplicate row in the menu.
+        // Shown as ⌘+, but "+" only matches ⌘⇧= (the glyph). ⌘= (what everyone
+        // types) matched nothing until a hidden alias was added — a HIDDEN item
+        // still matches its equivalent, and this registers both without a duplicate row.
         viewMenu.addItem(withTitle: "Bigger Font", action: #selector(biggerFont(_:)), keyEquivalent: "+")
         let plusAlias = NSMenuItem(
             title: "Bigger Font", action: #selector(biggerFont(_:)), keyEquivalent: "=")
@@ -239,38 +262,30 @@ extension AppDelegate {
         viewMenu.addItem(withTitle: "Smaller Font", action: #selector(smallerFont(_:)), keyEquivalent: "-")
         viewMenu.addItem(withTitle: "Actual Size", action: #selector(resetFont(_:)), keyEquivalent: "0")
         viewMenu.addItem(.separator())
-        // ⌃⌘F, not ⌘F. ⌘F belonged to full screen until scrollback search existed,
-        // and ⌘F is search's key everywhere on this platform — so full screen moves
-        // rather than search taking a non-standard chord. ⌃⌘F is also what macOS
-        // itself uses (System Settings › Keyboard › Shortcuts), so this is a
-        // correction to the platform default, not a compromise.
+        // ⌃⌘F: ⌘F moved to search (the platform default for find), so full screen
+        // moved to ⌃⌘F — what macOS itself uses for the same action.
         let fullScreenItem = NSMenuItem(
             title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)),
             keyEquivalent: "f")
         fullScreenItem.keyEquivalentModifierMask = [.control, .command]
         viewMenu.addItem(fullScreenItem)
         viewMenu.addItem(.separator())
-        // Word Wrap toggle. No key equivalent — ⌘⇧W is Close Space. The menu
-        // item's state (checkmark) is managed by `validateUserInterfaceItem`; the
-        // action is answered by `AppDelegate.toggleWordWrap(_:)` or routed to the
-        // focused document through the responder chain.
+        // Word Wrap toggle. No chord (⌘⇧W is Close Space). Checkmark managed by
+        // validateUserInterfaceItem; action routed through the responder chain.
         viewMenu.addItem(
             withTitle: "Word Wrap",
             action: Selector(("toggleWordWrap:")), keyEquivalent: "")
         viewMenu.addItem(.separator())
-        // No custom action and no target: the responder chain reaches
-        // SpaceViewController, which is the window's contentViewController and
-        // inherits toggleSidebar(_:) from NSSplitViewController. Using the system
-        // selector also gets the correct menu-item state and the collapse animation.
+        // nil target → responder chain reaches SpaceViewController (contentViewController),
+        // which inherits toggleSidebar(_:) from NSSplitViewController. System selector
+        // gives correct menu-item state and the collapse animation for free.
         viewMenu.addItem(
             withTitle: "Toggle Sidebar",
             action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "b")
         viewMenu.addItem(.separator())
-        // Splits — tmux-inspired: ⌘⇧\ (pipe) splits right, ⌘⇧- splits down.
-        // Target is nil so AppKit walks the responder chain to
-        // `splitHorizontal:`/`splitVertical:` on SpaceViewController; greyed out
-        // by `validateUserInterfaceItem` when inappropriate (no terminal or already
-        // split).
+        // Splits — tmux-inspired: ⌘⇧\ splits right, ⌘⇧- splits down. Nil target
+        // walks the chain to splitHorizontal:/splitVertical: on SpaceViewController;
+        // validateUserInterfaceItem greys them out when inappropriate.
         let splitItem = NSMenuItem(
             title: "Split Right",
             action: Selector(("splitHorizontal:")), keyEquivalent: "\\")
@@ -312,15 +327,11 @@ extension AppDelegate {
         buildNavigateMenu(in: mainMenu)
         Self.addSourceControlMenu(to: mainMenu)
 
-        // Window menu — giving it the standard role is what makes the native tab
-        // commands (Show All Tabs, Move Tab to New Window, …) appear.
-        let windowItem = NSMenuItem()
-        let windowMenu = NSMenu(title: "Window")
-        windowItem.submenu = windowMenu
-        mainMenu.addItem(windowItem)
+        // Window + Help — extracted to AppMenu+Window.swift (ceiling). Also registers
+        // NSApp.windowsMenu (native tab commands) and NSApp.helpMenu (Spotlight field).
+        buildWindowAndHelpMenus(in: mainMenu)
 
         NSApp.mainMenu = mainMenu
-        NSApp.windowsMenu = windowMenu
     }
 
     /// Arrow keys as a menu key equivalent: AppKit expresses them as function-key
