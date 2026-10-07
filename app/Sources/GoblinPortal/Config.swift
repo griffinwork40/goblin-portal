@@ -286,13 +286,22 @@ struct AppConfig {
             showTrailingWhitespace: true,
             stickyScroll: true,
             terminalPadding: (x: 4, y: 4),
-            // 0.7 is a perceptually comfortable default: the unfocused pane stays
-            // readable but the focused one clearly wins, without the jarring contrast
-            // that values below ~0.5 produce. Users who want no dimming can set 1.0
-            // explicitly in config.json. The 150ms ease-in-out animation in
-            // SplitContainerView.setFocusedChild is elided when opacity == 1.0, so
-            // moving to the default-on direction requires that path remains active.
-            unfocusedPaneOpacity: 0.7,
+            // Derived from the default palette rather than hardcoded. `PaneDimming.swift`
+            // explains the full argument: `NSView.alphaValue` composites the pane layer
+            // over the terminal background, so a flat 0.7 drops classic-repaired's
+            // fg #8A8A8A from Lc 39.6 to Lc 20.8 — far below the app's own Lc 45 floor.
+            // `effectiveOpacity` returns 1.0 (no dimming) for classic-repaired's pinned
+            // case, and the largest opacity ≤ 0.7 that still clears Lc 45 for all other
+            // palettes. Users who want a different value can set `unfocusedPaneOpacity`
+            // in config.json; their choice is honoured with a warning if it breaks the floor.
+            unfocusedPaneOpacity: {
+                var w: [String] = []
+                return PaneDimming.effectiveOpacity(
+                    background: ThemePalette.classicRepaired.background,
+                    foreground: ThemePalette.classicRepaired.foreground,
+                    userOpacity: nil,
+                    warnings: &w)
+            }(),
             sidebarAutoReveal: true
         )
     }
