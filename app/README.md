@@ -48,7 +48,6 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-metal-renderer.sh # does the GPU renderer actually ship AND come up? — offscreen GUI
 ./Scripts/check-render-parity.sh  # do Core Text and Metal draw the same pixels? (incl. emoji, patch 0012) — offscreen GUI
 ./Scripts/check-renderer-config.sh # does a `renderer` string reach the renderer it names? — fast, headless
-./Scripts/check-engine-config.sh  # does an `engine` string reach the emulator core it names? — fast, headless
 ./Scripts/check-light-theme.sh   # are the palettes well-formed, and is `afk-light` light enough to flip the chrome? — fast, headless
 ./Scripts/check-pane-teardown.sh  # does closing a document free its surface and kill its shell? — offscreen GUI
 ./Scripts/check-find-menu.sh     # do Undo/Redo/Find-and-Replace actually reach anything?
@@ -67,9 +66,9 @@ cannot resolve the path dependency. A **re-vendored but unpatched** tree failed
 following the recreation steps below and forgetting the patch produced a green build
 against a different dependency than the tested one. Nothing in git recorded otherwise —
 `vendor/` is gitignored, `vendor/SwiftTerm` is not a git repo, and `Package.swift`'s path
-dependency is unpinned. `Package.resolved` **is** committed as of the libghostty pin, but
-it changes nothing here: SwiftPM writes no pin entry for a local path dependency, so that
-file records the three remote packages and stays silent about the vendored one. Exit
+dependency is unpinned. `Package.resolved` is committed (the `!app/Package.resolved`
+negation in `.gitignore`), but SwiftPM writes no pin entry for a local path dependency,
+so that file stays silent about the vendored one. Exit
 codes: `2` = present but unpatched, `3` = unknown revision, `1` = missing vendor or
 missing pin.
 
@@ -226,7 +225,7 @@ exactly the machines where the other half cannot run. It asserts all thirteen ac
 spellings, that unknown values and a trailing space map to `nil` (which is what lets
 `AppConfig.load()` warn and degrade instead of silently switching renderer), that `configName`
 round-trips for every case — driven off `allCases`, so adding a case cannot leave the assertion
-behind — and that the default is still `coretext`. It was validated by falsification like its
+behind — and that the default is `metal`. It was validated by falsification like its
 siblings: breaking one alias, flipping the default, and making unknown values resolve each make
 it fail with the specific case named.
 
@@ -295,18 +294,16 @@ not already have in mind; the one they pick tends to exercise the assertion they
   send the readline bytes (`^U ^K ^A ^E`) that bash, zsh, fish and afk's own REPL
   all bind to those operations
 - Copy/paste/select-all, window position restored across launches
-- **Umber palette by default.** Installing a theme is safe for the 256-colour cube,
-  though the code comments said otherwise for months: SwiftTerm *would* regenerate
-  indices 16–255 by interpolating bg/fg (`.base16Lab`), but
-  `TerminalPane.apply(config:)` sets `ansi256PaletteStrategy = .xterm` first, so a
-  theme moves 0–15 and the standard cube stays. `classic-repaired` preserves
-  Terminal.app Basic's true black, quiet body text and saturation while repairing
-  its unreadable blue; the other presets remain one config line away
+- **`classic-repaired` palette by default** (was `umber` until 2026-08-20, `Config.swift:265`).
+  Installing a theme is safe for the 256-colour cube: `TerminalPane.apply(config:)` sets
+  `ansi256PaletteStrategy = .xterm` first, so a theme moves 0–15 and the standard cube stays.
+  `classic-repaired` preserves Terminal.app Basic's true black, quiet body text and saturation
+  while repairing its unreadable blue; the other presets remain one config line away
 
 ## Not built yet
 
-Splits. A real app icon. Preferences UI (config is a JSON file). Shell
-integration (OSC 7/133). Search. URL clicking. Profiles.
+Profiles. Undo for file operations. Finder drag-in to the sidebar tree.
+Gutter dirty-diff / inline blame.
 
 ## Configuration
 
@@ -325,12 +322,12 @@ working terminal.
   "cursor": "block",
   "scrollback": 1000,
   "optionAsMeta": true,
-  "renderer": "coretext",
-  "theme": { "preset": "umber" }
+  "renderer": "metal",
+  "theme": { "preset": "classic-repaired" }
 }
 ```
 
-Omit `theme` entirely and you get **umber**, the built-in default since 2026-08-03. `"preset": "classic"` is now the only way to install no colours at all.
+Omit `theme` entirely and you get **`classic-repaired`**, the default as of 2026-08-20 (`Config.swift:265`; was `umber` since 2026-08-03). `"preset": "classic"` is the only way to install no colours at all.
 
 `"preset": "umber"` is the palette designed *for* this app rather than ported into it, and the
 only one here whose claims are measured: a warm umber-black base (every widely-used dark theme
@@ -350,10 +347,9 @@ tooling, and four documented wrong answers are in `.afk/research/theme-design-20
 | `scrollback` | Lines retained, default `1000`. `0` disables it. Raising it is not free: SwiftTerm sizes the scrollbar thumb as `max(rows / lines, 0.01)`, so past ~3,500 lines the thumb sticks at the 1% floor and stops tracking position, and `Buffer.resize` walks every line twice on each window resize (three times until local patch `0004` removed an ungated upstream debug assertion) |
 | `shell` | Defaults to `$SHELL`. Must be executable or it is ignored |
 | `optionAsMeta` | `true` makes Option act as Meta instead of typing accented characters |
-| `renderer` | `coretext` (default) or `metal`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. **Opt-in**, because upstream labels the GPU path experimental and its speedup here is not yet measured. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
-| `engine` | `swiftterm` (default) or `ghostty`. Which terminal core backs a **new** tab. `swiftterm` is the vendored SwiftTerm this app was built on; `ghostty` is libghostty, which is actively maintained and supplies shell integration SwiftTerm structurally cannot — OSC 7 (the shell reports its working directory, so the sidebar follows it without polling the kernel) and OSC 133 (command boundaries and exit status). **Read once, when a tab is created.** Edit it, hit ⌘R, and the next ⌘T uses the new core while the tab in front of you keeps its own — swapping a core under a live shell would discard its scrollback and its process. That is deliberate: it means both cores can run side by side in one window, which is the only honest way to compare them on the same work. **Opt-in**, because the one bug class that matters most here — buffer reflow when a window is narrowed — is gated for SwiftTerm (`check-reflow.sh`) and not yet for libghostty. `renderer` above applies to `swiftterm` only; libghostty draws with its own renderer and ignores it. Accepted spellings, case-insensitive with `_` read as `-`: `swiftterm`/`swift-term`/`swift`/`legacy`, and `ghostty`/`libghostty`/`lib-ghostty`. Anything else is rejected with a warning naming the valid values — `./Scripts/check-engine-config.sh` is the gate for that mapping |
+| `renderer` | `metal` (default, since PR #134, 2026-09-27; was `coretext`) or `coretext`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
 | `smoothScrolling` | `true` (default) or `false`. When `true`, trackpad scroll gestures use pixel-smooth sub-cell offsets with OS-provided momentum — the terminal content drifts naturally after a flick. When `false`, every scroll event goes straight to SwiftTerm's line-by-line handler. Automatically off for alternate-buffer programs (tmux, vim) and when mouse reporting is active, since those programs own the pointer themselves. The state machine is gated by `./Scripts/check-smooth-scroll.sh` |
-| `theme` | **Defaults to `umber`** (changed 2026-08-03; it was previously "install nothing", which measured as the worst palette in the repo — its ANSI 4 blue sat at APCA Lc 16.9, 2.9 points from the `#0000EE` the gate exists to reject). Installing a palette is safe for the 256-colour cube: `TerminalPane.apply(config:)` pins `ansi256PaletteStrategy` to `.xterm` before any colour, so indices 16–255 keep the standard xterm values whatever you set. (Earlier docs here claimed the opposite — that installing a background regenerates 16–255 by interpolating your bg/fg. That describes SwiftTerm's *library default*, which this app has overridden for some time; corrected 2026-08-03.) |
+| `theme` | **Defaults to `classic-repaired`** (changed 2026-08-20, `Config.swift:265`; was `umber` since 2026-08-03; was previously "install nothing", which measured as the worst palette in the repo — its ANSI 4 blue sat at APCA Lc 16.9, 2.9 points from the `#0000EE` the gate exists to reject). Installing a palette is safe for the 256-colour cube: `TerminalPane.apply(config:)` pins `ansi256PaletteStrategy` to `.xterm` before any colour, so indices 16–255 keep the standard xterm values whatever you set. (Earlier docs here claimed the opposite — that installing a background regenerates 16–255 by interpolating your bg/fg. That describes SwiftTerm's *library default*, which this app has overridden for some time; corrected 2026-08-03.) |
 | `theme.preset` | `umber`, **`classic-repaired`**, `afk-dark`, **`afk-light`**, `tokyo-night`, or `classic`. `classic-repaired` keeps classic's true black, quiet body text and saturated ANSI colours while repairing its unreadable blue and collapsed blue/white bright steps; `classic` still means "install nothing". Its 11pt document chrome deliberately uses ANSI white rather than the quiet terminal foreground, and the contrast gate measures that actual seam. `afk-light` is the only light palette. Other fields override the preset; supplying colours without one bases them on `umber`. Unknown names warn and fall back to `umber`. The two theme gates pin the palette/name and light/dark chrome contracts |
 | `theme.ansi` | **Exactly 16** colours, 8 normal then 8 bright. SwiftTerm's `installColors` silently no-ops on any other length, so a wrong count is rejected with a warning instead |
 
