@@ -112,10 +112,13 @@ extension CommandPalette {
         PaletteCommand("Settings…",                   key: "⌘,",     action: #selector(AppDelegate.openConfigFile(_:))),
         PaletteCommand("Reload Config",               key: "⌘R",     action: #selector(AppDelegate.reloadConfig(_:))),
         PaletteCommand("Check for Updates…",                           action: #selector(AppDelegate.checkForUpdates(_:))),
-        // Pre-stubbed for parallel lane adding ⌘K / Clear Buffer as a menu item.
-        // Disabled/no-op until that lane lands; the gate must stay green after both merge.
-        // clearBuffer: is intentionally answered by no responder yet — it will grey out.
+        // String selectors, not #selector: these two are answered by code that lands in the
+        // standard-menus PR (clearBuffer: on GoblinPortalTerminalView, openHelp: on
+        // AppDelegate). Written this way so each PR compiles alone and
+        // check-palette-covers-menu.sh stays green once both merge; until then sendAction
+        // finds no responder and the command is a no-op.
         PaletteCommand("Clear Buffer",                key: "⌘K",     action: Selector(("clearBuffer:"))),
+        PaletteCommand("Goblin Portal Help",                           action: Selector(("openHelp:"))),
     ]
 
     /// Dynamic commands generated at show-time: one entry per open Space, so the
