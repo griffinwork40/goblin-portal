@@ -67,4 +67,24 @@ extension SpaceWindowController {
             contentSize: contentSize, styleMask: window.styleMask, in: screen.visibleFrame)
         window.setFrame(frame, display: false)
     }
+
+    /// Content size `NSSplitViewController` gives a window it was never told to size: the
+    /// exact signature of the bug in the file header (500x532 frame, 500x500 content).
+    static let poisonedContentSize = NSSize(width: 500, height: 500)
+
+    /// Repair a frame the bug SAVED. Every user who launched before the fix has a 500x532
+    /// frame stored under their per-root key, and `setFrameAutosaveName` restores it over
+    /// the fixed default, so without this they stay stuck forever. Matches the exact
+    /// content size only, never "too small": a user who deliberately drags a window to
+    /// some small size keeps it; one who lands on exactly 500x500 content gets the default
+    /// once, a cost judged far below leaving every early installer at 28 columns.
+    /// Call AFTER `setFrameAutosaveName`; re-saves so the repair sticks.
+    static func repairPoisonedSavedFrame(of window: NSWindow, contentSize: NSSize) {
+        let content = window.contentRect(forFrameRect: window.frame).size
+        guard abs(content.width - poisonedContentSize.width) < 0.5,
+              abs(content.height - poisonedContentSize.height) < 0.5 else { return }
+        applyDefaultFrame(to: window, contentSize: contentSize)
+        let name = window.frameAutosaveName
+        if !name.isEmpty { window.saveFrame(usingName: name) }
+    }
 }

@@ -211,6 +211,8 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // for the geometry a project reopens at — not for giving tabs different sizes,
         // which a tab group cannot do anyway.
         window.setFrameAutosaveName(Self.frameAutosaveName(for: root))
+        // A frame the pre-fix bug saved (500x532) is not a user choice; see +InitialFrame.
+        Self.repairPoisonedSavedFrame(of: window, contentSize: frame.size)
     }
 
     required init?(coder: NSCoder) {

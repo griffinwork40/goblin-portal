@@ -164,6 +164,23 @@ MainActor.assumeIsolated {
     else { fail("saved frame NOT restored: expected \(target), got \(w2.frame)") }
     w2.orderOut(nil)
 
+    // ---- CASE 2b: a frame the BUG saved (500x532) is repaired, not restored -----------------
+    print("\n  CASE 2b — poisoned saved frame is repaired")
+    let poison = NSRect(x: vis.minX + 300, y: vis.minY + 40, width: 500, height: 532)
+    UserDefaults.standard.set("\(Int(poison.minX)) \(Int(poison.minY)) 500 532 "
+        + "\(Int(s.minX)) \(Int(s.minY)) \(Int(s.width)) \(Int(s.height)) ", forKey: frameKey(saved))
+    let wc3 = SpaceWindowController(config: .defaults(), root: saved)
+    guard let w3 = wc3.window else { env("third SpaceWindowController produced no window") }
+    wc3.showWindow(nil); pump(0.4)
+    let c3 = w3.contentRect(forFrameRect: w3.frame).size
+    let stored = UserDefaults.standard.string(forKey: frameKey(saved)) ?? ""
+    if (c3.width >= want.width && c3.height >= want.height) || vis.width < 1100 {
+        ok("poisoned frame replaced by default (content \(c3))")
+    } else { fail("poisoned 500x532 frame restored as-is (content \(c3))") }
+    if !stored.contains(" 500 532 ") { ok("repaired frame re-saved (\(stored))") }
+    else { fail("poisoned frame still stored: \(stored)") }
+    w3.orderOut(nil)
+
     // ---- CASE 3: small-screen clamp (pure) -------------------------------------------------
     print("\n  CASE 3 — clamp to visibleFrame")
     let mask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
