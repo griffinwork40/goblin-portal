@@ -171,6 +171,9 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
             LiquidGlass.configureWindow(window)
         }
         window.contentViewController = space
+        // That assignment shrinks the window to the split view's 500x500 default (measured
+        // 500x532); restore 1100x680, centred. See `SpaceWindowController+InitialFrame.swift`.
+        Self.applyDefaultFrame(to: window, contentSize: frame.size)
         // Discoverable ⌘B: a button beside the traffic lights, wired to the
         // same responder-chain selector the menu item already used. See
         // `SidebarToggleAccessory.swift`.
@@ -208,6 +211,8 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // for the geometry a project reopens at — not for giving tabs different sizes,
         // which a tab group cannot do anyway.
         window.setFrameAutosaveName(Self.frameAutosaveName(for: root))
+        // A frame the pre-fix bug saved (500x532) is not a user choice; see +InitialFrame.
+        Self.repairPoisonedSavedFrame(of: window, contentSize: frame.size)
     }
 
     required init?(coder: NSCoder) {
