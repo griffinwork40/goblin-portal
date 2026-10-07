@@ -54,7 +54,9 @@ BFLAGS=(); swift build --help 2>&1 | grep -q -- '--build-system' && BFLAGS=(--bu
 echo "==> building (the harness links Goblin Portal's own objects, so they must be current)"
 if ! swift build "${BFLAGS[@]}" >/dev/null 2>&1; then
   echo "error: swift build failed — fix the build before running this gate." >&2
-  swift build "${BFLAGS[@]}" 2>&1 | grep -E 'error' | head -10 >&2
+  # `|| true`: under `set -eo pipefail` the failing build in this pipeline would end the
+  # script with status 1 before `exit 2`, reporting a broken build as a real failure.
+  swift build "${BFLAGS[@]}" 2>&1 | grep -E 'error' | head -10 >&2 || true
   exit 2
 fi
 
@@ -166,8 +168,10 @@ else
 fi
 
 echo "=== Part A: Contract (headless) ==="
-"$TMP/contract"
-contract_status=$?
+# Captured with `||`, never a bare call: under `set -e` a failing contract would end the
+# script at this line, skipping Part B and its diagnostics.
+contract_status=0
+"$TMP/contract" || contract_status=$?
 [ "$struct_ok" -ne 0 ] && contract_status=1
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -318,7 +322,11 @@ fi
 
 echo
 echo "=== Part B: Resolution + Clear Buffer (offscreen GUI) ==="
-out="$("$TMP/probe" 2>&1)"; probe_status=$?
+# Same `set -e` hazard as Part A: a bare `out="$(probe)"` aborts on a nonzero probe before
+# its output is printed, so a real failure exited 1 with no reason and a crash bypassed the
+# 0/1/2 mapping below (found by falsifying this gate on the integration branch).
+probe_status=0
+out="$("$TMP/probe" 2>&1)" || probe_status=$?
 echo "$out"
 
 echo
