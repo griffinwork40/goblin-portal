@@ -46,8 +46,8 @@ let emojiSlots = [0, 4, 8, 12]
 /// Determinism input: a little of every class at once.
 let mixed = screen(["The quick brown fox {}[]()<>", "┌──┬──┐ █▀▄ 日本語", "\(ESC)[1;4mbold\(ESC)[0m 😀 ✅"])
 
-/// F10: a combining mark after a WIDE char. Buffer is right (`[0:w2 65E5+0301] [1:w0]`), but
-/// both renderers draw the mark over the FOLLOWING narrow cell, not on the CJK glyph.
+/// F10 (fixed by patch 0013, #151): a combining mark after a WIDE char. Buffer is right
+/// (`[0:w2 65E5+0301] [1:w0]`). With 0013 both renderers draw the mark over the CJK glyph.
 let f10 = screen(["日\u{0301}x", "中\u{0308}\u{0301}y"])
 
 /// N5: Metal's `|` paints one pixel line into the next row. Row 1 is left EMPTY on purpose.

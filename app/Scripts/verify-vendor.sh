@@ -1,17 +1,18 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its twelve local patches applied.
+# WITH its thirteen local patches applied.
 #
 # Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
 # fine while silently corrupting scrollback (0002), bleeding stale cells across
 # tmux panes (0003), shipping a release-build abort() (0004), dropping DCS Ptmux
 # sequences (0005), breaking copy/paste (0006, 0007), and painting on a free-running
 # timer that drops every other frame of a 60fps producer (0010), re-asking CoreText
-# about every blank cell on every Metal row rebuild (0011), and drawing colour emoji ~20%
-# small and off-centre under Metal (0012). This script makes that silent case loud. The
-# view-file checks (0006-0012) live in verify-vendor-views.sh. Called first by
-# make-app-bundle.sh.
+# about every blank cell on every Metal row rebuild (0011), drawing colour emoji ~20%
+# small and off-centre under Metal (0012), and misplacing combining marks after wide
+# CJK characters over the next narrow cell (0013). This script makes that silent case
+# loud. The view-file checks (0006-0013) live in verify-vendor-views.sh. Called first
+# by make-app-bundle.sh.
 #
 # Buffer.swift carries 0002/0003/0004 under ONE combined hash — half-patched
 # matches neither and lands in the exit-3 "unknown" branch by design. See the
@@ -50,6 +51,7 @@ PATCH_FEEDSEL="$REPO_ROOT/patches/swiftterm/0007-gate-feedprepare-selection-clea
 PATCH_PACE="$REPO_ROOT/patches/swiftterm/0010-pace-redraws-on-display-link.patch"
 PATCH_GLYPHMISS="$REPO_ROOT/patches/swiftterm/0011-cache-empty-glyphs-and-font-names.patch"
 PATCH_COLORGLYPH="$REPO_ROOT/patches/swiftterm/0012-rasterize-color-glyphs-at-logical-size.patch"
+PATCH_COMBINING="$REPO_ROOT/patches/swiftterm/0013-fix-combining-mark-after-wide-char.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -63,7 +65,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH" "$PATCH_COMBINING"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -91,7 +93,7 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it:"
   err "  ./Scripts/bootstrap-vendor.sh"
   err ""
-  err "That clones $UPSTREAM_TAG, applies all twelve patches in order, and re-runs this"
+  err "That clones $UPSTREAM_TAG, applies all thirteen patches in order, and re-runs this"
   err "check for the verdict. app/README.md documents the manual equivalent if you"
   err "would rather see the steps than trust a script."
   err ""
@@ -101,8 +103,9 @@ if [[ ! -d "$VENDOR" ]]; then
   err "adds DCS Ptmux passthrough, 0006 keeps the selection alive during linefeed at a plain"
   err "prompt, 0007 keeps the selection alive during pty output (feedPrepare), 0010"
   err "paces redraws on the display link, 0011 caches blank-glyph rasterizer misses, and"
-  err "0012 draws colour emoji under Metal at Core Text's size; check-reflow.sh,"
-  err "check-altbuffer-resize.sh and check-render-parity.sh prove 0002, 0003 and 0012."
+  err "0012 draws colour emoji under Metal at Core Text's size, 0013 places combining"
+  err "marks over the correct base glyph (not the next narrow cell); check-reflow.sh,"
+  err "check-altbuffer-resize.sh and check-render-parity.sh prove 0002, 0003, 0012, 0013."
   exit 1
 fi
 
@@ -266,10 +269,11 @@ if [[ "$GOT_PTMUX" != "$WANT_PTMUX" ]]; then
   exit 3
 fi
 
-# --- view-layer checks (0006-0012) live in a sibling -----------------------------
+# --- view-layer checks (0006-0013) live in a sibling -----------------------------
 # MacTerminalView.swift, AppleTerminalView.swift, TerminalViewSearch.swift, 0010's
-# MacDisplayLinkPacer.swift, 0011's and 0012's MetalTerminalRenderer.swift, and 0012's
-# CoreTextGlyphRasterizer.swift. Sourced, not executed, so its exits are this script's.
+# MacDisplayLinkPacer.swift, 0011/0012/0013's MetalTerminalRenderer.swift, 0012's
+# CoreTextGlyphRasterizer.swift, and 0013's AppleTerminalView.swift hunk.
+# Sourced, not executed, so its exits are this script's.
 . "$APP_ROOT/Scripts/verify-vendor-views.sh"
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 12 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 13 local patches"

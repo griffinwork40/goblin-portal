@@ -36,7 +36,7 @@ of pure logic would have caught. So the checks are the `check-*.sh` scripts, a v
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all twelve patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all thirteen patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
@@ -412,7 +412,7 @@ existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **twelve** local patches:
+Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **thirteen** local patches:
 
 1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
    shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
@@ -487,9 +487,19 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **twelve** local 
     and metrics by point size, non-linearly. `0012` rasterizes colour glyphs only at
     logical size under a scaled CTM. Gated by `check-render-parity.sh`, whose emoji cases
     fail with it reverted.
+13. `0013-fix-combining-mark-after-wide-char.patch` — a combining mark (e.g. U+0301 acute
+    accent) after a wide CJK character was drawn over the **next narrow cell** instead of
+    over the CJK glyph itself (#151, F10). Root cause: the glyph-position loop in both
+    renderers computed each glyph's column as `startColumn + (i × columnWidth)`, but
+    combining marks have zero CT advance and must stay at the same column as their base
+    glyph. Fix: for wide-char segments (`columnWidth ≥ 2`), detect zero-advance glyphs by
+    comparing adjacent CT positions; when advance < 0.5 × cellWidth, pin to the previous
+    column. Touches `AppleTerminalView.swift` and `MetalTerminalRenderer.swift`. Gated by
+    the F10 correctness assertion in `check-render-parity.sh` (mark ink must start inside
+    the wide-glyph slot, not over the next cell); falsified by reverting the patch.
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0012` in `../patches/swiftterm/`, all pinned by
+`0001` through `0013` in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
