@@ -78,6 +78,9 @@ is_semver "$NEW" || refuse "'$NEW' is not strict semver X.Y.Z (no leading v, no 
 TAG="v$NEW"
 CUR=""
 
+# Tool-presence + gh version gate: runs before any direct tool use, so a missing
+# or outdated tool gets a clean exit 2 (not a noisy shell error) on the next line.
+_preflight_tools
 cd "$(git -C "$HERE" rev-parse --show-toplevel)" || env_fail "not inside a git checkout"
 
 preflight
@@ -162,12 +165,8 @@ done
   "check https://github.com/$REPO/actions/workflows/release.yml; if none ran: $RERUN"
 say "ok: release.yml run $RUN_URL"
 
-# gh's own exit code is the verdict; --compact (gh >= 2.66.0) keeps a 20-minute log readable.
-# A gh that predates --compact would error on the flag, so gate on the version first (exit 2).
-_gh_ver="$(gh --version 2>/dev/null | awk 'NR==1{print $3}')"
-if ! semver_gt "$_gh_ver" "2.65.99" && [ "$_gh_ver" != "2.66.0" ]; then
-  env_fail "gh >= 2.66.0 required for 'gh run watch --compact' (found ${_gh_ver:-unknown}; upgrade: https://cli.github.com)"
-fi
+# gh's own exit code is the verdict; --compact (gh >= 2.74.0, cli/cli PR #10629) keeps
+# a 20-minute log readable. Version already gated in preflight(); no re-check needed here.
 gh run watch -R "$REPO" "$RUN_ID" --exit-status --compact --interval 15 >&2 \
   || fail "release.yml failed: $RUN_URL" \
        "fix the cause, then: gh run rerun $RUN_ID -R $REPO --failed (or $RERUN)"
