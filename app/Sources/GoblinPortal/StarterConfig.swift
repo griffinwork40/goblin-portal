@@ -70,7 +70,7 @@ enum StarterConfig {
 
       "// unfocusedPaneOpacity": "0.0-1.0. Palette-aware by default (PaneDimming.swift): dims to about 0.7 where body text stays at APCA Lc >= 45; does not dim under classic-repaired (body text is already below the floor). An explicit 0.0-1.0 value overrides the default and prints a warning if the result drops body text below Lc 45. Out-of-range values are ignored with a warning.",
 
-      "// fontThicken": "Apply medium font dilation before glyph rendering (default false). White-on-black text appears thinner than light-on-dark due to sub-pixel AA bleed direction. Enabling this applies CGContextSetFontSmoothingStyle(48) — the same style Terminal.app uses — which widens strokes roughly half a sub-pixel. Try it if your font looks too light on dark backgrounds. Note: private CoreGraphics API, same as Terminal.app/iTerm2/Emacs use.",
+      "// fontThicken": "No effect on macOS 15+ — CGContextSetFontSmoothingStyle is a no-op in both renderers. Setting true emits a config warning. Key accepted to keep existing configs valid.",
       "fontThicken": false,
 
       "// lineHeight": "Multiplier on the font's natural line height (default 1.0). 1.2 = 20% extra leading. Range 0.8–2.0. Uses SwiftTerm's public lineSpacing property, which correctly resizes the terminal grid after changing.",
