@@ -266,4 +266,50 @@ if ! swiftc -o "$TMP/startercheck" "$SRC" "$TMP/main.swift" 2>"$TMP/compile.log"
 fi
 
 "$TMP/startercheck"
-exit $?
+HARNESS_EXIT=$?
+[ "$HARNESS_EXIT" -ne 0 ] && exit "$HARNESS_EXIT"
+
+# ---------------------------------------------------------------------------
+# DRIFT GUARD — configFileKnownTopLevelKeys vs ConfigFile stored properties.
+#
+# The key set pinned in this script (case 2) is a FORCED copy of ConfigFile's
+# stored property names. ConfigFile lives in Config.swift, which imports AppKit,
+# so this headless gate cannot link it directly. The copy is documented in the
+# harness; this guard makes divergence a gate failure rather than a silent gap.
+#
+# Extracts `var <name>:` lines from the top-level ConfigFile struct (stops at
+# the first inner struct), strips comments, and compares to the pinned set.
+# ---------------------------------------------------------------------------
+SRC_CONFIG="Sources/GoblinPortal/Config.swift"
+[ -f "$SRC_CONFIG" ] || { echo "error: $SRC_CONFIG not found." >&2; exit 2; }
+
+# Pinned set — must match configFileKnownTopLevelKeys in the harness above.
+# cursor is present in both ConfigFile top-level AND inside ThemeSpec; only the
+# top-level one matters here. The awk depth counter keeps only depth-1 vars.
+PINNED="cursor editor font fontThicken ligatures lineHeight mouseReporting optionAsMeta padding renderer scrollback shell sidebar smoothScrolling theme unfocusedPaneOpacity"
+
+# Extract top-level ConfigFile stored-property names. Strategy: track brace depth
+# from the `struct ConfigFile` line; emit var names only at depth 1 (direct members,
+# not inside FontSpec/ThemeSpec/EditorSpec/SidebarSpec/PaddingSpec).
+LIVE="$(awk '
+  /^struct ConfigFile[^{]*\{/{found=1; depth=1; next}
+  found && /{/{depth++}
+  found && /}/{depth--; if(depth==0){found=0; exit}}
+  found && depth==1{
+    line=$0; gsub(/\/\/.*/,"",line)
+    if(match(line,/var [a-z][a-zA-Z0-9_]*/))
+      print substr(line,RSTART+4,RLENGTH-4)
+  }
+' "$SRC_CONFIG" | sort | tr '\n' ' ' | sed 's/ $//')"
+
+PINNED_SORTED="$(echo "$PINNED" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')"
+
+if [ "$LIVE" != "$PINNED_SORTED" ]; then
+    echo "error: ConfigFile top-level keys drifted from the pinned set in check-starter-config.sh!" >&2
+    echo "  Pinned: $PINNED_SORTED" >&2
+    echo "  Live:   $LIVE" >&2
+    echo "  Update configFileKnownTopLevelKeys in the harness (and PINNED here) to match." >&2
+    exit 1
+fi
+echo "  ok  drift guard: ConfigFile top-level keys match pinned set"
+exit 0

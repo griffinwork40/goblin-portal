@@ -33,6 +33,15 @@
 #   selectDocumentByIndex:     — the ⌘1-9 select-tab family; covered dynamically by
 #                                `spaceCommands()` which generates per-open-tab entries
 #
+# PART 2 — KEY HINT CHECK. For every palette command whose keyHint is non-empty AND
+# whose selector also has a menu item, the displayed hint must match the menu item's
+# keyEquivalent + keyEquivalentModifierMask (same modifier set, same key character).
+# Both sides are normalised to (⌃⌥⇧⌘ order)(uppercase letter or arrow glyph) before
+# comparison, so "⌥⌘F" == "⌘⌥F". Commands with no menu counterpart (palette-only) are
+# not checked — those key hints document user expectations and cannot be mechanically
+# verified against a menu item that does not exist.
+# Selectors with a tag (find-panel variants) are matched by (selector, tag) pair.
+#
 # FALSIFICATION. The gate was validated by temporarily commenting out one palette
 # command and confirming exit 1 with the missing selector listed; restoring it
 # gives exit 0. A control case (building a menu with a sentinel selector nobody
@@ -41,22 +50,18 @@
 # failure class that `check-sidebar-toggle.sh` CASE 5 guards against.
 #
 # EXIT CODES (same three-valued contract as every gate in this repo):
-#   0 = all menu selectors are covered by the palette or the allowlist.
-#   1 = one or more menu selectors are missing from both palette and allowlist.
-#       The missing list is printed to stdout.
+#   0 = all menu selectors are covered by the palette or the allowlist,
+#       AND all palette key hints match their menu item equivalents.
+#   1 = one or more menu selectors are missing from both palette and allowlist,
+#       OR one or more palette key hints do not match the menu item.
 #   2 = environmental — no swiftc, swift build failed, harness would not compile,
 #       or no GoblinPortal objects were found. A broken environment must never
 #       read as a green gate.
 #
-# WHAT THIS CANNOT SEE. The gate checks COVERAGE, not correctness: a palette
-# command with the right selector but the wrong title, a stale key hint, or a
-# `validateUserInterfaceItem` that greys out the palette entry in the wrong
-# circumstances — none of those are caught here. Those stay daily-drive territory,
-# the same category `check-sidebar-toggle.sh` puts visual placement in.
-# INVERSE GAP (by design): a palette entry whose selector has NO menu item is NOT
-# flagged. The palette intentionally carries commands that are palette-only (no menu
-# item at all). The gate direction is menu→palette only: every menu selector must
-# appear in the palette, not every palette entry must appear in a menu.
+# WHAT THIS CANNOT SEE. The gate checks COVERAGE and HINT ACCURACY for commands
+# that have a menu item. A palette-only command's hint is never checked here (no
+# menu item to compare against). Commands silently no-oping because no responder
+# is in the chain are also not checked — that is a daily-drive catch.
 #
 # Usage: ./Scripts/check-palette-covers-menu.sh
 #
@@ -141,32 +146,71 @@ let allowlisted: Set<String> = [
 ]
 
 // ---------------------------------------------------------------------------
-// Collect all actionable selectors from the real menu tree, recursively.
-// "Actionable" = has a non-nil action AND is not a separator AND is not
-// a submenu container (those carry no action themselves).
+// Key: (selector, tag) — tag 0 means "no tag".
 // ---------------------------------------------------------------------------
-func collectSelectors(from menu: NSMenu) -> Set<String> {
-    var result = Set<String>()
+struct MenuKey: Hashable {
+    let sel: String
+    let tag: Int
+}
+
+// ---------------------------------------------------------------------------
+// Canonical key-hint form: sort modifiers as ⌃⌥⇧⌘, then append the key char.
+// Arrow-key unicode scalars → glyphs. Letters → uppercase. Other chars → as-is.
+// ---------------------------------------------------------------------------
+func canonical(equiv: String, mask: NSEvent.ModifierFlags) -> String {
+    var mods = ""
+    if mask.contains(.control) { mods += "⌃" }
+    if mask.contains(.option)  { mods += "⌥" }
+    if mask.contains(.shift)   { mods += "⇧" }
+    if mask.contains(.command) { mods += "⌘" }
+    let arrowMap: [Unicode.Scalar: String] = [
+        Unicode.Scalar(NSRightArrowFunctionKey)!: "→",
+        Unicode.Scalar(NSLeftArrowFunctionKey)!:  "←",
+        Unicode.Scalar(NSUpArrowFunctionKey)!:    "↑",
+        Unicode.Scalar(NSDownArrowFunctionKey)!:  "↓",
+    ]
+    let key: String
+    if let s = equiv.unicodeScalars.first, let arrow = arrowMap[s] {
+        key = arrow
+    } else {
+        key = equiv.uppercased()
+    }
+    return mods + key
+}
+
+// Parse a palette hint string into canonical form for comparison.
+// The hint may have modifiers in any order; we extract them by set membership.
+func canonicalHint(_ hint: String) -> String {
+    let modGlyphs = ["⌃", "⌥", "⇧", "⌘"]
+    var mods: Set<String> = []
+    var key = hint
+    for g in modGlyphs {
+        if key.contains(g) { mods.insert(g); key = key.replacingOccurrences(of: g, with: "") }
+    }
+    var ordered = ""
+    for g in ["⌃", "⌥", "⇧", "⌘"] { if mods.contains(g) { ordered += g } }
+    return ordered + key.uppercased()
+}
+
+// ---------------------------------------------------------------------------
+// Collect all actionable menu items (selector, tag, keyEquiv, modifiers).
+// Hidden items are excluded from key-hint checks — they are key aliases
+// (e.g. ⌘= as a hidden alias for ⌘+) and are not user-visible UI.
+// Hidden items ARE included in the selector-coverage check: they are real
+// actions even if the user cannot see them in the menu.
+// ---------------------------------------------------------------------------
+func collectItems(from menu: NSMenu) -> [(MenuKey, String, NSEvent.ModifierFlags, isHidden: Bool)] {
+    var result: [(MenuKey, String, NSEvent.ModifierFlags, isHidden: Bool)] = []
     for item in menu.items {
-        if let sub = item.submenu {
-            result.formUnion(collectSelectors(from: sub))
-        }
-        // Items with a submenu exist only as containers; their own action is
-        // typically nil. Items with action = nil are separators or headers.
+        if let sub = item.submenu { result += collectItems(from: sub) }
         guard let action = item.action, item.submenu == nil else { continue }
-        result.insert(NSStringFromSelector(action))
+        result.append((MenuKey(sel: NSStringFromSelector(action), tag: item.tag),
+                       item.keyEquivalent, item.keyEquivalentModifierMask, item.isHidden))
     }
     return result
 }
 
-// Build the real menu. AppDelegate.buildMenu() is `internal`, so @testable gives us
-// access. We need a real AppDelegate instance because buildMenu reads `NSApp` state
-// and calls `buildNavigateMenu` / `addSourceControlMenu` — both of which add submenus
-// to the passed NSMenu.
 MainActor.assumeIsolated {
-    // Build the menu. This triggers buildMenu(), which sets NSApp.mainMenu.
-    // We call it on a fresh AppDelegate rather than NSApp.delegate to avoid side
-    // effects on a live session.
     let delegate = AppDelegate()
     delegate.buildMenu()
 
@@ -175,7 +219,14 @@ MainActor.assumeIsolated {
         exit(2)
     }
 
-    let menuSelectors = collectSelectors(from: mainMenu)
+    let allMenuItems = collectItems(from: mainMenu)
+    // selector-only set (for coverage check; include hidden items — they are real actions)
+    let menuSelectors = Set(allMenuItems.map { $0.0.sel })
+    // (selector,tag) → canonical hint (for key-hint check; skip hidden and keyless items)
+    var menuHints: [MenuKey: String] = [:]
+    for (key, equiv, mask, hidden) in allMenuItems where !equiv.isEmpty && !hidden {
+        menuHints[key] = canonical(equiv: equiv, mask: mask)
+    }
 
     // ---------------------------------------------------------------------------
     // Collect the palette's selector set from the static list.
@@ -185,24 +236,48 @@ MainActor.assumeIsolated {
     })
 
     // ---------------------------------------------------------------------------
-    // Compute the gap: menu selectors not in the palette and not allowlisted.
+    // PART 1: coverage check — menu selectors not in the palette and not allowlisted.
     // ---------------------------------------------------------------------------
     let gap = menuSelectors.subtracting(paletteSelectors).subtracting(allowlisted)
-
-    let menuCount   = menuSelectors.count
+    let menuCount    = menuSelectors.count
     let paletteCount = paletteSelectors.count
-    let allowCount  = allowlisted.intersection(menuSelectors).count
+    let allowCount   = allowlisted.intersection(menuSelectors).count
 
-    if gap.isEmpty {
-        print("ok  palette covers all \(menuCount) menu selectors")
-        print("    palette commands: \(paletteCount) | allowlisted: \(allowCount)")
+    if !gap.isEmpty {
+        print("FAIL palette is missing \(gap.count) menu selector(s):")
+        for sel in gap.sorted() { print("    \(sel)") }
+        print("    menu selectors: \(menuCount) | palette: \(paletteCount) | allowlisted: \(allowCount)")
+        exit(1)
+    }
+    print("ok  palette covers all \(menuCount) menu selectors")
+    print("    palette commands: \(paletteCount) | allowlisted: \(allowCount)")
+
+    // ---------------------------------------------------------------------------
+    // PART 2: key-hint check — palette hint must match the menu item's equivalent.
+    // Only checked when the palette command has a non-empty keyHint AND has a
+    // matching menu item (by selector+tag). Palette-only commands are skipped.
+    // ---------------------------------------------------------------------------
+    var hintMismatches: [(String, String, String)] = [] // (title, menuHint, paletteHint)
+    var checkedHints = 0
+    for cmd in CommandPalette.allCommands {
+        guard !cmd.keyHint.isEmpty else { continue }
+        let mkey = MenuKey(sel: NSStringFromSelector(cmd.action), tag: cmd.tag ?? 0)
+        guard let menuHint = menuHints[mkey] else { continue } // palette-only, skip
+        let palHint = canonicalHint(cmd.keyHint)
+        checkedHints += 1
+        if menuHint != palHint {
+            hintMismatches.append((cmd.title, menuHint, palHint))
+        }
+    }
+
+    if hintMismatches.isEmpty {
+        print("ok  all \(checkedHints) palette key hints match their menu item equivalents")
         exit(0)
     } else {
-        print("FAIL palette is missing \(gap.count) menu selector(s):")
-        for sel in gap.sorted() {
-            print("    \(sel)")
+        print("FAIL \(hintMismatches.count) palette key hint(s) do not match the menu:")
+        for (title, menu, pal) in hintMismatches.sorted(by: { $0.0 < $1.0 }) {
+            print("    '\(title)': menu='\(menu)' palette='\(pal)'")
         }
-        print("    menu selectors: \(menuCount) | palette: \(paletteCount) | allowlisted: \(allowCount)")
         exit(1)
     }
 }
