@@ -204,6 +204,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // file — ⌘0 drops it and hands control back to the config.
         setFontSize(FontZoom.override ?? config.font.pointSize, persist: false)
         applyTypography(config)  // lineHeight + fontThicken — must follow setFontSize; see TerminalPane+Typography.swift
+        applyLigatures(config)  // TerminalView.disableLigatures — patch 0014; cache-safe, order-independent
         view.configureSmoothScroll()  // cellHeight depends on font size — must follow setFontSize
         // `GOBLIN_PORTAL_DIAG=1` dumps the resolved appearance to stderr — the only
         // observability for a project with no test target. Costs nothing unset.

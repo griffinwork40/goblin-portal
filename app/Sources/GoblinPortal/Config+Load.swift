@@ -115,13 +115,12 @@ extension AppConfig {
             if v >= lo && v <= hi { config.lineHeight = CGFloat(v) }
             else { config.warnings.append("lineHeight \(v) is outside \(lo)–\(hi) — using \(config.lineHeight)") }
         }
-        // `ligatures` is accepted in the config file but not yet acted on — the field
-        // is parsed here so the file stays valid when the feature ships. See the header
-        // of TerminalPane+Typography.swift for why it is deferred.
         if let v = file.smoothScrolling { config.smoothScrolling = v }
-        if file.ligatures != nil {
-            config.warnings.append("ligatures: not yet implemented — ignored")
-        }
+        // Ligature opt-out (#153). `true` = ligatures form (default); `false` = suppressed
+        // via `TerminalView.disableLigatures` (vendor patch 0014). A non-Bool value in the
+        // JSON would already have been caught by JSONDecoder (ConfigFile.ligatures is Bool?),
+        // so no extra range check is needed. Absent → keep the default (true).
+        if let v = file.ligatures { config.ligatures = v }
         if let e = file.editor {
             config.applyEditor(tabWidth: e.tabWidth, softTabs: e.softTabs,
                                wordWrap: e.wordWrap,

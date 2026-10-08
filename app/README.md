@@ -36,7 +36,7 @@ of pure logic would have caught. So the checks are the `check-*.sh` scripts, a v
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all twelve patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all thirteen patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
@@ -412,7 +412,7 @@ existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **twelve** local patches:
+Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **thirteen** local patches:
 
 1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
    shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
@@ -487,9 +487,18 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **twelve** local 
     and metrics by point size, non-linearly. `0012` rasterizes colour glyphs only at
     logical size under a scaled CTM. Gated by `check-render-parity.sh`, whose emoji cases
     fail with it reverted.
+13. `0014-disable-ligatures-both-renderers.patch` — adds `open var disableLigatures: Bool`
+    to `TerminalView` (backing Bool in `MacTerminalView.swift`). Core Text path: the setter
+    flushes `resetCaches()` and `getAttributes(_:withUrl:)` injects `kCTLigatureAttributeName=0`
+    when the flag is set. Metal path: `ShaperKey` gains `disableLigatures` and
+    `shape(text:font:disableLigatures:)` builds its `CTLine` with the same attribute.
+    Wired via `AppConfig.ligatures` → `TerminalPane.applyLigatures(_:)`. Default `false`
+    (ligatures on). `"ligatures": false` in config.json now actually disables them.
+    Gated by `check-render-parity.sh` ligature cases (both renderers, on+off); falsified
+    by removing the `kCTLigatureAttributeName` injection. Fixes #153.
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0012` in `../patches/swiftterm/`, all pinned by
+`0001` through `0014` (thirteen patches) in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -515,8 +524,8 @@ patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-ab
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
-for p in patches/swiftterm/00{07,08,09,10,11,12}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all twelve patches)
+for p in patches/swiftterm/00{07,08,09,10,11,12,14}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all thirteen patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader

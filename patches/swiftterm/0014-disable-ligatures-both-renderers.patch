@@ -1,0 +1,147 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AFK Agent <agent@agentafk.com>
+Date: Thu, 08 Oct 2026 19:16:13 -0400
+Subject: [PATCH 0014] add disableLigatures to TerminalView, both renderers
+
+Three files. MacTerminalView.swift gets the backing Bool (_disableLigatures = false).
+AppleTerminalView.swift gets an open property that flushes resetCaches() on change,
+and injects kCTLigatureAttributeName=0 into every getAttributes dict when set.
+MetalTerminalRenderer.swift extends ShaperKey with disableLigatures and threads the
+flag through shape(text:font:disableLigatures:) so the CTLine is built with the same
+attribute. Both caches key on the flag; a toggle hits no stale entry.
+Default false — ligatures stay on, matching every other terminal's default.
+---
+
+diff --git a/Sources/SwiftTerm/Mac/MacTerminalView.swift b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+--- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
++++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+@@ -282,6 +282,11 @@
+     var caretView: CaretView!
+     var _fontSmoothing: Bool = true
+     var _lineSpacing: CGFloat = 1.0
++    // Backing store for the disableLigatures property declared in the
++    // AppleTerminalView extension (patch 0014). Both renderers read this
++    // through the open property; MacTerminalView holds the single stored copy
++    // because stored properties cannot live in extensions (Swift limitation).
++    var _disableLigatures: Bool = false
+     public var terminal: Terminal!
+ 
+     /// Marked (uncommitted) text from an input source (IME, dictation, etc.).
+
+diff --git a/Sources/SwiftTerm/Apple/AppleTerminalView.swift b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+@@ -132,6 +132,32 @@
+         }
+     }
+ 
++    /// When `true`, OpenType ligature substitution is suppressed in BOTH renderers.
++    ///
++    /// Core Text path (patch 0014): `getAttributes(_:withUrl:)` adds
++    /// `kCTLigatureAttributeName: 0` to every attribute dictionary before caching.
++    /// Metal path (patch 0014): `ShaperCache` keys on `disableLigatures` and builds
++    /// its `CTLine` with the same attribute when the flag is set.
++    ///
++    /// Changing this property flushes the attribute and shaper caches so the next
++    /// paint picks up the new setting without a font reset.
++    ///
++    /// Default `false` — ligatures are on, matching the behaviour of every
++    /// terminal that does not explicitly suppress them.
++    @objc open var disableLigatures: Bool {
++        get { _disableLigatures }
++        set {
++            guard _disableLigatures != newValue else { return }
++            _disableLigatures = newValue
++            // Flush the per-attribute-combo cache so `getAttributes` rebuilds
++            // every entry with the new ligature flag on the next paint.
++            // `resetFont()` would also flush, but it re-measures the font,
++            // resizes the terminal, and triggers `processSizeChange` — far more
++            // than we need. `resetCaches()` is the minimal, correct operation.
++            resetCaches()
++        }
++    }
++
+     func resetCaches ()
+     {
+         self.attributes = [:]
+@@ -578,6 +604,17 @@
+         if flags.contains (.crossedOut) {
+             nsattr [.strikethroughColor] = fgColor
+             nsattr [.strikethroughStyle] = NSUnderlineStyle.single.rawValue
++        }
++
++        // Patch 0014 — ligature disable (Core Text path).
++        // kCTLigatureAttributeName = 0 instructs Core Text to skip OpenType ligature
++        // substitution for this run. The attribute is part of the cached entry so every
++        // subsequent draw of the same SGR attribute also suppresses ligatures without an
++        // extra lookup. Cache-keyed on `disableLigatures` via `resetCaches()` in the
++        // setter: toggling the flag invalidates all cached entries so the next paint
++        // rebuilds every dictionary with the new setting.
++        if disableLigatures {
++            nsattr[kCTLigatureAttributeName as NSAttributedString.Key] = 0
+         }
+ 
+         if withUrl {
+
+diff --git a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+--- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
++++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+@@ -1466,7 +1466,13 @@
+                     return
+                 }
+                 let runFont = attributes[.font] as? TTFont ?? terminalView.fontSet.normal
+-                guard let shaped = shaperCache.shape(text: text, font: runFont as CTFont) else {
++                // Patch 0014: pass `disableLigatures` so the shaper key encodes
++                // the ligature mode and the CTLine is built with kCTLigatureAttributeName=0
++                // when needed. `terminalView` here is the non-optional local parameter of
++                // `buildShapedSegments(_:terminalView:)`, so no optional chaining is needed.
++                let noLig = terminalView.disableLigatures
++                guard let shaped = shaperCache.shape(text: text, font: runFont as CTFont,
++                                                     disableLigatures: noLig) else {
+                     return
+                 }
+                 shapedRuns.append(ShapedRun(attributes: attributes, shaperRun: shaped))
+@@ -1859,6 +1865,12 @@
+         let fontName: String
+         let fontSize: CGFloat
+         let text: String
++        // Patch 0014: ligature mode is part of the cache key so that toggling
++        // `disableLigatures` on the terminal view causes a full shaper cache
++        // miss and the next paint re-shapes every visible run with the new
++        // setting. Without this field, a shape() hit for the same text+font
++        // could return a ligature-composed run even after the flag is cleared.
++        let disableLigatures: Bool
+     }
+ 
+     private struct ShaperGlyphRun {
+@@ -1892,18 +1904,27 @@
+             self.maxEntries = maxEntries
+         }
+ 
+-        func shape(text: String, font: CTFont) -> ShaperRun? {
++        func shape(text: String, font: CTFont, disableLigatures: Bool = false) -> ShaperRun? {
+             guard !text.isEmpty else {
+                 return nil
+             }
+             let key = ShaperKey(fontName: CTFontCopyPostScriptName(font) as String,
+                                 fontSize: CTFontGetSize(font),
+-                                text: text)
++                                text: text,
++                                disableLigatures: disableLigatures)
+             if let cached = cache[key] {
+                 return cached
+             }
+ 
+-            let attributedString = NSAttributedString(string: text, attributes: [.font: font])
++            // Patch 0014 — ligature disable (Metal path).
++            // kCTLigatureAttributeName = 0 suppresses OpenType ligature substitution
++            // in the CTLine used for shaping. The key already includes `disableLigatures`
++            // so a cached shaped run never returns the wrong variant.
++            var attrs: [NSAttributedString.Key: Any] = [.font: font]
++            if disableLigatures {
++                attrs[kCTLigatureAttributeName as NSAttributedString.Key] = 0
++            }
++            let attributedString = NSAttributedString(string: text, attributes: attrs)
+             let line = CTLineCreateWithAttributedString(attributedString)
+             guard let runs = CTLineGetGlyphRuns(line) as? [CTRun], !runs.isEmpty else {
+                 return nil

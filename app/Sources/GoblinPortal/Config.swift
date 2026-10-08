@@ -64,7 +64,8 @@ struct ConfigFile: Decodable {
     var fontThicken: Bool?
     /// Line height multiplier. Default 1.0. Range 0.8–2.0.
     var lineHeight: Double?
-    /// Ligature toggle. Default false. NOT YET IMPLEMENTED — see TerminalPane+Typography.swift.
+    /// Ligature toggle. `true` = ligatures on (default); `false` = disabled via
+    /// `TerminalView.disableLigatures` (vendor patch 0014). Wired in `Config+Load.swift`.
     var ligatures: Bool?
     /// Pixel-level smooth trackpad scrolling. Default true.
     var smoothScrolling: Bool?
@@ -179,6 +180,11 @@ struct AppConfig {
     /// Pixel-level smooth trackpad scrolling via CALayer transform. Default true.
     /// Set `"smoothScrolling": false` in config.json to opt out.
     var smoothScrolling: Bool
+    /// When `true`, OpenType ligature substitution is disabled in both renderers
+    /// via `TerminalView.disableLigatures` (patch 0014, `AppleTerminalView.swift`).
+    /// Default `false` — ligatures form when the font supports them (e.g. JetBrains Mono
+    /// `->`, `=>`, `!=`). Set `"ligatures": false` in config.json to suppress them.
+    var ligatures: Bool
 
     // Editor behaviour — see `Config+Editor.swift` for the resolver.
     var tabWidth: Int
@@ -283,6 +289,10 @@ struct AppConfig {
             fontThicken: false,
             lineHeight: 1.0,
             smoothScrolling: true,
+            // Ligatures default to on: a terminal that ships JetBrains Mono forms ligatures
+            // by default; the user opts out with `"ligatures": false`. Fonts without ligature
+            // tables (SF Mono, Menlo) are unaffected by either setting.
+            ligatures: true,
             tabWidth: 4,
             softTabs: true,
             wordWrap: .auto,

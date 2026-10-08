@@ -194,27 +194,34 @@ ptmux_dcs_handler = 78c20efe0b206162b6a771fa2f089474aeba2102508e29f1b83efcf29349
 
 # MacTerminalView.swift AFTER applying 0006-gate-linefeed-selection-clear-on-mouse-mode.patch,
 # 0008-make-draw-open-for-subclass-override.patch,
-# 0009-expose-search-state-changed-hook.patch, and
-# 0010-pace-redraws-on-display-link.patch.
+# 0009-expose-search-state-changed-hook.patch,
+# 0010-pace-redraws-on-display-link.patch, and
+# 0014-disable-ligatures-both-renderers.patch.
 #
 # 0006 gates linefeed's selection-clear on mouseMode; 0008 makes draw() `open`;
 # 0009 adds the `searchStateDidChange(term:options:)` callback and fires it from
 # handleFindBarSearchChanged, handleFindBarOptionsChanged, and hideFindBar — giving
 # the host app the hook it needs for all-match search highlighting; 0010 adds the
-# `displayPacer` property, re-binds it in viewDidMoveToWindow, and invalidates it in deinit.
+# `displayPacer` property, re-binds it in viewDidMoveToWindow, and invalidates it in deinit;
+# 0014 adds `var _disableLigatures: Bool = false` — the backing store for the open
+# property declared in the AppleTerminalView extension (stored properties cannot
+# live in extensions, so the Bool lives here).
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
-patched_mac_terminal_view  = fda8156433639a4989c0bb5144b61a5e3d5d2c8af7a9ec9673d15cbc03fe9a6c
+patched_mac_terminal_view  = 40790937a69e73528750f70c91fdb64d07721869822986f5000821be6044c2f2
 
 # MacTerminalView.swift as shipped upstream at v1.15.0.
 upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac60417864168cded4041
 
 # AppleTerminalView.swift AFTER applying
-# 0007-gate-feedprepare-selection-clear-on-mouse-mode.patch and
+# 0007-gate-feedprepare-selection-clear-on-mouse-mode.patch,
 # 0010-pace-redraws-on-display-link.patch (0010: queuePendingDisplay and
 # queueMetalDisplay try the display-link pacer before upstream's asyncAfter timer, and
-# updateDisplay calls TerminalView.frameTimingObserver once per real paint).
+# updateDisplay calls TerminalView.frameTimingObserver once per real paint), and
+# 0014-disable-ligatures-both-renderers.patch (0014: adds `open var disableLigatures`
+# with a resetCaches() flush on change, and injects kCTLigatureAttributeName=0 in
+# getAttributes(_:withUrl:) when the flag is set — the Core Text path).
 #
 # What 0007 fixes: upstream's feedPrepare() callback clears the terminal selection
 # on every chunk of pty output when `allowMouseReporting` is true — which it is by
@@ -234,7 +241,7 @@ upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac604178
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-patched_apple_terminal_view  = 1385a503a31f8d50ae59d844d9eef84348dddd5f23450cc51c1e768441e8f422
+patched_apple_terminal_view  = 84e10721cc8327f0014906474a24705c2a48be0444da91af7639f99a4884d206
 
 # AppleTerminalView.swift as shipped upstream at v1.15.0.
 upstream_apple_terminal_view = d28360034441f9a4573debcfe8ac5f86b3c57b3059da5f94ba2549838714e45e
@@ -272,12 +279,16 @@ patched_terminal_view_search  = 59314eda53d681038224cd9525f65a1f1ced1bad21d5983c
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
 mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae67765795bd200
 
-# Apple/Metal/MetalTerminalRenderer.swift AFTER 0011-cache-empty-glyphs-and-font-names.patch
-# AND 0012-rasterize-color-glyphs-at-logical-size.patch (one combined hash, the Buffer.swift
-# rule: a tree with only one of them matches neither), and the pristine v1.15.0 file (no
-# earlier patch touches it). Checked in verify-vendor-views.sh. 0012's part is three
-# hunks: GlyphKey gains backingScale, the frame sets rasterizer.backingScale beside
-# fontSmoothing, and glyphEntry keys on it. See the 0012 entry below for why.
+# Apple/Metal/MetalTerminalRenderer.swift AFTER 0011-cache-empty-glyphs-and-font-names.patch,
+# 0012-rasterize-color-glyphs-at-logical-size.patch, AND
+# 0014-disable-ligatures-both-renderers.patch (one combined hash; a tree with any subset
+# matches neither this nor the upstream hash and is "unknown" by design). The pristine
+# v1.15.0 file had no earlier patch. Checked in verify-vendor-views.sh. 0012's part is
+# three hunks: GlyphKey gains backingScale, the frame sets rasterizer.backingScale beside
+# fontSmoothing, and glyphEntry keys on it. 0014's part is two hunks: ShaperKey gains
+# disableLigatures (cache key), and shape(text:font:disableLigatures:) builds its
+# NSAttributedString with kCTLigatureAttributeName=0 when the flag is set.
+# See the 0012 and 0014 entries in patches/swiftterm/ for why.
 #
 # What 0011 does: glyphEntry(for:glyph:) cached only successful rasterizations, and
 # CoreTextGlyphRasterizer returns nil for zero-bounds glyphs (the space), so every blank
@@ -294,7 +305,7 @@ mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae6776
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-patched_metal_terminal_renderer  = f7be237b4ebd3549e22fb5353c8f1ecc391b092f3c6b14918ace84a927784666
+patched_metal_terminal_renderer  = 8318962f269daa614b4a9e6c248ce612e27c3f7d7e0ac08434ac934324834bec
 upstream_metal_terminal_renderer = 916d4e1cb0ecf36bcb3dcd8d8b0d9cb79b2c5b5653c0f075ecce6a603133b166
 
 # Apple/Metal/CoreTextGlyphRasterizer.swift AFTER 0012-rasterize-color-glyphs-at-logical-size.patch,
