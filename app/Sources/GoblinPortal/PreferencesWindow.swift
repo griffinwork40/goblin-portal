@@ -48,15 +48,11 @@ final class PreferencesWindow: NSWindowController {
     // is always last.
     let themePresets: [String] = ["auto"] + ThemePalette.all.map(\.name) + ["classic"]
 
-    // Config-file spellings that CursorStyle.named(_:) accepts as canonical.
-    // Must stay in sync with CursorStyle.configName — the gate
-    // (check-preferences-apply.sh) asserts that the seeded default comes from
-    // CursorStyle.default.configName, which is one of these six.
-    let cursorStyleKeys: [String] = [
-        "block", "steady-block",
-        "bar", "steady-bar",
-        "underline", "steady-underline",
-    ]
+    // Derived from CursorStyle.allCases so adding a new case automatically extends
+    // the popup — no manual sync required. The gate (check-preferences-apply.sh)
+    // asserts the seeded default comes from CursorStyle.default.configName, which
+    // is always one of these values.
+    let cursorStyleKeys: [String] = CursorStyle.allCases.map(\.configName)
 
     // MARK: - Init
 
@@ -166,7 +162,7 @@ final class PreferencesWindow: NSWindowController {
         let existing = rawConfigDict() ?? [:]
 
         // Build the full proposed dict (used for diffing, not for writing directly).
-        var proposed = buildProposedDict(from: existing)
+        let proposed = buildProposedDict(from: existing)
 
         // Find exactly which top-level keys changed.
         let changed = PreferencesDiff.changedKeys(from: existing, to: proposed)

@@ -93,6 +93,11 @@ enum SyntaxPalette {
 
     /// APCA's floor for text readable at *any* size. Not a preference: below this a glyph is
     /// not resolvable, which is why the tab strip's inactive label was moved to clear it.
+    ///
+    /// Must equal `PaneDimming.dimFloor` — the same Lc 45 applied to unfocused pane body
+    /// text. One edit changes the posture everywhere; the two constants are compiled by
+    /// different gates so they cannot share a single definition without adding a file to one
+    /// gate's compile list.
     static let readableFloor: Double = 45
 
     /// The alpha a comment is drawn at when its palette's ANSI 8 is illegible.

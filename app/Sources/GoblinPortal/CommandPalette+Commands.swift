@@ -30,10 +30,6 @@
 //    selectDocumentByIndex: — the ⌘1-9 select-tab family (dynamic, handled by
 //      spaceCommands() which generates per-open-tab entries instead)
 //
-//  FUTURE: clearBuffer: is pre-stubbed here for the parallel lane adding
-//  ⌘K / Clear Buffer as a menu item. It is disabled/no-op until that lane
-//  lands, but pre-registering it keeps this gate green after both merge.
-//
 
 import AppKit
 
@@ -85,14 +81,14 @@ extension CommandPalette {
         PaletteCommand("Bigger Font",                 key: "⌘+",     action: #selector(AppDelegate.biggerFont(_:))),
         PaletteCommand("Smaller Font",                key: "⌘-",     action: #selector(AppDelegate.smallerFont(_:))),
         PaletteCommand("Actual Size",                 key: "⌘0",     action: #selector(AppDelegate.resetFont(_:))),
-        PaletteCommand("Toggle Word Wrap",                             action: Selector(("toggleWordWrap:"))),
+        PaletteCommand("Toggle Word Wrap",                             action: #selector(AppDelegate.toggleWordWrap(_:))),
         PaletteCommand("Toggle Sidebar",              key: "⌘B",     action: #selector(NSSplitViewController.toggleSidebar(_:))),
         PaletteCommand("Show Explorer",               key: "⌘⇧E",    action: Selector(("showExplorerSidebar:"))),
         PaletteCommand("Show Source Control",         key: "⌃⇧G",    action: Selector(("showSourceControlSidebar:"))),
         PaletteCommand("Enter Full Screen",           key: "⌃⌘F",    action: #selector(NSWindow.toggleFullScreen(_:))),
         // Splits — greyed out by validateUserInterfaceItem when inappropriate
-        PaletteCommand("Split Right",                 key: "⌘⇧\\",   action: Selector(("splitHorizontal:"))),
-        PaletteCommand("Split Down",                  key: "⌘⇧-",    action: Selector(("splitVertical:"))),
+        PaletteCommand("Split Right",                 key: "⌘⇧\\",   action: #selector(SpaceViewController.splitHorizontal(_:))),
+        PaletteCommand("Split Down",                  key: "⌘⇧-",    action: #selector(SpaceViewController.splitVertical(_:))),
         // Pane focus — greyed out when no split exists in the active tab
         PaletteCommand("Focus Pane Left",             key: "⌘⇧H",    action: Selector(("moveFocusLeft:"))),
         PaletteCommand("Focus Pane Down",             key: "⌘⇧J",    action: Selector(("moveFocusDown:"))),
@@ -112,13 +108,11 @@ extension CommandPalette {
         PaletteCommand("Settings…",                   key: "⌘,",     action: #selector(AppDelegate.openConfigFile(_:))),
         PaletteCommand("Reload Config",               key: "⌘R",     action: #selector(AppDelegate.reloadConfig(_:))),
         PaletteCommand("Check for Updates…",                           action: #selector(AppDelegate.checkForUpdates(_:))),
-        // String selectors, not #selector: these two are answered by code that lands in the
-        // standard-menus PR (clearBuffer: on GoblinPortalTerminalView, openHelp: on
-        // AppDelegate). Written this way so each PR compiles alone and
-        // check-palette-covers-menu.sh stays green once both merge; until then sendAction
-        // finds no responder and the command is a no-op.
-        PaletteCommand("Clear Buffer",                key: "⌘K",     action: Selector(("clearBuffer:"))),
-        PaletteCommand("Goblin Portal Help",                           action: Selector(("openHelp:"))),
+        // clearBuffer: lives on GoblinPortalTerminalView (PR #164, merged);
+        // openHelp: lives on AppDelegate (AppMenu+Window.swift). Both types are visible
+        // here, so #selector catches renames at compile time.
+        PaletteCommand("Clear Buffer",                key: "⌘K",     action: #selector(GoblinPortalTerminalView.clearBuffer(_:))),
+        PaletteCommand("Goblin Portal Help",                           action: #selector(AppDelegate.openHelp(_:))),
     ]
 
     /// Dynamic commands generated at show-time: one entry per open Space, so the

@@ -242,7 +242,7 @@ extension AppDelegate {
         // file editor (no view in that chain answers clearBuffer:). ⌘K is free: KeyBindings
         // maps only backspace/delete/arrows; MacTerminalView has no ⌘K handler (:1986).
         editMenu.addItem(withTitle: "Clear Buffer",
-                         action: Selector(("clearBuffer:")),
+                         action: #selector(GoblinPortalTerminalView.clearBuffer(_:)),
                          keyEquivalent: "k")
 
         editItem.submenu = editMenu

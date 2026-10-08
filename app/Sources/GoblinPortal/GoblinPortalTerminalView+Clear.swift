@@ -35,8 +35,11 @@
 //
 //  IMPLEMENTATION:
 //    1. `getTerminal().resetToInitialState()` — Terminal.swift:5204. This is the
-//       RIS (ESC c) handler: clears normal buffer, alt buffer, scrollback, and all
-//       terminal state. Compared to alternatives:
+//       RIS (ESC c) handler: clears normal buffer, alt buffer, and scrollback, but
+//       also resets DECSET mode flags, tab stops, the saved cursor (DECSC), and
+//       character sets (G0/G1) — the full terminal state reset, not just history.
+//       That matches iTerm2's own "Clear Buffer" and Terminal.app's ⌘K. Compared
+//       to alternatives:
 //         • `changeScrollback(0)` then restore: trims the history ring but leaves
 //           screen content intact — wrong semantics for "Clear Buffer".
 //         • Sending ESC c via `feed(text:)`: equivalent but goes through the
