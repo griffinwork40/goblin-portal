@@ -74,7 +74,8 @@ recorded hashes. It is idempotent — run it again and it says so and stops.
 use — Dock icon, Spotlight, behaves like an app rather than a stray process.
 
 First stop after launching is **⌘,**, which writes a commented starter config to
-`~/.config/goblin-portal/config.json` and opens it. **⌘R** reloads it live. The full field
+`~/.config/goblin-portal/config.json` and opens it. **⌘R** reloads it live; any setting it
+could not apply is named in a dismissible banner under the titlebar. The full field
 reference — font, cursor, scrollback, shell, theme, renderer — is in
 [`app/README.md`](app/README.md).
 

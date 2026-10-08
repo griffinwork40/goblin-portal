@@ -38,14 +38,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var preferencesWindow: PreferencesWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Surface config problems where the user will actually see them, instead
-        // of silently substituting defaults and leaving them wondering why their
-        // theme did nothing.
-        for warning in config.warnings {
-            FileHandle.standardError.write("config: \(warning)\n".data(using: .utf8)!)
-        }
         buildMenu()
         if let f = CLIArguments.shared.waitFile { openWaitFile(f) } else { restoreSpaces() } // --wait mode: AppDelegate+WaitMode.swift
+        // Surface config problems where the user will actually see them, instead
+        // of silently substituting defaults and leaving them wondering why their
+        // theme did nothing: stderr AND a non-modal banner in every Space window,
+        // because a Finder/Dock launch has no stderr to read (#166 T1.5). AFTER the
+        // windows exist: a launch that never activates never makes a window key, so
+        // the presenter's became-key sync alone left the first window bare (observed).
+        ConfigWarningPresenter.shared.report(config.warnings)
 
         // Register the CLI open-file notification handler. Must happen after
         // applicationDidFinishLaunching so the run loop is running and distributed
@@ -259,9 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// theme does not require restarting the app.
     @objc func reloadConfig(_ sender: Any?) {
         config = AppConfig.load()
-        for warning in config.warnings {
-            FileHandle.standardError.write("config: \(warning)\n".data(using: .utf8)!)
-        }
+        ConfigWarningPresenter.shared.report(config.warnings)  // also Settings Apply's path
         for controller in SpaceWindowController.open {
             controller.space.apply(config: config)
             controller.window?.backgroundColor = config.effectiveBackground

@@ -27,7 +27,10 @@ extension AppConfig {
             return config  // No config file is the normal case, not an error.
         }
         guard let file = try? JSONDecoder().decode(ConfigFile.self, from: data) else {
-            config.warnings.append("\(url.path): not valid JSON — using defaults")
+            // Worded by `ConfigWarningPolicy` so the GUI banner can tell this whole-file
+            // rejection apart from a single bad field (#166 T1.5); check-config-warnings.sh
+            // greps for this call.
+            config.warnings.append(ConfigWarningPolicy.invalidJSONWarning(path: url.path))
             return config
         }
 
