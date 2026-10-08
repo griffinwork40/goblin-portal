@@ -177,13 +177,13 @@ final class FileTreeViewController: NSViewController {
     /// moment the tree is stale. FSEvents is the obvious upgrade if it ever feels
     /// behind.
     func refresh() {
-        guard !isEditingInline else { pendingReload = true; return }
+        guard !isEditingInline else { TreeRefreshTiming.measure(site: "refresh", expandedCount: 0, deferred: true) {}; pendingReload = true; return }
         let expanded = (0..<outlineView.numberOfRows)
             .compactMap { outlineView.item(atRow: $0) as? FileNode }
             .filter { outlineView.isItemExpanded($0) }
         let selectedURL = (outlineView.item(atRow: outlineView.selectedRow) as? FileNode)?.url
 
-        root.reloadChildren()
+        TreeRefreshTiming.measure(site: "refresh", expandedCount: expanded.count) { root.reloadChildren() }
         outlineView.reloadData()
 
         // Git status is stale for exactly the same reason the tree is, at exactly the same
@@ -250,7 +250,7 @@ final class FileTreeViewController: NSViewController {
         guard url.resolvingSymlinksInPath().path != root.url.resolvingSymlinksInPath().path
         else { return }
         root = FileNode(url: url, isDirectory: true)
-        root.reloadChildren()
+        TreeRefreshTiming.measure(site: "setRoot", expandedCount: 0) { root.reloadChildren() }
         // The new root may sit on a different volume with different case semantics, so
         // the cached query must be invalidated; it is re-populated lazily on the next
         // walk or reveal call (#176).
