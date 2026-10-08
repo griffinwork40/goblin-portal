@@ -48,6 +48,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-metal-renderer.sh # does the GPU renderer actually ship AND come up? — offscreen GUI
 ./Scripts/check-render-parity.sh  # do Core Text and Metal draw the same pixels? (incl. emoji, patch 0012) — offscreen GUI
 ./Scripts/check-renderer-config.sh # does a `renderer` string reach the renderer it names? — fast, headless
+./Scripts/check-config-warnings.sh # does a bad config.json produce the right banner (and none when clean)? — fast, headless
 ./Scripts/check-light-theme.sh   # are the palettes well-formed, and is `afk-light` light enough to flip the chrome? — fast, headless
 ./Scripts/check-pane-teardown.sh  # does closing a document free its surface and kill its shell? — offscreen GUI
 ./Scripts/check-find-menu.sh     # do Undo/Redo/Find-and-Replace actually reach anything?
@@ -312,8 +313,14 @@ it — **Settings… (⌘,) writes a commented starter file** and opens it. ⌘R
 without restarting.
 
 Every field is optional and every field fails **soft**: a bad value degrades to
-the default and prints a reason to stderr rather than crashing or silently doing
-nothing. Verified — a config with six bad fields yields six warnings and a
+the default and says why rather than crashing or silently doing nothing. The
+reasons go to stderr **and** to a non-modal banner under the titlebar of every
+window — on launch, on ⌘R and on Settings Apply — so a launch from Finder or the
+Dock sees them too. The banner lists up to three ignored settings (hover for the
+rest), says outright when the file is not valid JSON and *every* setting was
+ignored, offers **Open config.json**, and can be dismissed with ✕; it comes back
+on the next reload if the problem is still there, and disappears once the file
+loads clean. Verified — a config with six bad fields yields six warnings and a
 working terminal.
 
 ```json
