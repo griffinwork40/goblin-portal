@@ -32,7 +32,7 @@ Spotlight, and behaves like an app rather than a stray process.
 There is no test target: this app is mostly AppKit glue, and what has actually
 broken here is *observable state* — the font that silently fell back to Menlo, the
 collapsed scrollbar thumb, the key that wrote no bytes — none of which a unit test
-of pure logic would have caught. So the checks are ten `check-*.sh` scripts, a vendor
+of pure logic would have caught. So the checks are the `check-*.sh` scripts, a vendor
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
