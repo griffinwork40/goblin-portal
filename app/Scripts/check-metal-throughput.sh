@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Throughput gate: measure frame-time for both CoreText and Metal renderers under a
 # high-throughput payload and assert Metal is no worse than CoreText by more than 35%.
@@ -157,8 +157,8 @@ resolve_vendored_module          # sets PRODUCTS, or exits 2
 # --- compile the harness ----------------------------------------------------------
 # The harness is in check-metal-throughput-harness.swift, extracted when the 350-LOC
 # ceiling was reached after adding the N6 load guard. Same pattern as check-git-status.sh.
-cp "$APP_ROOT/Scripts/check-metal-throughput-harness.swift" "$TMP/main.swift"
-
+cp "$APP_ROOT/Scripts/check-metal-throughput-harness.swift" "$TMP/main.swift" \
+  || { echo "error: check-metal-throughput-harness.swift not found." >&2; exit 2; }
 
 # A harness that does not compile exits 2 — environmental, not a Metal regression.
 # The compile log is printed so it is not silently excused (issue #137, bug 1).
