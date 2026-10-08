@@ -44,6 +44,26 @@ enum FileOperationPolicy {
         return true
     }
 
+    // MARK: - Volume Case-sensitivity Query
+
+    /// `true` when the volume that hosts `url` distinguishes letter case in
+    /// file names — i.e. "Foo" and "foo" can coexist as two entries.
+    ///
+    /// Default APFS / HFS+ volumes are case-INSENSITIVE; only explicitly
+    /// formatted "Case-sensitive APFS" or "Case-sensitive HFS+" volumes
+    /// return `true`. When the query fails, `false` is the safe default:
+    /// the caller then does case-insensitive matching, which is correct for
+    /// the common case and merely over-cautious on a rare CS volume.
+    ///
+    /// Called from `FileTreeViewController` when walking or revealing a node.
+    /// Factored here (Foundation-only) so the gate script (`check-file-ops.sh`)
+    /// can exercise it standalone and both call sites share the same
+    /// implementation rather than copy-pasting a 9-line closure (R1.2).
+    static func caseSensitiveFSAtRoot(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))
+            .flatMap(\.volumeSupportsCaseSensitiveNames) ?? false
+    }
+
     // MARK: - Case-only Rename Detection
 
     /// `true` when `from.lastPathComponent` and `to.lastPathComponent` differ
