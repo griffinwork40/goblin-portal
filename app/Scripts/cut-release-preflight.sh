@@ -37,12 +37,35 @@ EOF
 
 short() { printf '%.7s' "$1"; }
 
+# Standalone tool-presence check, called before any direct tool use in cut-release.sh.
+# preflight() re-checks as well, so the two stay in sync automatically.
+_preflight_tools() {
+  command -v git   >/dev/null 2>&1 || env_fail "git not found on PATH"
+  command -v gh    >/dev/null 2>&1 || env_fail "gh not found on PATH (https://cli.github.com)"
+  command -v shasum >/dev/null 2>&1 || env_fail "shasum not found on PATH"
+
+  # gh >= 2.74.0 is required for 'gh run watch --compact' (cli/cli PR #10629, gh v2.74.0, 2025-05-29).
+  # Check here in preflight so an outdated gh exits 2 before any write.
+  local _v
+  _v="$(gh --version 2>/dev/null | awk 'NR==1{print $3}')"
+  is_semver "$_v" || env_fail "could not parse gh version (found '${_v:-unknown}'; upgrade: https://cli.github.com)"
+  semver_gt "$_v" "2.73.99" \
+    || env_fail "gh >= 2.74.0 required for 'gh run watch --compact' (found $_v; upgrade: https://cli.github.com)"
+}
+
 preflight() {
   local branch head origin_head n cur rc hits ci sha status conclusion url
 
   command -v git >/dev/null 2>&1 || env_fail "git not found on PATH"
   command -v gh >/dev/null 2>&1 || env_fail "gh not found on PATH (https://cli.github.com)"
   command -v shasum >/dev/null 2>&1 || env_fail "shasum not found on PATH"
+
+  # gh >= 2.74.0 required for 'gh run watch --compact' (cli/cli PR #10629, gh v2.74.0, 2025-05-29).
+  local _v
+  _v="$(gh --version 2>/dev/null | awk 'NR==1{print $3}')"
+  is_semver "$_v" || env_fail "could not parse gh version (found '${_v:-unknown}'; upgrade: https://cli.github.com)"
+  semver_gt "$_v" "2.73.99" \
+    || env_fail "gh >= 2.74.0 required for 'gh run watch --compact' (found $_v; upgrade: https://cli.github.com)"
 
   # --- local state: branch and tree ---------------------------------------------------
   branch="$(git symbolic-ref --short -q HEAD || true)"
