@@ -60,7 +60,7 @@ extension CommandPalette {
         // answers. The actual implementor is NSWindow (verified with
         // instancesRespond(to:)); no typed Swift spelling exists for `undo:`.
         // A typo fails visibly — the item greys out — which is the same tolerance
-        // AppMenu.swift accepts (see that file's undo/redo comment).
+        // AppMenu.swift accepts (see AppMenu.swift:114–120, the undo/redo rationale).
         PaletteCommand("Undo",                        key: "⌘Z",     action: Selector(("undo:"))),
         PaletteCommand("Redo",                        key: "⌘⇧Z",    action: Selector(("redo:"))),
         PaletteCommand("Select All",                  key: "⌘A",     action: #selector(NSText.selectAll(_:))),
