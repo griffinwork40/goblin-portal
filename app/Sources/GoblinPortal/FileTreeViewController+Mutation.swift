@@ -130,7 +130,11 @@ extension FileTreeViewController {
                 rebased.append(URL(fileURLWithPath: new.path + path.dropFirst(old.path.count)))
             }
         }
-        refresh()
+        // `refresh()` is already timed inside itself; this outer span captures
+        // the whole mutation-reload cost including rebasing and reveal.
+        TreeRefreshTiming.measure(site: "afterMutation", expandedCount: expanded.count) {
+            refresh()
+        }
         // Shallowest first, so each parent is expanded (and loaded) before its child.
         for dir in rebased.sorted(by: { $0.pathComponents.count < $1.pathComponents.count }) {
             if let node = walk(to: dir) { outlineView.expandItem(node) }

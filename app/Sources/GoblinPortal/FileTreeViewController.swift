@@ -176,7 +176,7 @@ final class FileTreeViewController: NSViewController {
             .filter { outlineView.isItemExpanded($0) }
         let selectedURL = (outlineView.item(atRow: outlineView.selectedRow) as? FileNode)?.url
 
-        root.reloadChildren()
+        TreeRefreshTiming.measure(site: "refresh", expandedCount: expanded.count) { root.reloadChildren() }
         outlineView.reloadData()
 
         // Git status is stale for exactly the same reason the tree is, at exactly the same
@@ -243,7 +243,7 @@ final class FileTreeViewController: NSViewController {
         guard url.resolvingSymlinksInPath().path != root.url.resolvingSymlinksInPath().path
         else { return }
         root = FileNode(url: url, isDirectory: true)
-        root.reloadChildren()
+        TreeRefreshTiming.measure(site: "setRoot", expandedCount: 0) { root.reloadChildren() }
         outlineView.reloadData()
         // The tree now shows a different project, so the decorations on screen belong to
         // the old one. Waiting out the poller's 2s tick would leave them there — not merely
