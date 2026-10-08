@@ -130,16 +130,18 @@ extension FileTreeViewController {
                 rebased.append(URL(fileURLWithPath: new.path + path.dropFirst(old.path.count)))
             }
         }
-        // `refresh()` is already timed inside itself; this outer span captures
-        // the whole mutation-reload cost including rebasing and reveal.
+        // The span wraps the whole body — rebase walk, refresh, expansion replay, and
+        // reveal — so the logged elapsed time matches the actual mutation-reload cost.
+        // `refresh()` is NOT separately timed here; it handles its own `deferred` log
+        // when an inline edit is active, so callers never see two near-equal lines.
         TreeRefreshTiming.measure(site: "afterMutation", expandedCount: expanded.count) {
             refresh()
+            // Shallowest first, so each parent is expanded (and loaded) before its child.
+            for dir in rebased.sorted(by: { $0.pathComponents.count < $1.pathComponents.count }) {
+                if let node = walk(to: dir) { outlineView.expandItem(node) }
+            }
+            if let url { reveal(url) }
         }
-        // Shallowest first, so each parent is expanded (and loaded) before its child.
-        for dir in rebased.sorted(by: { $0.pathComponents.count < $1.pathComponents.count }) {
-            if let node = walk(to: dir) { outlineView.expandItem(node) }
-        }
-        if let url { reveal(url) }
     }
 
     /// End-of-edit replay: the reload any blocked `refresh()` asked for, then the root
@@ -159,16 +161,13 @@ extension FileTreeViewController {
         guard url.pathComponents.count > rootCount,
               url.path.hasPrefix(root.url.path + "/") else { return nil }
         // R1.2: default APFS volumes are case-insensitive, so a URL whose component
-        // case differs from the on-disk name would silently miss every node. Query
-        // once per walk; the result is stable for the lifetime of the walk (volume
-        // properties do not change while the tree is open). Fall back to case-sensitive
-        // on volumes that genuinely distinguish "Foo" from "foo" — there both names can
-        // coexist, so a case-insensitive match could pick the wrong sibling.
-        let caseSensitive: Bool = {
-            var vals = URLResourceValues()
-            vals = (try? root.url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])) ?? vals
-            return vals.volumeSupportsCaseSensitiveNames ?? false
-        }()
+        // case differs from the on-disk name would silently miss every node. The
+        // cached value is authoritative for the walk (volume properties do not change
+        // while the tree is open). Populate the cache here on first access; cleared
+        // in setRoot(_:) whenever the root moves to a different directory. Falls back
+        // to case-insensitive on genuine CS volumes to avoid picking the wrong sibling.
+        if caseSensitiveFS == nil { caseSensitiveFS = FileOperationPolicy.caseSensitiveFSAtRoot(root.url) }
+        let caseSensitive = caseSensitiveFS ?? false
         var current = root
         for component in url.pathComponents.dropFirst(rootCount) {
             if current.children == nil { current.reloadChildren() }

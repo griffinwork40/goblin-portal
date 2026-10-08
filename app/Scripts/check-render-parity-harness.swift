@@ -102,6 +102,10 @@ MainActor.assumeIsolated {
     // relatively larger on a low-contrast colour; row 7 (curly underline) has 10 non-fringe px
     // because each renderer generates the waveform with its own code, which agrees in bbox and
     // ink (0.995) but not in exact phase. A missing or moved underline is hundreds of px.
+    // Rows 10 (red underline), 11 (strike), and 12 (red-on-green) have no per-row override and
+    // fall through to the default `text` tolerance. That tolerance bounds non-fringe count and
+    // ink ratio, so a renderer producing the wrong colour or omitting the attribute would still
+    // be caught; what it does NOT assert is which specific colour channel carries the ink.
     var dim = text; dim.inkRatio = 0.95...1.18
     var curly = text; curly.maxNonFringe = 24
     parity("sgr + underlines", sgr, rows: sgrParts.count, text, r: r, overrides: [3: dim, 7: curly])
