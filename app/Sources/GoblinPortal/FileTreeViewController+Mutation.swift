@@ -154,10 +154,25 @@ extension FileTreeViewController {
         let rootCount = root.url.pathComponents.count
         guard url.pathComponents.count > rootCount,
               url.path.hasPrefix(root.url.path + "/") else { return nil }
+        // R1.2: default APFS volumes are case-insensitive, so a URL whose component
+        // case differs from the on-disk name would silently miss every node. Query
+        // once per walk; the result is stable for the lifetime of the walk (volume
+        // properties do not change while the tree is open). Fall back to case-sensitive
+        // on volumes that genuinely distinguish "Foo" from "foo" — there both names can
+        // coexist, so a case-insensitive match could pick the wrong sibling.
+        let caseSensitive: Bool = {
+            var vals = URLResourceValues()
+            vals = (try? root.url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])) ?? vals
+            return vals.volumeSupportsCaseSensitiveNames ?? false
+        }()
         var current = root
         for component in url.pathComponents.dropFirst(rootCount) {
             if current.children == nil { current.reloadChildren() }
-            guard let child = current.children?.first(where: { $0.name == component }) else { return nil }
+            guard let child = current.children?.first(where: {
+                caseSensitive
+                    ? $0.name == component
+                    : $0.name.caseInsensitiveCompare(component) == .orderedSame
+            }) else { return nil }
             if current !== root { outlineView.expandItem(current) }
             current = child
         }

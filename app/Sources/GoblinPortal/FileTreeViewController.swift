@@ -299,6 +299,15 @@ final class FileTreeViewController: NSViewController {
         let rootComponents = root.url.pathComponents
         guard components.count > rootComponents.count else { return }
 
+        // R1.2: default APFS volumes are case-insensitive; a URL whose component case
+        // differs from the on-disk name silently misses every node. Query once per
+        // reveal call. Genuine case-sensitive volumes (where "Foo" and "foo" can
+        // coexist) keep exact matching so we never pick the wrong sibling.
+        let caseSensitive: Bool = {
+            var vals = URLResourceValues()
+            vals = (try? root.url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])) ?? vals
+            return vals.volumeSupportsCaseSensitiveNames ?? false
+        }()
         var current: FileNode = root
         // Skip the root's own components; descend through the remainder.
         let descendantComponents = components.dropFirst(rootComponents.count)
@@ -306,7 +315,11 @@ final class FileTreeViewController: NSViewController {
             // Ensure children are loaded at this level.
             if current.children == nil { current.reloadChildren() }
             let isLastComponent = index == descendantComponents.count - 1
-            guard let child = current.children?.first(where: { $0.name == component }) else {
+            guard let child = current.children?.first(where: {
+                caseSensitive
+                    ? $0.name == component
+                    : $0.name.caseInsensitiveCompare(component) == .orderedSame
+            }) else {
                 return  // File not found in tree — outside root or filtered out
             }
             if !isLastComponent {
