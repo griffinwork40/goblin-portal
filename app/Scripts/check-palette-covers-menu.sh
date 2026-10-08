@@ -53,6 +53,10 @@
 # `validateUserInterfaceItem` that greys out the palette entry in the wrong
 # circumstances — none of those are caught here. Those stay daily-drive territory,
 # the same category `check-sidebar-toggle.sh` puts visual placement in.
+# INVERSE GAP (by design): a palette entry whose selector has NO menu item is NOT
+# flagged. The palette intentionally carries commands that are palette-only (no menu
+# item at all). The gate direction is menu→palette only: every menu selector must
+# appear in the palette, not every palette entry must appear in a menu.
 #
 # Usage: ./Scripts/check-palette-covers-menu.sh
 #

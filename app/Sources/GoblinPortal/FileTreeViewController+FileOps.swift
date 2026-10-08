@@ -132,6 +132,12 @@ extension FileTreeViewController {
                 } else {
                     try FileOperationPolicy.createFile(at: newURL)
                 }
+                // R1.3: notify on creation so that a stale tab at this path (left open
+                // by a sole-pane trash, PR #157) is refreshed when the file is recreated.
+                // oldURL == newURL signals creation — no prior location, just an arrival.
+                // The delegate no-ops for a tab it cannot find, so this is safe when
+                // no stale tab exists.
+                notifyDelegateOfMutation(oldURL: newURL, newURL: newURL)
                 finishEditReplay(select: newURL)
             } else {
                 try FileOperationPolicy.rename(from: oldURL, to: newURL)

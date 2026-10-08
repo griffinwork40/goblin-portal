@@ -168,18 +168,26 @@ extension Harness {
         else { fail("a/ collapsed after sibling rename — expansion not preserved") }
 
         // ─────────────────────────────────────────────────────────────────────
-        // CASE 11 — CONTROL: a deliberately wrong assertion must register a failure.
-        // The inner failure is NOT counted in the gate's bad total — it proves
-        // the assert helper is not a no-op.
+        // CASE 11 — CONTROL: a deliberately wrong assertion must route through the
+        // shared fail() helper and increment gBad, proving the assert machinery is
+        // not a no-op. R1.5: the prior version counted a local `controlFailed`
+        // variable, which proved arithmetic (1 == 2 is always false) rather than
+        // the fail() path itself — a real silent no-op in fail() would have passed.
+        //
+        // Technique: snapshot gBad, call fail() with a sentinel message, assert gBad
+        // incremented by exactly 1, then restore the original value so the outer count
+        // is unaffected. The restore is the last step so that if the assert itself
+        // fails it lands in the real gBad — a meta-failure the user can see.
         // ─────────────────────────────────────────────────────────────────────
-        print("\n  [case 11] control: deliberate failure inside sub-check")
-        var controlFailed = 0
-        let innerResult = (1 == 2)   // always false
-        if !innerResult { controlFailed += 1 }
-        if controlFailed == 1 {
-            ok("control: inner failure correctly recorded (assert helper is not a no-op)")
+        print("\n  [case 11] control: deliberate failure routes through fail() and increments gBad")
+        let badBefore = gBad
+        fail("control: intentional inner failure — this message should appear above")
+        let badAfterFail = gBad
+        gBad = badBefore  // restore: the control failure must not count toward the gate total
+        if badAfterFail == badBefore + 1 {
+            ok("control: fail() incremented gBad — assert machinery is live")
         } else {
-            fail("control: inner failure not recorded — assert helper is a no-op")
+            fail("control: fail() did NOT increment gBad — assert helper is a no-op")
         }
     }
 
