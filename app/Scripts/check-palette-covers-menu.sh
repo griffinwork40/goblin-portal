@@ -156,13 +156,26 @@ struct MenuKey: Hashable {
 // ---------------------------------------------------------------------------
 // Canonical key-hint form: sort modifiers as ⌃⌥⇧⌘, then append the key char.
 // Arrow-key unicode scalars → glyphs. Letters → uppercase. Other chars → as-is.
+//
+// An uppercase menu keyEquivalent implies ⇧: AppKit stores "G" with .command
+// rather than "g" with [.command, .shift]. We promote .shift into the mask
+// whenever the stored keyEquivalent is a single uppercase ASCII letter and .shift
+// is absent, so the canonical form matches the palette hint "⌘⇧G".
 // ---------------------------------------------------------------------------
 func canonical(equiv: String, mask: NSEvent.ModifierFlags) -> String {
+    var effectiveMask = mask
+    // Uppercase ASCII letter without .shift → add .shift (AppKit convention).
+    if equiv.count == 1,
+       let c = equiv.unicodeScalars.first,
+       c.value >= 65 && c.value <= 90,   // 'A'–'Z'
+       !mask.contains(.shift) {
+        effectiveMask.insert(.shift)
+    }
     var mods = ""
-    if mask.contains(.control) { mods += "⌃" }
-    if mask.contains(.option)  { mods += "⌥" }
-    if mask.contains(.shift)   { mods += "⇧" }
-    if mask.contains(.command) { mods += "⌘" }
+    if effectiveMask.contains(.control) { mods += "⌃" }
+    if effectiveMask.contains(.option)  { mods += "⌥" }
+    if effectiveMask.contains(.shift)   { mods += "⇧" }
+    if effectiveMask.contains(.command) { mods += "⌘" }
     let arrowMap: [Unicode.Scalar: String] = [
         Unicode.Scalar(NSRightArrowFunctionKey)!: "→",
         Unicode.Scalar(NSLeftArrowFunctionKey)!:  "←",
@@ -211,6 +224,9 @@ func collectItems(from menu: NSMenu) -> [(MenuKey, String, NSEvent.ModifierFlags
 }
 
 MainActor.assumeIsolated {
+    // Build the menu. This triggers buildMenu(), which sets NSApp.mainMenu.
+    // We call it on a fresh AppDelegate rather than NSApp.delegate to avoid side
+    // effects on a live session.
     let delegate = AppDelegate()
     delegate.buildMenu()
 
@@ -255,18 +271,36 @@ MainActor.assumeIsolated {
     // ---------------------------------------------------------------------------
     // PART 2: key-hint check — palette hint must match the menu item's equivalent.
     // Only checked when the palette command has a non-empty keyHint AND has a
-    // matching menu item (by selector+tag). Palette-only commands are skipped.
+    // matching menu item (by selector+tag). Palette-only commands (or commands
+    // that route through a different selector than the menu item — e.g. "Find…"
+    // uses openSearch: in the palette but performFindPanelAction: tag 1 in the
+    // menu) are skipped. Skipped hints are printed with their reason so the
+    // omission is visible and not silently lost.
     // ---------------------------------------------------------------------------
     var hintMismatches: [(String, String, String)] = [] // (title, menuHint, paletteHint)
     var checkedHints = 0
+    var skippedHints: [(String, String)] = [] // (title, reason)
     for cmd in CommandPalette.allCommands {
         guard !cmd.keyHint.isEmpty else { continue }
         let mkey = MenuKey(sel: NSStringFromSelector(cmd.action), tag: cmd.tag ?? 0)
-        guard let menuHint = menuHints[mkey] else { continue } // palette-only, skip
+        guard let menuHint = menuHints[mkey] else {
+            // Selector+tag not in menuHints: palette-only hint or selector mismatch
+            // (e.g. "Find…" → openSearch: in palette vs performFindPanelAction: tag 1
+            // in the menu). Print it so the gap is visible.
+            skippedHints.append((cmd.title, "selector '\(NSStringFromSelector(cmd.action))' not in menu"))
+            continue
+        }
         let palHint = canonicalHint(cmd.keyHint)
         checkedHints += 1
         if menuHint != palHint {
             hintMismatches.append((cmd.title, menuHint, palHint))
+        }
+    }
+
+    if !skippedHints.isEmpty {
+        print("note \(skippedHints.count) palette hint(s) skipped (palette-only selector or selector mismatch):")
+        for (title, reason) in skippedHints.sorted(by: { $0.0 < $1.0 }) {
+            print("    '\(title)': \(reason)")
         }
     }
 

@@ -145,10 +145,11 @@ SRC_CONFIG="Sources/GoblinPortal/Config.swift"
 }
 
 # Strip // comments from each file, then extract the literal value after `= `.
+# Uses POSIX [[:space:]] rather than \s (BSD sed has no \s).
 extract_font_size() {
     sed 's|//.*||' "$1" \
-      | grep -E '^\s*static let defaultFontSize: Double\s*=' \
-      | sed 's/.*=\s*//' | tr -d ' \t'
+      | grep -E '^[[:space:]]*static let defaultFontSize: Double[[:space:]]*=' \
+      | sed 's/.*=[[:space:]]*//' | tr -d ' \t'
 }
 
 SIZE_CONFIG="$(extract_font_size "$SRC_CONFIG")"
@@ -164,7 +165,8 @@ if [[ -z "$SIZE_DIFF" ]]; then
 fi
 
 say "Part C — drift guard (PreferencesSeed.defaultFontSize == AppConfig.defaultFontSize):"
-if [[ "$SIZE_CONFIG" != "$SIZE_DIFF" ]]; then
+# Compare numerically with awk so `14` and `14.0` are treated as equal.
+if ! awk "BEGIN { exit ($SIZE_CONFIG + 0 == $SIZE_DIFF + 0) ? 0 : 1 }"; then
     echo "error: defaultFontSize drift detected!" >&2
     echo "  AppConfig.defaultFontSize = $SIZE_CONFIG (Config.swift)" >&2
     echo "  PreferencesSeed.defaultFontSize = $SIZE_DIFF (PreferencesDiff.swift)" >&2
