@@ -137,10 +137,20 @@ extension FileTreeViewController {
                 // oldURL == newURL signals creation — no prior location, just an arrival.
                 // The delegate no-ops for a tab it cannot find, so this is safe when
                 // no stale tab exists.
+                //
+                // ORDERING: notifyDelegateOfMutation fires BEFORE finishEditReplay so
+                // the delegate (SpaceViewController.handleFileMutation) sees the mutation
+                // while isEditingInline is still true. This is safe today because
+                // handleFileMutation never calls back into refresh() or setRoot(_:) on
+                // the tree — it only updates tab state. If that ever changes, the
+                // delegate call must move after finishEditReplay (#176).
                 notifyDelegateOfMutation(oldURL: newURL, newURL: newURL)
                 finishEditReplay(select: newURL)
             } else {
                 try FileOperationPolicy.rename(from: oldURL, to: newURL)
+                // ORDERING: same dependency as above — notifyDelegateOfMutation before
+                // finishEditReplay; safe because handleFileMutation never refreshes
+                // the tree (#176).
                 notifyDelegateOfMutation(oldURL: oldURL, newURL: newURL)
                 finishEditReplay(select: newURL, rebasing: [(oldURL, newURL)])
             }

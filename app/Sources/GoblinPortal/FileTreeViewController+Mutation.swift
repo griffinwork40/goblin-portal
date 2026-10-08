@@ -155,16 +155,13 @@ extension FileTreeViewController {
         guard url.pathComponents.count > rootCount,
               url.path.hasPrefix(root.url.path + "/") else { return nil }
         // R1.2: default APFS volumes are case-insensitive, so a URL whose component
-        // case differs from the on-disk name would silently miss every node. Query
-        // once per walk; the result is stable for the lifetime of the walk (volume
-        // properties do not change while the tree is open). Fall back to case-sensitive
-        // on volumes that genuinely distinguish "Foo" from "foo" — there both names can
-        // coexist, so a case-insensitive match could pick the wrong sibling.
-        let caseSensitive: Bool = {
-            var vals = URLResourceValues()
-            vals = (try? root.url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])) ?? vals
-            return vals.volumeSupportsCaseSensitiveNames ?? false
-        }()
+        // case differs from the on-disk name would silently miss every node. The
+        // cached value is authoritative for the walk (volume properties do not change
+        // while the tree is open). Populate the cache here on first access; cleared
+        // in setRoot(_:) whenever the root moves to a different directory. Falls back
+        // to case-insensitive on genuine CS volumes to avoid picking the wrong sibling.
+        if caseSensitiveFS == nil { caseSensitiveFS = FileOperationPolicy.caseSensitiveFSAtRoot(root.url) }
+        let caseSensitive = caseSensitiveFS ?? false
         var current = root
         for component in url.pathComponents.dropFirst(rootCount) {
             if current.children == nil { current.reloadChildren() }
