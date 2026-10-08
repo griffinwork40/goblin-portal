@@ -50,11 +50,17 @@ extension CommandPalette {
         PaletteCommand("Close Space",                 key: "⌘⇧W",    action: #selector(NSWindow.performClose(_:))),
         // Navigate
         PaletteCommand("Go to Line…",                 key: "⌘L",     action: #selector(AppDelegate.goToLine(_:))),
-        PaletteCommand("Jump to Symbol…",             key: "⌘⇧O",    action: Selector(("showSymbolOutline:"))),
+        PaletteCommand("Jump to Symbol…",             key: "⌘⇧O",    action: #selector(FileViewerPane.showSymbolOutline(_:))),
         PaletteCommand("Choose Window…",              key: "⌘⇧A",    action: #selector(AppDelegate.showWindowChooser(_:))),
         PaletteCommand("Next Tab",                    key: "⌘⌥→",    action: #selector(AppDelegate.nextDocument(_:))),
         PaletteCommand("Previous Tab",                key: "⌘⌥←",    action: #selector(AppDelegate.previousDocument(_:))),
         // Edit
+        // undo:/redo: must stay as strings: `#selector(UndoManager.undo)` is the
+        // zero-argument `undo`, a different selector that the responder chain never
+        // answers. The actual implementor is NSWindow (verified with
+        // instancesRespond(to:)); no typed Swift spelling exists for `undo:`.
+        // A typo fails visibly — the item greys out — which is the same tolerance
+        // AppMenu.swift accepts (see that file's undo/redo comment).
         PaletteCommand("Undo",                        key: "⌘Z",     action: Selector(("undo:"))),
         PaletteCommand("Redo",                        key: "⌘⇧Z",    action: Selector(("redo:"))),
         PaletteCommand("Select All",                  key: "⌘A",     action: #selector(NSText.selectAll(_:))),
@@ -75,25 +81,25 @@ extension CommandPalette {
                        action: #selector(NSTextView.performFindPanelAction(_:)),
                        tag: NSTextFinder.Action.showReplaceInterface.rawValue),
         // Code folding — greyed out automatically when no editor is focused
-        PaletteCommand("Fold Block",                  key: "⌘⌥[",    action: Selector(("foldAtCursor:"))),
-        PaletteCommand("Unfold Block",                key: "⌘⌥]",    action: Selector(("unfoldAtCursor:"))),
+        PaletteCommand("Fold Block",                  key: "⌘⌥[",    action: #selector(FileViewerPane.foldAtCursor(_:))),
+        PaletteCommand("Unfold Block",                key: "⌘⌥]",    action: #selector(FileViewerPane.unfoldAtCursor(_:))),
         // View
         PaletteCommand("Bigger Font",                 key: "⌘+",     action: #selector(AppDelegate.biggerFont(_:))),
         PaletteCommand("Smaller Font",                key: "⌘-",     action: #selector(AppDelegate.smallerFont(_:))),
         PaletteCommand("Actual Size",                 key: "⌘0",     action: #selector(AppDelegate.resetFont(_:))),
         PaletteCommand("Toggle Word Wrap",                             action: #selector(AppDelegate.toggleWordWrap(_:))),
         PaletteCommand("Toggle Sidebar",              key: "⌘B",     action: #selector(NSSplitViewController.toggleSidebar(_:))),
-        PaletteCommand("Show Explorer",               key: "⌘⇧E",    action: Selector(("showExplorerSidebar:"))),
-        PaletteCommand("Show Source Control",         key: "⌃⇧G",    action: Selector(("showSourceControlSidebar:"))),
+        PaletteCommand("Show Explorer",               key: "⌘⇧E",    action: #selector(SpaceViewController.showExplorerSidebar(_:))),
+        PaletteCommand("Show Source Control",         key: "⌃⇧G",    action: #selector(SpaceViewController.showSourceControlSidebar(_:))),
         PaletteCommand("Enter Full Screen",           key: "⌃⌘F",    action: #selector(NSWindow.toggleFullScreen(_:))),
         // Splits — greyed out by validateUserInterfaceItem when inappropriate
         PaletteCommand("Split Right",                 key: "⌘⇧\\",   action: #selector(SpaceViewController.splitHorizontal(_:))),
         PaletteCommand("Split Down",                  key: "⌘⇧-",    action: #selector(SpaceViewController.splitVertical(_:))),
         // Pane focus — greyed out when no split exists in the active tab
-        PaletteCommand("Focus Pane Left",             key: "⌘⇧H",    action: Selector(("moveFocusLeft:"))),
-        PaletteCommand("Focus Pane Down",             key: "⌘⇧J",    action: Selector(("moveFocusDown:"))),
-        PaletteCommand("Focus Pane Up",               key: "⌘⇧K",    action: Selector(("moveFocusUp:"))),
-        PaletteCommand("Focus Pane Right",            key: "⌘⇧L",    action: Selector(("moveFocusRight:"))),
+        PaletteCommand("Focus Pane Left",             key: "⌘⇧H",    action: #selector(SpaceViewController.moveFocusLeft(_:))),
+        PaletteCommand("Focus Pane Down",             key: "⌘⇧J",    action: #selector(SpaceViewController.moveFocusDown(_:))),
+        PaletteCommand("Focus Pane Up",               key: "⌘⇧K",    action: #selector(SpaceViewController.moveFocusUp(_:))),
+        PaletteCommand("Focus Pane Right",            key: "⌘⇧L",    action: #selector(SpaceViewController.moveFocusRight(_:))),
         // Terminal integration
         PaletteCommand("Send Path to Terminal",       key: "⌘⇧C",    action: #selector(AppDelegate.sendPathToTerminal(_:))),
         PaletteCommand("Run in Terminal",             key: "⌘⇧R",    action: #selector(AppDelegate.runInTerminal(_:))),
