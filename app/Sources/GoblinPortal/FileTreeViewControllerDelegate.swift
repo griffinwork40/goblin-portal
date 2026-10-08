@@ -36,7 +36,13 @@ protocol FileTreeViewControllerDelegate: AnyObject {
     /// (`SpaceViewController.fileTree(_:didRequestChangeDirectory:)`).
     func fileTree(_ controller: FileTreeViewController, didRequestChangeDirectory url: URL)
 
-    /// A file was renamed, moved, or trashed. `newURL` is nil when trashed.
+    /// A file was created, renamed, moved, or trashed. `newURL` is nil when trashed.
+    ///
+    /// **Creation convention (R1.3):** when a New File or New Folder is committed,
+    /// the delegate is called with `oldURL == newURL` — no prior location, just an
+    /// arrival. This lets a stale tab at that path (e.g. left open by a sole-pane
+    /// trash from PR #157) refresh itself when the file is recreated. A conformer
+    /// that does not track stale URLs can ignore the `oldURL == newURL` case safely.
     func fileTree(_ controller: FileTreeViewController, didMutate oldURL: URL, newURL: URL?)
 }
 
