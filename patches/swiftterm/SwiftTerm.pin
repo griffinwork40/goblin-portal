@@ -25,30 +25,14 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-10-05 the tree differs from upstream in TEN places. 0012 modifies
-# Apple/Metal/CoreTextGlyphRasterizer.swift (new to the pin) and
-# Apple/Metal/MetalTerminalRenderer.swift again, making TWELVE patches. The paragraph
-# below is the 2026-10-04 state.
-#
-# As of 2026-10-04 the tree differs from upstream in NINE places. 0011 modifies
-# Apple/Metal/MetalTerminalRenderer.swift (caches rasterizer misses and the per-font
-# PostScript name), making ELEVEN patches. The paragraph below is the 2026-09-27 state.
-#
-# As of 2026-09-27 the tree differs from upstream in EIGHT places. 0010 adds
-# MacDisplayLinkPacer.swift new and touches MacTerminalView.swift and
-# AppleTerminalView.swift again, making TEN patches. The paragraph below is the
-# 2026-09-20 state it extends.
-#
-# As of 2026-09-20 the tree differs from upstream in SEVEN places — Package.swift,
-# Buffer.swift, EscapeSequenceParser.swift, MacTerminalView.swift,
-# AppleTerminalView.swift and TerminalViewSearch.swift are modified, and
-# PtmuxDcsHandler.swift is added new by 0005 — carrying NINE patches between them:
-# 0001 on Package.swift, 0002/0003/0004 on Buffer.swift, 0005 on
-# EscapeSequenceParser.swift (plus the new file), 0006/0008/0009 on
-# MacTerminalView.swift, 0007 on AppleTerminalView.swift, and 0009 also on
-# TerminalViewSearch.swift.
-# File count and patch count are not the same number and have not been since 0003;
-# do not infer one from the other.
+# As of 2026-10-05 the tree differs from upstream in TWELVE places:
+# Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005),
+# PtmuxDcsHandler.swift (0005, new file), MacTerminalView.swift (0006/0008/0009/0010),
+# AppleTerminalView.swift (0007/0010), TerminalViewSearch.swift (0009),
+# MacDisplayLinkPacer.swift (0010, new file), MetalTerminalRenderer.swift (0011/0012), and
+# CoreTextGlyphRasterizer.swift (0012). File count and patch count are not the same number
+# and have not been since 0003; do not infer one from the other. For the history of how
+# the patch set grew, see git log patches/swiftterm/SwiftTerm.pin.
 #
 # Regenerate the hashes below with:
 #   shasum -a 256 vendor/SwiftTerm/Package.swift

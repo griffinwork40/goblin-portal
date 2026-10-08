@@ -64,6 +64,13 @@ let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 /// Render a CGImage into an RGBA8 sRGB buffer, optionally over an opaque background (the
 /// Core Text layer content is transparent where nothing was drawn; the window server would
 /// composite it over the layer's background colour, so the capture does the same).
+///
+/// Channel-order contract: the output is always RGBA (premultipliedLast), regardless of the
+/// source CGImage's own channel layout. Core Text produces RGBA (premultipliedLast) natively;
+/// Metal produces BGRA (byteOrder32Little | noneSkipFirst). Both are normalized here by drawing
+/// into a premultipliedLast CGContext, which performs the channel swap transparently. Callers in
+/// delta(), ink(), and diff() therefore index R=0, G=1, B=2, A=3 and never see the Metal BGRA
+/// order. Safe as long as no caller bypasses toImg() to access the raw buffer directly.
 func toImg(_ cg: CGImage, w: Int, h: Int, under bg: (Int, Int, Int)? = nil) -> Img {
     var px = [UInt8](repeating: 0, count: w * h * 4)
     px.withUnsafeMutableBytes { raw in
@@ -169,6 +176,11 @@ final class Renderer {
 
     private func captureMetal(_ view: TerminalView, _ proxy: DrawableProxy, w: Int, h: Int) -> Img {
         guard let m = view.subviews.compactMap({ $0 as? MTKView }).first, let device = m.device else { environmental("no-mtk") }
+        // The blit below assumes BGRA8: tw*4 bytes per row and the CGImage is constructed with
+        // byteOrder32Little | noneSkipFirst. Guard the pixel format so an MTKView configured with
+        // a different format (e.g. .rgba8Unorm or a float format) fails loudly rather than
+        // silently producing garbage pixels.
+        guard m.colorPixelFormat == .bgra8Unorm else { environmental("unexpected-pixel-format") }
         // Two synchronous frames; capture the second, because the first may race the
         // display-link pacer's own draw (patch 0010) for the same drawable.
         for _ in 0..<2 { pump(0.1); m.draw() }
