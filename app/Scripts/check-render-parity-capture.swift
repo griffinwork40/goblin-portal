@@ -176,16 +176,17 @@ final class Renderer {
 
     private func captureMetal(_ view: TerminalView, _ proxy: DrawableProxy, w: Int, h: Int) -> Img {
         guard let m = view.subviews.compactMap({ $0 as? MTKView }).first, let device = m.device else { environmental("no-mtk") }
-        // The blit below assumes BGRA8: tw*4 bytes per row and the CGImage is constructed with
-        // byteOrder32Little | noneSkipFirst. Guard the pixel format so an MTKView configured with
-        // a different format (e.g. .rgba8Unorm or a float format) fails loudly rather than
-        // silently producing garbage pixels.
-        guard m.colorPixelFormat == .bgra8Unorm else { environmental("unexpected-pixel-format") }
         // Two synchronous frames; capture the second, because the first may race the
         // display-link pacer's own draw (patch 0010) for the same drawable.
         for _ in 0..<2 { pump(0.1); m.draw() }
         pump(0.2)
         guard let tex = proxy.captured?.texture else { environmental("no-drawable") }
+        // The blit below assumes BGRA8: tw*4 bytes per row and the CGImage is constructed with
+        // byteOrder32Little | noneSkipFirst. Guard tex.pixelFormat (the actual captured texture)
+        // rather than m.colorPixelFormat (the MTKView config) — the bytes come from the texture,
+        // so that is the source of truth. SwiftTerm hard-codes .bgra8Unorm at MacTerminalView.swift:449;
+        // this check catches any future divergence before producing garbage pixels silently.
+        guard tex.pixelFormat == .bgra8Unorm else { environmental("unexpected-pixel-format") }
         let tw = tex.width, th = tex.height
         guard let buf = device.makeBuffer(length: tw * th * 4, options: .storageModeShared),
               let q = device.makeCommandQueue(), let cb = q.makeCommandBuffer(),
