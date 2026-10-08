@@ -14,7 +14,7 @@
 # only builds is a release job that will eventually publish an x86_64 binary, or a zip
 # whose Info.plist disagrees with its own tag, and say nothing.
 #
-# Cutting a release:
+# Cutting a release (app/Scripts/cut-release.sh X.Y.Z does all of this; see RELEASING.md):
 #   1. bump VERSION in app/Scripts/make-app-bundle.sh, commit it
 #   2. git tag vX.Y.Z && git push origin vX.Y.Z
 #   3. this runs; the zip, DMG, and their .sha256 checksums appear on the release
