@@ -265,9 +265,22 @@ do {
 
 _ = try? FileManager.default.removeItem(at: dir6)  // harness scratch only
 
+// ── CASE 16: caseSensitiveFSAtRoot — returns a Bool, no crash ─────────────
+// macOS temp dirs live on the boot volume (APFS, case-insensitive by default).
+// We cannot assert a hard true/false because a CI machine may be on a CS volume;
+// we assert only that the function returns *some* Bool without throwing or crashing.
+// (The compile-time type constraint already guarantees Bool, but the runtime query
+// must not crash — the earlier body used `try?` which masked a nil chain; the new
+// helper uses flatMap and ?? so it is safe on any volume.)
+let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
+let cs16 = FileOperationPolicy.caseSensitiveFSAtRoot(tmpDir)
+// `cs16` is a Bool — the assignment alone proves it compiled and ran.
+// Report the measured value so CI logs make the volume's actual semantics visible.
+print("  case16 caseSensitiveFSAtRoot(\(tmpDir.lastPathComponent)) = \(cs16) (informational)")
+
 // ── Result ────────────────────────────────────────────────────────────────
 if bad == 0 {
-    print("check-file-ops: ALL 15 CASES PASSED")
+    print("check-file-ops: ALL 16 CASES PASSED")
 } else {
     print("check-file-ops: \(bad) FAILURE(S)")
 }

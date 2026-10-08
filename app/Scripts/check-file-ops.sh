@@ -9,12 +9,13 @@
 # the SHIPPED file, not a restatement of it, is the whole point. The assertions live
 # in `check-file-ops-harness.swift`; this script builds and runs them.
 #
-# 15 CASES (see the harness): validity, suffix naming, case-only detection,
+# 16 CASES (see the harness): validity, suffix naming, case-only detection,
 # isDescendant, create, rename, case-only rename read back from the LISTING (a bare
 # fileExists proves nothing about case on this volume), move, trash, move collision,
 # paste keeps a free name, duplicate always suffixes, collisions never overwrite
-# (original content intact), and case-only rollback when step 2 fails (forced
-# through the policy's `moveItem` seam).
+# (original content intact), case-only rollback when step 2 fails (forced through
+# the policy's `moveItem` seam), and caseSensitiveFSAtRoot (returns a Bool, no
+# crash — value is volume-dependent and printed as informational).
 #
 # FALSIFICATION — A REAL MUTATION. The shipped policy is copied to a temp dir and
 # sed breaks one rule: the free-name line in `availableName` is rewritten so a free
@@ -70,7 +71,7 @@ run() {
 
 # ── Real run ─────────────────────────────────────────────────────────────────
 build "$SRC" "$TMP/harness"
-say "==> running check-file-ops (15 cases) against the shipped policy"
+say "==> running check-file-ops (16 cases) against the shipped policy"
 run "$TMP/harness"
 if [[ $RUN_STATUS -gt 1 ]]; then
     echo "error: harness crashed (status $RUN_STATUS) — environmental, not a verdict" >&2
