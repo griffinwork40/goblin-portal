@@ -41,7 +41,8 @@
 # with the 500x532 frame and the gate exits 1.
 #
 # CANNOT SEE: the real app's launch path (`AppDelegate.restoreSpaces`, tab groups of several
-# Spaces), Stage Manager's placement, or how the window looks. The window is briefly ON screen (centring is the subject) but never steals focus:
+# Spaces), Stage Manager's placement, or how the window looks. The window is briefly
+# ON screen (centring is the subject) but never steals focus:
 # `.accessory` policy and never `NSApp.activate`, same as check-sidebar-toggle.sh.
 #
 set -uo pipefail

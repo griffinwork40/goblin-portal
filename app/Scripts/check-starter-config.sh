@@ -11,7 +11,7 @@
 #
 # WHY IT EXISTS. The bug this gate was written to catch (2026-10-07): the padding
 # comment values on source lines ~44-45 used `\"` inside a plain `"""` literal, which
-# compiled to bare `"` and produced malformed JSON. `AppConfig.load` (Config+Load.swift:29)
+# compiled to bare `"` and produced malformed JSON. `AppConfig.load()` (in Config+Load.swift)
 # rejected the whole file, silently ignoring every edit a user had made to it. The fix
 # switched to a raw literal (`#"""..."""#`) so the source is its own ground truth.
 # `check-starter-config.sh` makes a future regression impossible to ship silently.
@@ -26,7 +26,7 @@
 #             Checked by static grep on ConfigFile, not by linking the AppKit type.
 #   Case 3 — Zero warnings through the real loader seam. StarterConfig.text, written to
 #             a temp file, is decoded through JSONDecoder into ConfigFile directly (the
-#             same path Config+Load.swift:29 takes). ConfigFile is Foundation-only in its
+#             same path `AppConfig.load()` takes (Config+Load.swift). ConfigFile is Foundation-only in its
 #             structure but declared in a file that imports AppKit, so this case is
 #             implemented as a structural check: every non-comment value in the starter
 #             that has a corresponding ConfigFile field must be a type the decoder would
@@ -115,9 +115,10 @@ do {
     check("case 1: StarterConfig.text is valid JSON (JSONSerialization strict parse)", true)
 } catch {
     parseError = error
+    // check() already increments failures when the second argument is false;
+    // the extra `failures += 1` that was here double-counted this case (#168).
     check("case 1: StarterConfig.text is valid JSON (JSONSerialization strict parse)", false,
           extra: "\(error)")
-    failures += 1
 }
 
 // -------------------------------------------------------------------------
