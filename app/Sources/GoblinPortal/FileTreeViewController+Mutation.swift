@@ -164,8 +164,9 @@ extension FileTreeViewController {
         // case differs from the on-disk name would silently miss every node. The
         // cached value is authoritative for the walk (volume properties do not change
         // while the tree is open). Populate the cache here on first access; cleared
-        // in setRoot(_:) whenever the root moves to a different directory. Falls back
-        // to case-insensitive on genuine CS volumes to avoid picking the wrong sibling.
+        // in setRoot(_:) whenever the root moves to a different directory. Keeps exact
+        // (case-sensitive) matching on genuine CS volumes, where two siblings can share
+        // the same spelling under different cases and picking the wrong one is a bug.
         if caseSensitiveFS == nil { caseSensitiveFS = FileOperationPolicy.caseSensitiveFSAtRoot(root.url) }
         let caseSensitive = caseSensitiveFS ?? false
         var current = root
