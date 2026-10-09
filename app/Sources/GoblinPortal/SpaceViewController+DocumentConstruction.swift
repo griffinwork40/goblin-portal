@@ -27,10 +27,10 @@ extension SpaceViewController {
     /// 2. **Focused shell's CWD** — `focusedShellHost?.currentDirectory` when no override is
     ///    given. This is the ⌘T case: the new tab opens in the directory the user has already
     ///    navigated to in the active shell, so a `cd ~/Projects/foo` in the current tab is
-    ///    still the cwd in the next one. `currentDirectory` prefers an OSC 7 report (exact,
-    ///    from the shell itself via `shell-integration.zsh`) and falls back to a kernel poll
-    ///    (`proc_pidinfo` on the foreground process group) — see `ShellHosting.swift` for the
-    ///    full two-source explanation.
+    ///    still the cwd in the next one. `currentDirectory` is the shared cwd rule
+    ///    (`ShellContext.swift`): a local directory or nil. It is nil over ssh, under
+    ///    screen/zellij, or while tmux's answer is not cached yet, and then this falls
+    ///    through to the Space root rather than a stale or remote path.
     /// 3. **Space root** — `root` when there is no focused shell (first tab in a Space, or the
     ///    focused document is a file viewer). A Space *is* a project root (plan §12.4 item 1),
     ///    so landing there is always the correct bottom-of-chain answer.
@@ -42,9 +42,9 @@ extension SpaceViewController {
     @discardableResult
     func addTerminalDocument(start: Bool = true, workingDirectory: URL? = nil) -> SpaceDocument {
         // Explicit override → focused shell's CWD → Space root.
-        // `focusedShellHost` is nil when no shell document exists yet (first tab); the
-        // kernel-poll fallback inside `currentDirectory` is safe to call on the main actor
-        // because it is a non-blocking `proc_pidinfo` snapshot, not a wait.
+        // `focusedShellHost` is nil when no shell document exists yet (first tab).
+        // `currentDirectory` is safe on the main actor: two non-blocking syscalls plus a
+        // cache read; the tmux subprocess only ever runs off-main.
         let directory = workingDirectory ?? focusedShellHost?.currentDirectory ?? root
 
         let pane = TerminalPane(

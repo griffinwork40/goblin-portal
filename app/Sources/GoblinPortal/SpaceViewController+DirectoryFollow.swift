@@ -9,16 +9,15 @@
 //  stored property lives over there, because Swift extensions cannot add stored
 //  properties; everything that property *does* is here.
 //
-//  WHY A POLLER AND NOT A CALLBACK. The poller is now the FALLBACK for shells that
-//  have not sourced `shell-integration.zsh`. When OSC 7 IS emitted (i.e. the user
-//  sources the script), `TerminalPane._reportedDirectory` is populated on every
-//  precmd, and `ShellHosting.currentDirectory` returns it directly — the poller
-//  still fires but `tick()` compares against `lastPushed` and early-returns without
-//  touching the view (no-op cost: one comparison per 750ms). For shells without the
-//  script, asking the kernel on a timer still needs no shell cooperation, works on
-//  any shell, and cannot be broken by a user's dotfiles — the cost is a syscall pair
-//  every 750ms while a window is key, and nothing when it is not. Full argument in
-//  `ShellDirectory.swift`'s header.
+//  WHY A POLLER AND NOT A CALLBACK. Each tick reads ONE `ShellHosting.shellContext`, the
+//  single cwd rule (`ShellContext.swift`): a local OSC 7 report or the pane's own shell's
+//  kernel cwd, a nested shell's cwd, tmux's active pane (cached off-main, see
+//  `TerminalPane+DirectoryState.swift`), or nil over ssh and other unfollowable programs.
+//  A poll is needed even with OSC 7, because two of those answers have no callback at all:
+//  tmux's directory and the kernel's. The tick is cheap when nothing moved (one context
+//  read, one path comparison against `lastPushed`), costs nothing while the window is not
+//  key, and also drives the follow-status note (`FileTreeViewController+FollowStatus.swift`)
+//  every tick, because the status can change while the directory stays nil.
 //
 //  DATA FLOWS ONE WAY, WHICH IS WHAT MAKES THIS SAFE. The UI never moves the tree
 //  itself. "cd Here" and every other navigate affordance write a `cd` to the shell
