@@ -8,11 +8,10 @@
 //  inject a controlled stub that blocks, stalls, or returns canned entries — without any
 //  changes to FileNode's identity-preservation or sorting logic.
 //
-//  The seam is a single `var lister: (URL) -> [DirectoryEntry]` on the `DirectoryListing`
-//  enum.  Replacing it in the harness requires `@testable import GoblinPortal`; the
-//  production path never touches it.  No `nonisolated(unsafe)` is needed because the
-//  lister is accessed only from `FileNode.reloadChildren()`, which is itself
-//  `@MainActor` — all reads and writes happen on the main actor.
+//  The seam is a single `var lister: @Sendable (URL) -> [DirectoryEntry]` on the
+//  `DirectoryListing` enum.  Replacing it in the harness requires `@testable import
+//  GoblinPortal`; the production path never touches it.  The var is read only on the
+//  main actor; the closure it holds may be *called* off main (see `lister` below).
 //
 //  WHAT IT PRESERVES (FileNode.swift:74-81, FileNode.swift:85-102)
 //  1. Same FileManager keys: `.isDirectoryKey`, `.isHiddenKey`, no options mask.
@@ -30,6 +29,8 @@ import Foundation
 /// A single filesystem entry returned by `DirectoryListing.list(_:)`.
 ///
 /// Value type: copying one is cheap and lets the harness build stub responses freely.
+/// `URL` + two `Bool`s, so Swift infers `Sendable` and a background listing can hand
+/// an array of these back to the main actor with no annotation.
 struct DirectoryEntry {
     let url: URL          // re-rooted under the parent's path prefix
     let isDirectory: Bool
@@ -47,17 +48,19 @@ enum DirectoryListing {
 
     // MARK: Seam
 
-    /// The function that `FileNode.reloadChildren()` calls instead of FileManager directly.
+    /// The function every directory read goes through instead of FileManager directly.
     ///
-    /// The var is `@MainActor`-isolated so replacing it from the main-actor harness
-    /// requires no additional annotation.  All callers (`reloadChildren`) are already
-    /// `@MainActor`.  The closure type is plain `(URL) -> [DirectoryEntry]` — NOT
-    /// `@MainActor (URL) -> [DirectoryEntry]` — because Swift 6 does not allow
-    /// assigning a `@MainActor @Sendable` function reference to an annotated function
-    /// type without an explicit `@Sendable` bridge.  Isolation is enforced by the var's
-    /// own `@MainActor` attribute: only main-actor code can read or write it.
+    /// The *var* is `@MainActor`: the harness swaps it from the main actor, and every
+    /// reader is main-actor code. The *closure value* is `@Sendable` because the async
+    /// loaders (`FileTreeViewController+Loading.swift`) read it on main and then CALL it
+    /// on a background queue — Swift 6 strict concurrency only lets a closure cross into
+    /// `DispatchQueue.global().async` if its type is `@Sendable` (the one exception to
+    /// AFK.md's "no Sendable annotations"; it is a compiler requirement, not decoration).
+    /// Reading on main and passing the value keeps the seam swappable without making the
+    /// var itself `nonisolated(unsafe)`: a listing already in flight keeps the lister it
+    /// was issued with, which is what lets a gate stall one call and not the next.
     @MainActor
-    static var lister: (URL) -> [DirectoryEntry] = { url in DirectoryListing.list(url) }
+    static var lister: @Sendable (URL) -> [DirectoryEntry] = { url in DirectoryListing.list(url) }
 
     // MARK: Production implementation
 
