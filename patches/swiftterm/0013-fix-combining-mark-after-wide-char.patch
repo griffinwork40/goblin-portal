@@ -10,7 +10,9 @@ Fix: for wide-char segments (columnWidth >= 2), detect zero-advance glyphs by
 comparing adjacent CT positions. When advance < 0.5 * cellWidth, pin the glyph
 to the previous column. Regular CJK chars have advance ≈ 2 * cellWidth, unaffected.
 Applied to both the Core Text path (AppleTerminalView.swift) and the Metal path
-(MetalTerminalRenderer.swift) since both shared the same formula.
+(MetalTerminalRenderer.swift) since both shared the same formula. The Metal hunk
+also removes a dead ternary: totalGlyphIndex > 0 is guaranteed by the enclosing
+conditional, making the CGPoint.zero fallback unreachable.
 
 --- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
 +++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
@@ -66,7 +68,7 @@ Applied to both the Core Text path (AppleTerminalView.swift) and the Metal path
                  var drawnGlyphsInRun = 0
                  for glyphRun in run.shaperRun.glyphRuns {
                      let scaledFont = scaledFontFor(font: glyphRun.font, scale: scale)
-@@ -1231,7 +1241,21 @@
+@@ -1231,7 +1241,23 @@
                              continue
                          }
                          let ctPos = glyphRun.positions[i]
@@ -74,7 +76,9 @@ Applied to both the Core Text path (AppleTerminalView.swift) and the Metal path
 +                        let totalGlyphIndex = drawnGlyphsInRun + i
 +                        let glyphColumn: Int
 +                        if shaped.segment.columnWidth >= 2 && cellWidth > 0 && totalGlyphIndex > 0 {
-+                            let prevPos = totalGlyphIndex > 0 ? run.shaperRun.positions[totalGlyphIndex - 1] : CGPoint.zero
++                            // totalGlyphIndex > 0 is guaranteed by the enclosing if, so the
++                            // ternary fallback to CGPoint.zero is dead; index directly.
++                            let prevPos = run.shaperRun.positions[totalGlyphIndex - 1]
 +                            let advance = ctPos.x - prevPos.x
 +                            if advance < 0.5 * cellWidth {
 +                                // Zero-advance glyph (combining mark): draw over the base.
