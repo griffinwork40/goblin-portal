@@ -271,7 +271,7 @@ struct AppConfig {
             theme: .classicRepaired,
             cursorStyle: .default,
             // 5,000 (T2.4, 2026-10-09). Measured on M4 Pro with RELEASE SwiftTerm
-            // (check-scrollback-cost.sh): resize p50 at 5k = 505 µs — 31% of a
+            // (check-scrollback-cost.sh): resize p50 at 5k = 5,098 µs (~5.1 ms) — 31% of a
             // 16.7 ms frame, leaving adequate margin for rendering during live drag.
             // Memory: 80 cols → 8.5 MB phys_footprint per pane; 200 cols → 21 MB.
             // Prior default was 1,000; prior measurements used DEBUG SwiftTerm (~25×

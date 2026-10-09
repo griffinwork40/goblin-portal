@@ -48,7 +48,7 @@ enum StarterConfig {
       "cursor": "block",
 
       "// scrollback": "lines to retain; 0 disables scrollback entirely",
-      "// scrollback-note": "resize cost scales linearly with scrollback (Buffer.swift:522-531); measured release p50 at 5k=505us, 10k=10852us; scrollbar thumb uses proportional floor (patch 0015)",
+      "// scrollback-note": "resize cost scales linearly with scrollback (Buffer.swift:522-531); measured release p50 at 5k=5098us, 10k=10852us; scrollbar thumb uses proportional floor (patch 0015)",
       "scrollback": 5000,
 
       "// shell": "defaults to $SHELL; launched with -l so your PATH loads",

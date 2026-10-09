@@ -126,6 +126,12 @@ if [[ "$FALSIFY" == "1" ]]; then
     say "FALSIFY=1: confirmed — debug SwiftTerm exceeded release timing ceilings."
     say "FALSIFY=1: gate exits 0 (falsification succeeded as expected)."
     exit 0
+  elif [[ "$FALSIFY_EXIT" == "2" ]]; then
+    # The harness skipped timing under the N6 load guard (or could not judge): that
+    # is environmental, not evidence the ceilings are loose. Reporting it as 1 would
+    # be a false regression verdict, observed 2026-10-09 at load ~1.2/CPU.
+    echo "FALSIFY=1: inconclusive — debug harness could not time (exit 2, e.g. high load). Re-run at lower load." >&2
+    exit 2
   else
     echo "FALSIFY=1: ERROR — debug SwiftTerm did NOT exceed release timing ceilings (exit $FALSIFY_EXIT)." >&2
     echo "  The ceilings are too loose: a 25x regression would pass." >&2
