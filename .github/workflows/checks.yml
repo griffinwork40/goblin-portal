@@ -98,7 +98,8 @@ jobs:
             check-git-status.sh \
             check-theme-contrast.sh \
             check-light-theme.sh \
-            check-afk-loc.sh
+            check-afk-loc.sh \
+            check-shell-exit.sh
           do
             echo "::group::$s"
             "./Scripts/$s"

@@ -50,6 +50,9 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     var fontSize: CGFloat
     var startedShellName = "" // Spawn identity survives config reload; close policy compares exec replacements.
 
+    /// `internal` (not `private`) so `TerminalPane+ShellExit.swift` can read it for
+    /// restart CWD resolution. Swift `private` is file-scoped; the restart extension
+    /// needs it to honour the brief's "fall back to the Space root" requirement.
     /// The directory this terminal's shell starts in — the Space's project root for
     /// ⌘T, a subdirectory of it for the tree's "New Terminal Here"
     /// (`SpaceViewController.addTerminalDocument(start:workingDirectory:)`).
@@ -60,7 +63,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// configuration (`.afk/plans/emulator-foundation-probe-and-vendor-integrity.md` §6.2).
     /// Keeping the root out of the SwiftTerm-specific call site is what makes that a
     /// one-line swap.
-    private let workingDirectory: URL
+    let workingDirectory: URL
 
     /// `workingDirectory` is deliberately **not** defaulted, and deliberately **not**
     /// optional: a terminal that does not know its root is the bug this parameter
@@ -118,14 +121,19 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// Passing `nil` reproduces the old behaviour exactly — SwiftTerm skips the
     /// `chdir` entirely when the parameter is nil (`Pty.swift:101-104`) — so an
     /// unrooted pane inherits the app process's cwd as before.
-    func start() {
+    func start() { startProcessInDirectory(resolvedWorkingDirectory()) }
+
+    /// One launch path for initial start and Return restart: same login arguments,
+    /// integration environment, cursor style and OSC 133 registration. The view is
+    /// deliberately reused so its terminal buffer and scrollback survive restart.
+    func startProcessInDirectory(_ directory: String?) {
         var env = Terminal.getEnvironmentVariables()
         env.append("TERM_PROGRAM=GoblinPortal")
         env.append("TERM_PROGRAM_VERSION=0.1")
         appendShellIntegrationEnv(&env)  // GOBLIN_PORTAL_INTEGRATION — see TerminalPane+ShellIntegration
         startedShellName = URL(fileURLWithPath: config.shell).resolvingSymlinksInPath().lastPathComponent
         view.startProcess(executable: config.shell, args: ["-l"],
-            environment: env, currentDirectory: resolvedWorkingDirectory())
+            environment: env, currentDirectory: directory)
         applyCursorStyle(config.cursorStyle)
         registerShellIntegration()       // OSC 133 — see TerminalPane+ShellIntegration
     }
@@ -148,7 +156,9 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// check-don't-trust rule is two places for it to drift"). Same question, one
     /// answer: a remembered root can be replaced by a *file* of the same name, and
     /// that has to read as unusable here exactly as it does for Space restore.
-    private func resolvedWorkingDirectory() -> String? {
+    /// `internal` (not `private`) so `TerminalPane+ShellExit.swift` can call it for
+    /// restart CWD resolution. Same cross-file concern as `workingDirectory` above.
+    func resolvedWorkingDirectory() -> String? {
         // `.path`, not `absoluteString`: `chdir()` takes a filesystem path, and a
         // `file://` URL string with percent-escapes is not one.
         let path = workingDirectory.standardizedFileURL.path
@@ -269,9 +279,13 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     }
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
-        // Does NOT set `.failed`: this fires when the *shell* exits (pane closing),
-        // not when a command inside it fails. `.failed` comes from OSC 133 D.
-        documentDelegate?.documentDidTerminate(self)
+        // Route through the shell-exit policy (TerminalPane+ShellExit.swift).
+        // `shellDidExit` consults `config.closeOnShellExit` and either calls
+        // `documentDelegate?.documentDidTerminate(self)` (close) or enters the
+        // kept/exited state (status line + key swallow + Return-to-restart).
+        // Does NOT directly set `.failed` — the exited-state handler in
+        // `TerminalPane+ShellExit.swift` sets the appropriate status for the kept case.
+        shellDidExit(waitStatus: exitCode)
     }
 }
 
@@ -294,6 +308,9 @@ extension TerminalPane {
     /// is the same hook that already takes first responder. Also from the Space's
     /// `windowDidBecomeKey()`, which PR #21 review item 1 made reachable — see there.
     func clearAttention() {
+        // A kept shell remains visibly exited until Return restarts it; focusing
+        // the tab cannot retire the only mark that distinguishes it from idle.
+        guard !isShellExited else { return }
         status = .idle
     }
 

@@ -145,6 +145,7 @@ let configFileKnownTopLevelKeys: Set<String> = [
     "font", "theme", "cursor", "scrollback", "shell",
     "optionAsMeta", "mouseReporting", "renderer",
     "fontThicken", "lineHeight", "ligatures", "smoothScrolling",
+    "closeOnShellExit",
     "editor", "sidebar", "padding", "unfocusedPaneOpacity",
 ]
 

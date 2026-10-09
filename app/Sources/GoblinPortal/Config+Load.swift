@@ -130,6 +130,14 @@ extension AppConfig {
             else { config.warnings.append("lineHeight \(v) is outside \(lo)–\(hi) — using \(config.lineHeight)") }
         }
         if let v = file.smoothScrolling { config.smoothScrolling = v }
+        if let raw = file.closeOnShellExit {
+            if let mode = CloseOnShellExit.named(raw) { config.closeOnShellExit = mode }
+            else {
+                config.warnings.append(
+                    "closeOnShellExit '\(raw)' unrecognised (expected one of: \(CloseOnShellExit.configNames))"
+                        + " — using \(config.closeOnShellExit.rawValue)")
+            }
+        }
         // Ligature opt-out (#153). `true` = ligatures form (default); `false` = suppressed
         // via `TerminalView.disableLigatures` (vendor patch 0014). A non-Bool value in the
         // JSON would already have been caught by JSONDecoder (ConfigFile.ligatures is Bool?),

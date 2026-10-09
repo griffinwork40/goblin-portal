@@ -303,6 +303,12 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     /// item (#139 item 3).
     override func send(source: TerminalView, data: ArraySlice<UInt8>) {
         if NSApp.currentEvent?.type == .keyDown { smoothScroll.snapToGrid(reason: "input") }
+        // Swallow every write to an exited pty, including paste and programmatic
+        // sends; only a Return key event restarts it (+ShellExit.swift).
+        if let pane = processDelegate as? TerminalPane,
+           pane.handleSendWhileExited(data: data) {
+            return
+        }
         super.send(source: source, data: data)
     }
 
