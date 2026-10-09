@@ -33,12 +33,11 @@ extension SpaceViewController {
         }
     }
 
-    /// Can this whole Space go away? Asks each document in turn and stops at the
-    /// first refusal, so closing a window with three dirty files prompts three times
-    /// rather than discarding the other two behind one answer.
+    /// One process warning for the whole Space, including nested peers. Dirty
+    /// editors retain their individual Save/Cancel decisions after that warning;
+    /// cancelling the process warning never starts a save (CloseConfirmation:23).
     func spaceShouldClose() -> Bool {
-        for document in documents where !document.documentShouldClose() { return false }
-        return true
+        CloseConfirmation.confirm(allClosingDocuments)
     }
 
     /// The Space is closing for real (⌘⇧W, or the window's own close button). Release every
@@ -67,5 +66,10 @@ extension SpaceViewController {
         for document in documents { document.documentWillClose() }
     }
 
-    var hasEditedDocuments: Bool { documents.contains { $0.documentIsEdited } }
+    /// Peers are not tabs (SplitEntry.swift:59); every bulk close must include them.
+    var allClosingDocuments: [SpaceDocument] {
+        documents.flatMap { [$0] + allSplitDocuments(for: $0) }
+    }
+
+    var hasEditedDocuments: Bool { allClosingDocuments.contains { $0.documentIsEdited } }
 }

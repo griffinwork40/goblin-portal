@@ -138,6 +138,7 @@ extension SpaceViewController {
         // that sub-split rather than the whole outer split.
         if let sub = entry.peerSubSplit,
            isDescendant(fr, of: sub.container) {
+            guard CloseConfirmation.confirm([sub.document]) else { return }
             collapseSubSplit(primary: primary, entry: &entry, side: .peer)
             splitPeers[ObjectIdentifier(primary)] = entry
             updateSplitDimming(for: primary)
@@ -146,6 +147,7 @@ extension SpaceViewController {
         }
         if let sub = entry.primarySubSplit,
            isDescendant(fr, of: sub.container) {
+            guard CloseConfirmation.confirm([sub.document]) else { return }
             collapseSubSplit(primary: primary, entry: &entry, side: .primary)
             splitPeers[ObjectIdentifier(primary)] = entry
             updateSplitDimming(for: primary)
@@ -153,6 +155,7 @@ extension SpaceViewController {
             return
         }
 
+        guard CloseConfirmation.confirm(entry.allPeerDocuments) else { return }
         // No sub-split focused -- collapse the outer split entirely.
         // First tear down any sub-splits.
         teardownSubSplits(entry: &entry)

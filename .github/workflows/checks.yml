@@ -92,6 +92,7 @@ jobs:
             check-renderer-config.sh \
             check-links.sh \
             check-command-outcome.sh \
+            check-close-confirm.sh \
             check-shell-integration.sh \
             check-cwd-follow.sh \
             check-git-status.sh \

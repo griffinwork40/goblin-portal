@@ -107,6 +107,19 @@ enum ShellDirectory {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    /// Strict foreground observation for close confirmation. Unlike cwd-follow,
+    /// there is no fallback: a closed pty must not consult a stale shell PID.
+    /// Reuses foregroundPid's tcgetpgrp validation (LocalProcess.swift:67,70).
+    static func foregroundProcess(childfd: Int32) -> (group: pid_t, name: String?)? {
+        guard let group = foregroundPid(childfd: childfd, fallbackPid: 0) else { return nil }
+        var bytes = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let count = proc_name(group, &bytes, UInt32(bytes.count))
+        let name = count > 0 ? bytes.withUnsafeBufferPointer {
+            $0.baseAddress.map { String(cString: $0) }
+        } : nil
+        return (group, name)
+    }
+
     // MARK: - The two syscalls
 
     /// The pid whose cwd actually answers "where is this terminal?".

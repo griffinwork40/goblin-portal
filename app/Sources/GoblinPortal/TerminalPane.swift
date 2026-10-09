@@ -48,6 +48,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     // class-scoped, so a cross-file extension cannot reach a `private` stored property.
     var config: AppConfig
     var fontSize: CGFloat
+    var startedShellName = "" // Spawn identity survives config reload; close policy compares exec replacements.
 
     /// The directory this terminal's shell starts in — the Space's project root for
     /// ⌘T, a subdirectory of it for the tree's "New Terminal Here"
@@ -122,6 +123,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         env.append("TERM_PROGRAM=GoblinPortal")
         env.append("TERM_PROGRAM_VERSION=0.1")
         appendShellIntegrationEnv(&env)  // GOBLIN_PORTAL_INTEGRATION — see TerminalPane+ShellIntegration
+        startedShellName = URL(fileURLWithPath: config.shell).resolvingSymlinksInPath().lastPathComponent
         view.startProcess(executable: config.shell, args: ["-l"],
             environment: env, currentDirectory: resolvedWorkingDirectory())
         applyCursorStyle(config.cursorStyle)
