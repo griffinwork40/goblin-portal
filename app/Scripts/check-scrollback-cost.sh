@@ -3,56 +3,47 @@
 # Gate: scrollback memory and resize cost do not regress past defined ceilings.
 #
 # WHY THIS GATE EXISTS
-# T2.4 in the best-mac-terminal roadmap raises the default scrollback from 1000 to a
-# higher value for agent REPL sessions. Before doing so, the roadmap requires measuring:
-#   (A) resident memory per 1k scrollback lines — confirm/refute the A1a ~10.5 KB/line
-#       estimate (from `.afk/research/best-mac-terminal-2026-10-07/A1a-perf.md`);
+# T2.4 in the best-mac-terminal roadmap raises the default scrollback from 1000 to 5000
+# lines for agent REPL sessions. Before doing so, the roadmap requires measured evidence:
+#   (A) resident memory per 1k scrollback lines — task_info(TASK_VM_INFO).phys_footprint
+#       delta, measured in a fresh process per scrollback size, at 80 and 200 cols;
 #   (B) `Terminal.resize` narrow→widen cost at 1k, 3.5k, 5k, 10k, 20k lines, since
-#       live window drags fire resize on every pixel change and must stay well within
-#       the 16ms frame budget.
+#       live window drags fire resize on every pixel change and must stay within the
+#       16ms frame budget.
 #
-# WHAT IS MEASURED
-# Memory: `MemoryLayout<CharData>.stride × cols × lines.count` for the normal buffer.
-#   alt buffer only holds `rows` lines, contributing negligibly.
-#   This is CharData heap footprint only — the full tab cost also includes Metal glyph
-#   atlas (~5-10 MB), CA backing, and SwiftTerm state — but CharData scales linearly with
-#   scrollback and is the dominant term above ~2k lines.
-#   Access: `HeadlessTerminal.terminal.displayBuffer.lines.count` (public API).
-#   `MemoryLayout<CharData>.stride` is measured from the live binary — no estimate.
+# WHY RELEASE BUILD
+# The shipped app is a release build. Debug SwiftTerm is ~25x slower (measured:
+# 1k p50 ~12,900 µs debug vs ~500 µs release). Ceilings calibrated to debug are either
+# uselessly loose (accept any regression up to 25x) or spuriously tight (reject healthy
+# code on a slightly-loaded machine). This gate builds and links a RELEASE SwiftTerm.o
+# so ceilings are meaningful. check-reflow.sh and check-altbuffer-resize.sh keep their
+# debug builds; this gate opts in via BUILD_CONFIG=release in vendored-module.sh.
 #
-# Resize cost: wall-clock of `Terminal.resize(cols: newCols, rows: rows)` narrow then
-#   widen, 50 iterations each, using `ContinuousClock`. Median (p50) and p95 reported.
-#   Realistic workload: feed N full-width SGR-attributed lines first so the buffer is
-#   maximally stressed (scrollback full, reflow fires). SGR: `ESC[1;31m` + 79 chars +
-#   `ESC[m` — bold red, text, reset. Short lines every 5th (realistic terminal mix).
-#
-# ASSERTIONS (ceilings):
-#   Memory ceiling: stride × cols × (scrollback + rows) ≤ 2 MB per 1k scrollback lines.
-#     (10.5 KB/line × 80 cols × 1000 = 840 KB CharData; ceiling is 2 MB to allow for
-#     BufferLine object overhead and any future struct growth.)
-#   Resize p50 ceiling: ≤ 100 µs at 10k lines (16ms budget, 60fps drag → one resize per
-#     frame; 100 µs = 0.6% of frame, safe; at 5k it is ~50 µs per A1a estimates).
-#   Resize p95 ceiling: ≤ 3× p50 (healthy distribution; larger spike = GC or cache miss).
-#
-# FALSIFICATION: the falsification case runs at scrollback=50 (32 buffer rows) and
-#   asserts that THAT case fails the 2-MB-per-1k ceiling — it would fail trivially at
-#   50 lines if the ceiling were violated. That verifies the harness rejects bad numbers,
-#   not that it always accepts.  Actually: we falsify by computing a deliberately-wrong
-#   memory value (stride=1) and asserting it FAILS the ceiling, confirming the ceiling
-#   is not vacuous.  See FALSIFY=1 env var below.
+# FALSIFICATION
+# FALSIFY=1 re-links the harness against the DEBUG SwiftTerm.o (same vendor tree,
+# different build, no source change) and runs the timing assertions. Because debug is
+# ~25x slower, the release-calibrated ceilings fire and the gate exits 1 — proving the
+# ceilings are not vacuous. A gate whose own ceilings cannot reject a 25x regression is
+# not a gate; this one can. Memory assertions are skipped in FALSIFY mode (phys_footprint
+# at debug vs release varies by task overhead, not by a predictable factor).
 #
 # LOAD GUARD (N6 lesson from check-metal-throughput.sh):
 #   If the 1-minute load average exceeds 0.70 per CPU at any point, timing assertions
-#   exit 2 (environmental) rather than 1 (regression). Memory assertions are unaffected
-#   by load and are never guarded.
+#   exit 2 (environmental). Memory assertions are load-independent and never skipped.
 #
 # Shape: same as check-reflow.sh — links vendored SwiftTerm.o, exit 1 = assertion failure,
 #   exit 2 = environment failure. Harness is Scripts/check-scrollback-cost-harness.swift.
 #
+# NOT IN CI: the timing half depends on machine load; the existing load guard handles
+# transient spikes but cannot guarantee exit 0 on every CI run. check-reflow.sh and
+# check-altbuffer-resize.sh are in CI because they are deterministic. This gate is
+# local-only and is excluded from checks.yml by the same reasoning as
+# check-metal-throughput.sh (also timing-dependent, also local-only).
+#
 # Usage:
-#   ./Scripts/check-scrollback-cost.sh            # run
+#   ./Scripts/check-scrollback-cost.sh            # run (release build)
 #   ./Scripts/check-scrollback-cost.sh --quiet    # summary only
-#   FALSIFY=1 ./Scripts/check-scrollback-cost.sh  # confirm falsification exits 1
+#   FALSIFY=1 ./Scripts/check-scrollback-cost.sh  # confirm debug SwiftTerm fails ceilings
 #
 # Exit codes:
 #   0  every case passed
@@ -87,21 +78,18 @@ if ! command -v swiftc >/dev/null 2>&1; then
   exit 2
 fi
 
-. Scripts/vendored-module.sh
-resolve_vendored_module   # sets PRODUCTS, or exits 2
+# Build release SwiftTerm (see "WHY RELEASE BUILD" above).
+BUILD_CONFIG=release . Scripts/vendored-module.sh
+BUILD_CONFIG=release resolve_vendored_module   # sets PRODUCTS, or exits 2
+REL_PRODUCTS="$PRODUCTS"
 
 cp Scripts/check-scrollback-cost-harness.swift "$TMP/main.swift"
 
-say "compiling harness…"
-# Same link pattern as check-reflow.sh: pass SwiftTerm.o directly (it is a merged
-# module object from the Swift Build backend), add -framework AppKit (SwiftTerm
-# imports AppKit even in the HeadlessTerminal path via the Apple/ sources),
-# and -I to resolve the SwiftTerm module interface. No -lSwiftTerm needed:
-# the .o provides all the symbols; -l would look for a .dylib which does not exist.
+say "compiling harness (against release SwiftTerm.o)…"
 if ! swiftc -O \
-    -I "$PRODUCTS" \
+    -I "$REL_PRODUCTS" \
     "$TMP/main.swift" \
-    "$PRODUCTS/SwiftTerm.o" \
+    "$REL_PRODUCTS/SwiftTerm.o" \
     -framework AppKit \
     -o "$TMP/harness" 2>"$TMP/compile.log"; then
   echo "error: harness did not compile — see below." >&2
@@ -109,8 +97,44 @@ if ! swiftc -O \
   exit 2
 fi
 
-# Pass FALSIFY through env
-FALSIFY="$FALSIFY" "$TMP/harness"
+if [[ "$FALSIFY" == "1" ]]; then
+  # Falsification: link the same harness against DEBUG SwiftTerm.o (~25x slower).
+  # The release-calibrated ceilings must fire — if they do not, the gate is too loose.
+  # Memory assertions are not falsified this way (phys_footprint overhead differs by
+  # task infrastructure, not by a stable factor like compilation).
+  say "FALSIFY=1: building DEBUG SwiftTerm for falsification…"
+  . Scripts/vendored-module.sh
+  BUILD_CONFIG=debug resolve_vendored_module   # sets PRODUCTS to debug path
+  DBG_PRODUCTS="$PRODUCTS"
+  say "FALSIFY=1: compiling harness against debug SwiftTerm.o…"
+  if ! swiftc -O \
+      -I "$DBG_PRODUCTS" \
+      "$TMP/main.swift" \
+      "$DBG_PRODUCTS/SwiftTerm.o" \
+      -framework AppKit \
+      -o "$TMP/harness_debug" 2>"$TMP/compile_debug.log"; then
+    echo "FALSIFY=1: error: debug harness did not compile." >&2
+    cat "$TMP/compile_debug.log" >&2
+    exit 2
+  fi
+  say "FALSIFY=1: running timing with debug SwiftTerm — ceilings should fire (exit 1 expected)…"
+  set +e
+  FALSIFY_DEBUG_TIMING=1 "$TMP/harness_debug"
+  FALSIFY_EXIT=$?
+  set -e
+  if [[ "$FALSIFY_EXIT" == "1" ]]; then
+    say "FALSIFY=1: confirmed — debug SwiftTerm exceeded release timing ceilings."
+    say "FALSIFY=1: gate exits 0 (falsification succeeded as expected)."
+    exit 0
+  else
+    echo "FALSIFY=1: ERROR — debug SwiftTerm did NOT exceed release timing ceilings (exit $FALSIFY_EXIT)." >&2
+    echo "  The ceilings are too loose: a 25x regression would pass." >&2
+    exit 1
+  fi
+fi
+
+# Normal run against release SwiftTerm.
+"$TMP/harness"
 HARNESS_EXIT=$?
 
 if [[ "$HARNESS_EXIT" == "0" ]]; then
