@@ -54,11 +54,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // in NSRunningApplication before posting, so this registration window is safe.
         openFileHandler.register()
 
-        // Request notification permission so the app can post alerts when long
-        // commands finish in background tabs (CommandNotification). Safe to call
-        // repeatedly — the system ignores it after the user has granted or denied.
-        CommandNotification.requestPermissionIfNeeded()
-
         // Register as delegate so macOS delivers banners even when Goblin Portal is
         // frontmost. Without this, the system silently drops notifications from
         // the active app — defeating the primary use-case: a build finishing in

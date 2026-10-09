@@ -95,6 +95,7 @@ jobs:
             check-close-confirm.sh \
             check-shell-integration.sh \
             check-dock-attention.sh \
+            check-notification-permission.sh \
             check-cwd-follow.sh \
             check-git-status.sh \
             check-theme-contrast.sh \

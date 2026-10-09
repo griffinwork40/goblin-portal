@@ -47,6 +47,7 @@ cd "$(dirname "$0")/.."
 
 SRC_NOTIFICATION="Sources/GoblinPortal/CommandNotification.swift"
 SRC_OUTCOME="Sources/GoblinPortal/CommandOutcome.swift"
+SRC_POLICY="Sources/GoblinPortal/NotificationPermissionPolicy.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }
@@ -57,6 +58,10 @@ command -v swiftc >/dev/null 2>&1 || {
 
 [[ -f "$SRC_OUTCOME" ]] || {
   echo "error: $SRC_OUTCOME not found — did the file move? This gate names its subject explicitly." >&2
+  exit 2; }
+
+[[ -f "$SRC_POLICY" ]] || {
+  echo "error: $SRC_POLICY not found — T2.5 added this dependency; did the file move?" >&2
   exit 2; }
 
 # --- Structural pin (layer 1) -----------------------------------------------
@@ -77,6 +82,7 @@ fi
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 cp "$SRC_NOTIFICATION" "$TMP/CommandNotification.swift"
 cp "$SRC_OUTCOME" "$TMP/CommandOutcome.swift"
+cp "$SRC_POLICY" "$TMP/NotificationPermissionPolicy.swift"
 
 cat > "$TMP/main.swift" <<'SWIFT'
 import Foundation
@@ -95,6 +101,7 @@ SWIFT
 
 if ! swiftc -o "$TMP/notification" \
     "$TMP/CommandOutcome.swift" \
+    "$TMP/NotificationPermissionPolicy.swift" \
     "$TMP/CommandNotification.swift" \
     "$TMP/main.swift" 2>"$TMP/compile.log"; then
   echo "error: the harness would not compile — the gate cannot run." >&2
