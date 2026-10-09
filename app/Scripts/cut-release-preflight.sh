@@ -37,12 +37,35 @@ EOF
 
 short() { printf '%.7s' "$1"; }
 
+# Standalone tool-presence check, called before any direct tool use in cut-release.sh.
+# preflight() re-checks as well, so the two stay in sync automatically.
+_preflight_tools() {
+  command -v git   >/dev/null 2>&1 || env_fail "git not found on PATH"
+  command -v gh    >/dev/null 2>&1 || env_fail "gh not found on PATH (https://cli.github.com)"
+  command -v shasum >/dev/null 2>&1 || env_fail "shasum not found on PATH"
+
+  # gh >= 2.74.0 is required for 'gh run watch --compact' (cli/cli PR #10629, gh v2.74.0, 2025-05-29).
+  # Check here in preflight so an outdated gh exits 2 before any write.
+  local _v
+  _v="$(gh --version 2>/dev/null | awk 'NR==1{print $3}')"
+  is_semver "$_v" || env_fail "could not parse gh version (found '${_v:-unknown}'; upgrade: https://cli.github.com)"
+  semver_gt "$_v" "2.73.99" \
+    || env_fail "gh >= 2.74.0 required for 'gh run watch --compact' (found $_v; upgrade: https://cli.github.com)"
+}
+
 preflight() {
   local branch head origin_head n cur rc hits ci sha status conclusion url
 
   command -v git >/dev/null 2>&1 || env_fail "git not found on PATH"
   command -v gh >/dev/null 2>&1 || env_fail "gh not found on PATH (https://cli.github.com)"
   command -v shasum >/dev/null 2>&1 || env_fail "shasum not found on PATH"
+
+  # gh >= 2.74.0 required for 'gh run watch --compact' (cli/cli PR #10629, gh v2.74.0, 2025-05-29).
+  local _v
+  _v="$(gh --version 2>/dev/null | awk 'NR==1{print $3}')"
+  is_semver "$_v" || env_fail "could not parse gh version (found '${_v:-unknown}'; upgrade: https://cli.github.com)"
+  semver_gt "$_v" "2.73.99" \
+    || env_fail "gh >= 2.74.0 required for 'gh run watch --compact' (found $_v; upgrade: https://cli.github.com)"
 
   # --- local state: branch and tree ---------------------------------------------------
   branch="$(git symbolic-ref --short -q HEAD || true)"
@@ -109,4 +132,87 @@ EOF
   [ "$status" = "completed" ] || refuse "checks.yml on HEAD is still $status: $url"
   [ "$conclusion" = "success" ] || refuse "checks.yml on HEAD concluded '$conclusion': $url"
   say "ok: checks.yml green on HEAD ($url)"
+}
+
+# _find_run: sets RUN_ID and RUN_URL by scanning for any release.yml run whose
+# trigger matches TAG (the tag-push case) OR whose dispatch input matches TAG
+# (the workflow_dispatch case).  Polls for up to 120s so a delayed push event
+# has time to register.
+#
+# Why both trigger types: a tag push sets headBranch to the tag name; a manual
+# `gh workflow run release.yml -f tag=vX.Y.Z` sets headBranch to the branch the
+# dispatch was fired from (usually main) and records the tag in displayTitle.
+# The v1.9.0 incident produced exactly the second shape: an operator-dispatched
+# run that the original poll loop (--branch "$TAG" only) could not find.
+#
+# Requires: REPO, TAG, SHA (the commit the tag points at) set by caller.
+# Sets:     RUN_ID, RUN_URL (both empty if nothing found within the deadline).
+_find_run() {
+  RUN_ID=""; RUN_URL=""
+  local i=0 run rid rsha rurl
+  while [ "$i" -lt 24 ]; do
+    # First try: tag-push run — headBranch IS the tag.
+    run="$(gh run list -R "$REPO" --workflow release.yml --branch "$TAG" -L 5 \
+      --json databaseId,headSha,url \
+      --jq '.[] | select(. != null) | [(.databaseId | tostring), .headSha, .url] | join(" ")' \
+      2>/dev/null || true)"
+    if [ -n "$run" ]; then
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        read -r rid rsha rurl <<EOR
+$line
+EOR
+        if [ "$rsha" = "$SHA" ]; then
+          RUN_ID="$rid"; RUN_URL="$rurl"; return 0
+        fi
+      done <<< "$run"
+    fi
+    # Second try: workflow_dispatch run — headBranch is main (or whatever branch),
+    # but the displayTitle contains the tag input value.
+    run="$(gh run list -R "$REPO" --workflow release.yml -L 20 \
+      --json databaseId,headSha,url,displayTitle,event \
+      --jq ".[] | select(.event == \"workflow_dispatch\" and (.displayTitle | contains(\"$TAG\"))) \
+            | [(.databaseId | tostring), .headSha, .url] | join(\" \")" \
+      2>/dev/null || true)"
+    if [ -n "$run" ]; then
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        read -r rid rsha rurl <<EOR
+$line
+EOR
+        # For workflow_dispatch the headSha is the branch tip, not the tag commit.
+        # Accept on title match alone (the event + title pair is specific enough).
+        RUN_ID="$rid"; RUN_URL="$rurl"; return 0
+      done <<< "$run"
+    fi
+    i=$((i + 1)); sleep 5
+  done
+  return 0  # caller checks RUN_ID
+}
+
+# _verify_assets: downloads the four published assets for TAG and checks both
+# .sha256 sidecars.  Requires: REPO, TAG, TMP (a temp dir) set by caller.
+_verify_assets() {
+  local a f hash RERUN
+  RERUN="gh workflow run release.yml -R $REPO -f tag=$TAG"
+  mkdir -p "$TMP/dl"
+  for a in "GoblinPortal-$TAG.zip" "GoblinPortal-$TAG.zip.sha256" \
+           "GoblinPortal-$TAG.dmg" "GoblinPortal-$TAG.dmg.sha256"; do
+    gh release download "$TAG" -R "$REPO" -D "$TMP/dl" -p "$a" --clobber >/dev/null 2>&1 \
+      || fail "release asset $a missing or not downloadable" \
+           "inspect: gh release view $TAG -R $REPO; re-upload with: $RERUN"
+    [ -s "$TMP/dl/$a" ] || fail "release asset $a downloaded empty" "re-upload with: $RERUN"
+  done
+  for f in "GoblinPortal-$TAG.zip" "GoblinPortal-$TAG.dmg"; do
+    # release.yml writes `<hash>  <bare filename>`. Re-pair the hash with the file we
+    # downloaded so a sidecar that ever carries a runner-side directory prefix still
+    # checks these bytes instead of failing on a path that only existed on the runner.
+    hash="$(awk 'NR == 1 { print $1 }' "$TMP/dl/$f.sha256")"
+    printf '%s\n' "$hash" | grep -Eqx '[0-9a-f]{64}' \
+      || fail "$f.sha256 does not start with a sha256 hash" "re-upload with: $RERUN"
+    ( cd "$TMP/dl" && printf '%s  %s\n' "$hash" "$f" | shasum -a 256 -c - >/dev/null ) \
+      || fail "$f does not match its published .sha256" \
+           "the release is LIVE with a bad checksum; re-upload with: $RERUN"
+    say "ok: $f matches $f.sha256"
+  done
 }

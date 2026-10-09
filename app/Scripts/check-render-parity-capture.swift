@@ -64,6 +64,13 @@ let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 /// Render a CGImage into an RGBA8 sRGB buffer, optionally over an opaque background (the
 /// Core Text layer content is transparent where nothing was drawn; the window server would
 /// composite it over the layer's background colour, so the capture does the same).
+///
+/// Channel-order contract: the output is always RGBA (premultipliedLast), regardless of the
+/// source CGImage's own channel layout. Core Text produces RGBA (premultipliedLast) natively;
+/// Metal produces BGRA (byteOrder32Little | noneSkipFirst). Both are normalized here by drawing
+/// into a premultipliedLast CGContext, which performs the channel swap transparently. Callers in
+/// delta(), ink(), and diff() therefore index R=0, G=1, B=2, A=3 and never see the Metal BGRA
+/// order. Safe as long as no caller bypasses toImg() to access the raw buffer directly.
 func toImg(_ cg: CGImage, w: Int, h: Int, under bg: (Int, Int, Int)? = nil) -> Img {
     var px = [UInt8](repeating: 0, count: w * h * 4)
     px.withUnsafeMutableBytes { raw in
@@ -174,6 +181,12 @@ final class Renderer {
         for _ in 0..<2 { pump(0.1); m.draw() }
         pump(0.2)
         guard let tex = proxy.captured?.texture else { environmental("no-drawable") }
+        // The blit below assumes BGRA8: tw*4 bytes per row and the CGImage is constructed with
+        // byteOrder32Little | noneSkipFirst. Guard tex.pixelFormat (the actual captured texture)
+        // rather than m.colorPixelFormat (the MTKView config) — the bytes come from the texture,
+        // so that is the source of truth. SwiftTerm hard-codes .bgra8Unorm at MacTerminalView.swift:449;
+        // this check catches any future divergence before producing garbage pixels silently.
+        guard tex.pixelFormat == .bgra8Unorm else { environmental("unexpected-pixel-format") }
         let tw = tex.width, th = tex.height
         guard let buf = device.makeBuffer(length: tw * th * 4, options: .storageModeShared),
               let q = device.makeCommandQueue(), let cb = q.makeCommandBuffer(),

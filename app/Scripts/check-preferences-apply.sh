@@ -125,5 +125,55 @@ fi
 
 say "  ok  mutated harness correctly exited $FALSIFY_STATUS (case S1 caught the literal)"
 say ""
-echo "check-preferences-apply.sh: all parts passed (Part A: shipped, Part B: falsification)"
+
+# ---------------------------------------------------------------------------
+# Part C: DRIFT GUARD — PreferencesSeed.defaultFontSize vs AppConfig.defaultFontSize.
+#
+# PreferencesSeed.defaultFontSize in PreferencesDiff.swift is a FORCED copy of
+# AppConfig.defaultFontSize in Config.swift.  The copy is forced because
+# PreferencesDiff.swift must stay Foundation-only (compilable standalone without
+# AppKit) while Config.swift imports AppKit.  The copy is documented in the
+# source; this guard makes divergence a gate failure rather than a silent mismatch.
+#
+# Both constants are extracted with comment-stripped grep, so a rationale comment
+# that mentions the old value cannot fake a match.  Pattern: `static let
+# defaultFontSize: Double = <N>` — the full declaration minus any comment.
+# ---------------------------------------------------------------------------
+SRC_CONFIG="Sources/GoblinPortal/Config.swift"
+[[ -f "$SRC_CONFIG" ]] || {
+    echo "error: $SRC_CONFIG not found — did the file move?" >&2; exit 2
+}
+
+# Strip // comments from each file, then extract the literal value after `= `.
+# Uses POSIX [[:space:]] rather than \s (BSD sed has no \s).
+extract_font_size() {
+    sed 's|//.*||' "$1" \
+      | grep -E '^[[:space:]]*static let defaultFontSize: Double[[:space:]]*=' \
+      | sed 's/.*=[[:space:]]*//' | tr -d ' \t'
+}
+
+SIZE_CONFIG="$(extract_font_size "$SRC_CONFIG")"
+SIZE_DIFF="$(extract_font_size "$SRC_DIFF")"
+
+if [[ -z "$SIZE_CONFIG" ]]; then
+    echo "error: AppConfig.defaultFontSize not found in $SRC_CONFIG — pattern changed?" >&2
+    exit 2
+fi
+if [[ -z "$SIZE_DIFF" ]]; then
+    echo "error: PreferencesSeed.defaultFontSize not found in $SRC_DIFF — pattern changed?" >&2
+    exit 2
+fi
+
+say "Part C — drift guard (PreferencesSeed.defaultFontSize == AppConfig.defaultFontSize):"
+# Compare numerically with awk so `14` and `14.0` are treated as equal.
+if ! awk "BEGIN { exit ($SIZE_CONFIG + 0 == $SIZE_DIFF + 0) ? 0 : 1 }"; then
+    echo "error: defaultFontSize drift detected!" >&2
+    echo "  AppConfig.defaultFontSize = $SIZE_CONFIG (Config.swift)" >&2
+    echo "  PreferencesSeed.defaultFontSize = $SIZE_DIFF (PreferencesDiff.swift)" >&2
+    echo "  Update PreferencesSeed.defaultFontSize to match, then update the gate comment." >&2
+    exit 1
+fi
+say "  ok  PreferencesSeed.defaultFontSize ($SIZE_DIFF) == AppConfig.defaultFontSize ($SIZE_CONFIG)"
+say ""
+echo "check-preferences-apply.sh: all parts passed (Part A: shipped, Part B: falsification, Part C: drift guard)"
 exit 0

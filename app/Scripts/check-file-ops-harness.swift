@@ -265,9 +265,23 @@ do {
 
 _ = try? FileManager.default.removeItem(at: dir6)  // harness scratch only
 
+// ── CASE 16: caseSensitiveFSAtRoot — agrees with an independent resourceValues read ─
+// macOS temp dirs live on the boot volume (APFS, case-insensitive by default).
+// We cannot assert a hard true/false because a CI machine may be on a CS volume;
+// we assert that the helper agrees with a direct resourceValues read of the same URL,
+// which is the ground truth the helper is meant to wrap concisely.
+let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
+let cs16 = FileOperationPolicy.caseSensitiveFSAtRoot(tmpDir)
+let reference16 = (try? tmpDir.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))
+    .flatMap(\.volumeSupportsCaseSensitiveNames) ?? false
+if cs16 != reference16 {
+    fail("CASE16", "caseSensitiveFSAtRoot=\(cs16) disagrees with resourceValues=\(reference16)")
+}
+print("  case16 caseSensitiveFSAtRoot(\(tmpDir.lastPathComponent)) = \(cs16)")
+
 // ── Result ────────────────────────────────────────────────────────────────
 if bad == 0 {
-    print("check-file-ops: ALL 15 CASES PASSED")
+    print("check-file-ops: ALL 16 CASES PASSED")
 } else {
     print("check-file-ops: \(bad) FAILURE(S)")
 }

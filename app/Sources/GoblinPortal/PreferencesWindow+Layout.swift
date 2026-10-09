@@ -24,7 +24,7 @@ extension PreferencesWindow {
         let sizeRow       = makeRow(label: "Font Size:",   control: makeSizeContainer())
         let cursorRow     = makeRow(label: "Cursor:",      control: cursorPopup)
         let rendererRow   = makeRow(label: "Renderer:",    control: rendererPopup)
-        let thickenRow    = makeRow(label: "",             control: fontThickenCheck)
+        // thickenRow removed (#152): fontThicken is a no-op on macOS 15+.
 
         // — Terminal section —
         let scrollbackRow = makeRow(label: "Scrollback:",  control: makeScrollbackContainer())
@@ -36,7 +36,7 @@ extension PreferencesWindow {
         // Main stack — vertical, full-width rows.
         let stack = NSStackView(views: [
             makeSectionHeader("Appearance"),
-            themeRow, familyRow, sizeRow, cursorRow, rendererRow, thickenRow,
+            themeRow, familyRow, sizeRow, cursorRow, rendererRow,
             makeSectionHeader("Terminal"),
             scrollbackRow, metaRow,
         ])

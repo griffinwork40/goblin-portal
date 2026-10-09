@@ -109,19 +109,32 @@ extension AppConfig {
                         + " — using \(config.renderer.configName)")
             }
         }
-        if let v = file.fontThicken { config.fontThicken = v }
+        // `fontThicken` is accepted so existing configs stay valid, but the field has no
+        // effect on macOS 15+: `CGContextSetFontSmoothingStyle` is a no-op in both the
+        // Core Text and Metal render paths (0 px changed under the window-server compositor,
+        // confirmed by an on-screen probe — see PR #152 and the issue body for methodology).
+        // The value is stored on `AppConfig` so downstream code can be removed incrementally
+        // without a separate serialisation break; `GoblinPortalTerminalView.draw(_:)` still
+        // calls it when the flag is true, which is harmless.
+        if let v = file.fontThicken {
+            config.fontThicken = v
+            if v {
+                config.warnings.append(
+                    "fontThicken: no effect on this macOS — CGContextSetFontSmoothingStyle" +
+                    " is a no-op in both renderers (macOS 15+); key accepted but ignored")
+            }
+        }
         if let v = file.lineHeight {
             let lo = 0.8, hi = 2.0
             if v >= lo && v <= hi { config.lineHeight = CGFloat(v) }
             else { config.warnings.append("lineHeight \(v) is outside \(lo)–\(hi) — using \(config.lineHeight)") }
         }
-        // `ligatures` is accepted in the config file but not yet acted on — the field
-        // is parsed here so the file stays valid when the feature ships. See the header
-        // of TerminalPane+Typography.swift for why it is deferred.
         if let v = file.smoothScrolling { config.smoothScrolling = v }
-        if file.ligatures != nil {
-            config.warnings.append("ligatures: not yet implemented — ignored")
-        }
+        // Ligature opt-out (#153). `true` = ligatures form (default); `false` = suppressed
+        // via `TerminalView.disableLigatures` (vendor patch 0014). A non-Bool value in the
+        // JSON would already have been caught by JSONDecoder (ConfigFile.ligatures is Bool?),
+        // so no extra range check is needed. Absent → keep the default (true).
+        if let v = file.ligatures { config.ligatures = v }
         if let e = file.editor {
             config.applyEditor(tabWidth: e.tabWidth, softTabs: e.softTabs,
                                wordWrap: e.wordWrap,

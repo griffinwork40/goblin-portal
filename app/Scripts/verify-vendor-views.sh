@@ -1,5 +1,5 @@
 # Sourced by verify-vendor.sh — never run on its own. The VIEW-LAYER half of the vendor
-# verdict: every check on the files patches 0006-0012 touch (MacTerminalView.swift,
+# verdict: every check on the files patches 0006-0014 touch (MacTerminalView.swift,
 # AppleTerminalView.swift, TerminalViewSearch.swift, MacDisplayLinkPacer.swift,
 # Apple/Metal/MetalTerminalRenderer.swift, Apple/Metal/CoreTextGlyphRasterizer.swift).
 #
@@ -9,6 +9,11 @@
 # view files. It inherits VENDOR, UPSTREAM_TAG, WANT_ATV, WANT_ATV_UPSTREAM and the
 # pin_value / sha256_of / err / say helpers from its caller, and its `exit`s are the
 # caller's exits — the exit-code contract is verify-vendor.sh's, unchanged.
+#
+# Patch 0014 (ligature disable) touches MacTerminalView.swift (backing Bool),
+# AppleTerminalView.swift (open property + getAttributes injection), and
+# MetalTerminalRenderer.swift (ShaperKey + shape call site). All three hashes
+# therefore cover 0014 in addition to their prior patches.
 
 # --- 0010 first: is the display-link pacer present? --------------------------------
 # Checked BEFORE the MacTerminalView/AppleTerminalView hashes on purpose: a tree
@@ -74,6 +79,7 @@ fi
 if [[ "$GOT_MTV" != "$WANT_MTV" ]]; then
   err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift matches neither"
   err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
+  err "       Hash covers patches 0006, 0008, 0009, 0010, 0014 (_disableLigatures backing Bool)."
   err ""
   err "  expected (patched): $WANT_MTV"
   err "  found:              $GOT_MTV"
@@ -113,6 +119,7 @@ fi
 if [[ "$GOT_ATV" != "$WANT_ATV" ]]; then
   err "error: vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift matches neither"
   err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
+  err "       Hash covers patches 0007, 0010, 0013, and 0014 (disableLigatures property + getAttributes)."
   err ""
   err "  expected (patched): $WANT_ATV"
   err "  found:              $GOT_ATV"
@@ -172,7 +179,8 @@ if [ "$GOT_MTR" = "$(pin_value upstream_metal_terminal_renderer)" ]; then
 fi
 if [ "$GOT_MTR" != "$(pin_value patched_metal_terminal_renderer)" ]; then
   err "error: MetalTerminalRenderer.swift hash mismatch (got $GOT_MTR)."
-  err "  The pinned hash covers 0011 AND 0012; a tree with only one of them lands here."
+  err "  The pinned hash covers 0011, 0012, 0013, AND 0014 (ShaperKey + shape call site);"
+  err "  a tree with only some of them lands here."
   err "  Regenerate: shasum -a 256 $MTR  # then update patched_metal_terminal_renderer"
   exit 3
 fi

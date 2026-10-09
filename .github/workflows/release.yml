@@ -44,6 +44,26 @@ on:
 permissions:
   contents: read
 
+# Prevent two runs for the same tag from both reaching the publish step.
+#
+# This group is keyed on the resolved tag so a tag-push run and a manual
+# workflow_dispatch for the same tag share the same slot.  The v1.9.0 incident
+# produced exactly that: a delayed push event arrived after an operator-started
+# dispatch, and both ran concurrently toward `gh release upload`.
+#
+# cancel-in-progress: false  (not true) — the first run wins, the second queues.
+# Rationale: cancelling in-progress would kill a run that may already have
+# uploaded the zip but not yet the DMG, leaving a release with mismatched assets.
+# Queuing is safe because the upload step uses `--clobber` and the "create
+# release" step is guarded by `gh release view` so it is idempotent. The second
+# run therefore either fast-succeeds (assets already present, `--clobber`
+# overwrites with identical bytes) or, once the early-exit check below is wired,
+# exits 0 without touching the runner at all.
+# See: https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/using-concurrency
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   # The gates run against the tag before anything is published. A tag can point at a
   # commit that never saw CI — pushed from a laptop, or moved — so "main was green" is not
@@ -86,7 +106,38 @@ jobs:
           echo "asset=GoblinPortal-$TAG.zip" >> "$GITHUB_OUTPUT"
           echo "  tag=$TAG  bundle version=$SCRIPT_VERSION  commit=$(git rev-parse HEAD)"
 
+      # Guard for duplicate runs queued by the concurrency group.
+      #
+      # With cancel-in-progress: false, the second run for a tag waits for the
+      # first to finish, then starts here.  If the first published all four
+      # assets successfully, this run would rebuild and re-upload them — wasting
+      # 45 minutes and overwriting verified bytes.  Detect that case early and
+      # record it as a step output so every subsequent build step can skip itself.
+      - name: Check whether release assets are already published
+        id: already_done
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          ASSET: ${{ steps.v.outputs.asset }}
+        run: |
+          set -euo pipefail
+          DMG="GoblinPortal-${TAG}.dmg"
+          published="$(gh release view "$TAG" --json assets \
+            --jq '.assets[].name' 2>/dev/null || true)"
+          all_present=true
+          for f in "$ASSET" "$ASSET.sha256" "$DMG" "$DMG.sha256"; do
+            printf '%s\n' "$published" | grep -qxF "$f" || { all_present=false; break; }
+          done
+          if [ "$all_present" = "true" ]; then
+            echo "  all four assets already published — this is a duplicate run queued by the concurrency guard; skipping build"
+            echo "already_done=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "  assets not yet complete — proceeding with full build"
+            echo "already_done=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Toolchain and runner architecture
+        if: steps.already_done.outputs.already_done != 'true'
         run: |
           set -euo pipefail
           swift --version
@@ -100,6 +151,7 @@ jobs:
           fi
 
       - name: Bootstrap vendored SwiftTerm
+        if: steps.already_done.outputs.already_done != 'true'
         working-directory: app
         run: ./Scripts/bootstrap-vendor.sh
 
@@ -107,6 +159,7 @@ jobs:
       # GitHub secret. The keychain is temporary and lives only for this job — nothing
       # persists on the runner after the run finishes.
       - name: Install signing certificate
+        if: steps.already_done.outputs.already_done != 'true'
         env:
           CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
@@ -135,6 +188,7 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN"
 
       - name: Build, sign, and notarise release bundle
+        if: steps.already_done.outputs.already_done != 'true'
         working-directory: app
         env:
           SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
@@ -152,6 +206,7 @@ jobs:
           ./Scripts/make-app-bundle.sh release
 
       - name: Assert the built bundle is what the tag claims
+        if: steps.already_done.outputs.already_done != 'true'
         working-directory: app
         run: |
           set -euo pipefail
@@ -181,6 +236,7 @@ jobs:
       # symlink structure a signed .app depends on, and the damage shows up only as a
       # broken signature on the DOWNLOADER's machine, never on the builder's.
       - name: Package zip
+        if: steps.already_done.outputs.already_done != 'true'
         working-directory: app
         run: |
           set -euo pipefail
@@ -192,6 +248,7 @@ jobs:
       # SURVIVED the round trip. This is the one failure that is invisible to every step
       # above: the app on disk is fine, the zip is the thing that is broken.
       - name: Verify the packaged zip, not the built app
+        if: steps.already_done.outputs.already_done != 'true'
         working-directory: app
         run: |
           set -euo pipefail
@@ -206,6 +263,7 @@ jobs:
       # positioning, and an Applications symlink for drag-to-install. The zip
       # stays as a fallback for Homebrew casks and scripted installs.
       - name: Package DMG
+        if: steps.already_done.outputs.already_done != 'true'
         working-directory: app
         run: |
           set -euo pipefail
@@ -219,7 +277,7 @@ jobs:
       # make-app-bundle.sh; this submits the DMG container so the user never sees
       # a quarantine dialog when opening the downloaded .dmg.
       - name: Notarise DMG
-        if: env.NOTARIZE_KEY_ID != ''
+        if: steps.already_done.outputs.already_done != 'true' && env.NOTARIZE_KEY_ID != ''
         working-directory: app
         env:
           NOTARIZE_KEY_ID: ${{ secrets.NOTARIZE_KEY_ID }}
@@ -240,6 +298,7 @@ jobs:
       # Hash the DMG only after the step above may have stapled it. Unconditional, so a
       # build without notarisation credentials still gets a checksum, of the file as shipped.
       - name: Checksum DMG
+        if: steps.already_done.outputs.already_done != 'true'
         working-directory: app
         run: |
           set -euo pipefail
@@ -251,6 +310,7 @@ jobs:
       # Mount the DMG and verify the app inside it survived packaging with its
       # signature intact — the same round-trip check applied to the zip above.
       - name: Verify the packaged DMG
+        if: steps.already_done.outputs.already_done != 'true'
         working-directory: app
         run: |
           set -euo pipefail
@@ -272,6 +332,7 @@ jobs:
           rm -f /tmp/notarize-key.p8
 
       - name: Attach to the release
+        if: steps.already_done.outputs.already_done != 'true'
         working-directory: app
         env:
           GH_TOKEN: ${{ github.token }}

@@ -137,10 +137,22 @@ extension FileTreeViewController {
                 // oldURL == newURL signals creation — no prior location, just an arrival.
                 // The delegate no-ops for a tab it cannot find, so this is safe when
                 // no stale tab exists.
+                //
+                // ORDERING: notifyDelegateOfMutation fires BEFORE finishEditReplay.
+                // By this point endEditSession() has already set isEditingInline = false
+                // (line 115), so the delegate runs with editing already ended.
+                // The one tree re-entry that handleFileMutation can trigger is
+                // `reveal` — via openFile → selectDocument → revealActiveFileInTree →
+                // fileTree.reveal (SpaceViewController+Delegates.swift:42,238).
+                // reveal() does not call refresh() or setRoot(), so re-entry is safe.
+                // If that call chain ever grows a refresh/setRoot path, move this call
+                // after finishEditReplay (#176).
                 notifyDelegateOfMutation(oldURL: newURL, newURL: newURL)
                 finishEditReplay(select: newURL)
             } else {
                 try FileOperationPolicy.rename(from: oldURL, to: newURL)
+                // ORDERING: same dependency as the creation branch above — delegate
+                // before finishEditReplay; same re-entry analysis applies (#176).
                 notifyDelegateOfMutation(oldURL: oldURL, newURL: newURL)
                 finishEditReplay(select: newURL, rebasing: [(oldURL, newURL)])
             }

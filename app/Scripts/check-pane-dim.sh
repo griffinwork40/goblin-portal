@@ -12,6 +12,11 @@
 # their headers say so, and the UI-import check below enforces it. Same pattern as
 # `check-theme-contrast.sh`.
 #
+# This gate also asserts the FLOOR SYNC GUARD: `SyntaxPalette.readableFloor` and
+# `PaneDimming.dimFloor` are the same Lc 45 threshold compiled by different gates and
+# cannot share a definition. The doc comment on `readableFloor` requires they stay equal;
+# this script enforces it by extracting both literals and comparing them at run time.
+#
 # WHY IT EXISTS
 #
 # A UX audit confirmed that at the flat 0.7 default, the app's own default palette
@@ -32,6 +37,12 @@
 #
 # The gate requires that the OLD flat-0.7 rule fails for classic-repaired. If that case
 # PASSES, the threshold is too loose and the other cases mean nothing.
+#
+# The floor-sync guard also includes a falsification: a temp copy of SyntaxPalette.swift
+# has its `readableFloor` literal replaced with 99, and the guard must detect the mismatch.
+# If the mutated copy reads back as equal to `dimFloor`, the grep extraction is blind and
+# the whole floor-sync assertion is worthless — the gate exits 1 in that case. If the sed
+# mutation itself did not apply (BSD sed portability issue), the gate exits 2 (environmental).
 #
 # Exit codes:
 #   0  all assertions pass and the falsification case fails as expected
@@ -119,6 +130,70 @@ for consumer in "$SRC/Config+Load.swift" "$SRC/AppearanceObserver.swift"; do
         status=1
     fi
 done
+
+# FLOOR SYNC GUARD. SyntaxPalette.readableFloor and PaneDimming.dimFloor are the same
+# Lc 45 threshold, but compiled by different gates, so they cannot share a definition.
+# The doc comment on readableFloor says they must stay equal; this grep enforces it.
+# Comments are stripped first (sed 's://.*$::') so a comment naming either value cannot
+# satisfy the match — the blind spot check-theme-contrast.sh's preset grep once had.
+SYNTAX="$SRC/SyntaxPalette.swift"
+DIMMING_SRC="$SRC/PaneDimming.swift"
+
+extract_floor_literal() {
+    local file="$1" varname="$2"
+    # Strip // comments, find the let declaration, take only the value after =,
+    # then normalise to an integer (drop trailing .0) for comparison.
+    sed 's://.*$::' "$file" \
+        | grep -E "let ${varname}[^=]*=" \
+        | sed -E 's/.*=[[:space:]]*([0-9]+(\.[0-9]+)?).*/\1/' \
+        | head -1 \
+        | sed 's/\.[0]*$//'   # 45.0 -> 45, 45 -> 45, 45.5 -> 45.5
+}
+
+readable_val="$(extract_floor_literal "$SYNTAX" "readableFloor")"
+dim_val="$(extract_floor_literal "$DIMMING_SRC" "dimFloor")"
+
+if [[ -z "$readable_val" ]]; then
+    echo "FAIL floor-sync: could not find 'let readableFloor' literal in $SYNTAX" >&2
+    status=1
+elif [[ -z "$dim_val" ]]; then
+    echo "FAIL floor-sync: could not find 'let dimFloor' literal in $DIMMING_SRC" >&2
+    status=1
+elif [[ "$readable_val" != "$dim_val" ]]; then
+    echo "FAIL floor-sync: SyntaxPalette.readableFloor=$readable_val != PaneDimming.dimFloor=$dim_val" >&2
+    echo "  Both constants must be equal — edit one to match the other." >&2
+    status=1
+else
+    say "  floor-sync: readableFloor == dimFloor == $readable_val  ok"
+fi
+
+# FLOOR SYNC FALSIFICATION. Mutate a temp copy of SyntaxPalette.swift so its
+# readableFloor literal differs (45 -> 99), then re-run the grep logic. The
+# mutated copy MUST be detected as a mismatch. If the mutated copy reads back
+# as equal to dim_val, the grep above is blind and we must fail the gate.
+# BSD sed: use [[:space:]]* not \s (macOS /usr/bin/sed is POSIX, not GNU).
+# The sed replaces the integer part of the literal with 99, e.g. 45 -> 99 or
+# 45.0 -> 99.0 — either way the normalised value becomes 99, not equal to dim_val.
+TMP_SYNTAX="$TMP/SyntaxPalette_mutated.swift"
+sed 's/\(let readableFloor[^=]*=[[:space:]]*\)[0-9][0-9]*/\199/' "$SYNTAX" > "$TMP_SYNTAX"
+
+# Sanity-check: if the mutation didn't apply (sed produced no change), the harness
+# itself is broken — exit 2 (environmental), not 1 (logic failure).
+mutated_val="$(extract_floor_literal "$TMP_SYNTAX" "readableFloor")"
+if [[ "$mutated_val" == "$readable_val" ]]; then
+    echo "error: floor-sync falsification: sed mutation did not apply — harness bug." >&2
+    echo "  Expected readableFloor != $readable_val in $TMP_SYNTAX, but got $mutated_val." >&2
+    exit 2
+fi
+
+# Now check that our floor-sync logic DETECTS the mismatch.
+# "Detected" means the mutated value differs from dim_val (i.e. the guard would fire).
+if [[ -z "$mutated_val" || "$mutated_val" == "$dim_val" ]]; then
+    echo "FAIL floor-sync falsification: mutated copy (readableFloor=$mutated_val) was not detected as a mismatch — the grep is blind" >&2
+    status=1
+else
+    say "  floor-sync falsification: mutation detected as expected (readableFloor=$mutated_val != dimFloor=$dim_val)  ok"
+fi
 
 if [[ $status -eq 0 ]]; then
     say "check-pane-dim: ALL-OK"

@@ -81,6 +81,13 @@ final class FileTreeViewController: NSViewController {
     /// add stored properties.
     var preFilterExpansion: [FileNode]?
 
+    /// Cached result of the volume case-sensitivity query for `root` (R1.2, #176).
+    /// Populated lazily on the first walk/reveal; invalidated in `setRoot(_:)` when
+    /// the root moves (the new directory may sit on a volume with different semantics).
+    /// Nil = not yet queried. Stored here because Swift extensions cannot add stored
+    /// properties.
+    var caseSensitiveFS: Bool?
+
     init(root url: URL) {
         self.root = FileNode(url: url, isDirectory: true)
         super.init(nibName: nil, bundle: nil)
@@ -170,13 +177,13 @@ final class FileTreeViewController: NSViewController {
     /// moment the tree is stale. FSEvents is the obvious upgrade if it ever feels
     /// behind.
     func refresh() {
-        guard !isEditingInline else { pendingReload = true; return }
+        guard !isEditingInline else { TreeRefreshTiming.measure(site: "refresh", expandedCount: 0, deferred: true) {}; pendingReload = true; return }
         let expanded = (0..<outlineView.numberOfRows)
             .compactMap { outlineView.item(atRow: $0) as? FileNode }
             .filter { outlineView.isItemExpanded($0) }
         let selectedURL = (outlineView.item(atRow: outlineView.selectedRow) as? FileNode)?.url
 
-        root.reloadChildren()
+        TreeRefreshTiming.measure(site: "refresh", expandedCount: expanded.count) { root.reloadChildren() }
         outlineView.reloadData()
 
         // Git status is stale for exactly the same reason the tree is, at exactly the same
@@ -243,7 +250,11 @@ final class FileTreeViewController: NSViewController {
         guard url.resolvingSymlinksInPath().path != root.url.resolvingSymlinksInPath().path
         else { return }
         root = FileNode(url: url, isDirectory: true)
-        root.reloadChildren()
+        TreeRefreshTiming.measure(site: "setRoot", expandedCount: 0) { root.reloadChildren() }
+        // The new root may sit on a different volume with different case semantics, so
+        // the cached query must be invalidated; it is re-populated lazily on the next
+        // walk or reveal call (#176).
+        caseSensitiveFS = nil
         outlineView.reloadData()
         // The tree now shows a different project, so the decorations on screen belong to
         // the old one. Waiting out the poller's 2s tick would leave them there — not merely
@@ -300,14 +311,12 @@ final class FileTreeViewController: NSViewController {
         guard components.count > rootComponents.count else { return }
 
         // R1.2: default APFS volumes are case-insensitive; a URL whose component case
-        // differs from the on-disk name silently misses every node. Query once per
-        // reveal call. Genuine case-sensitive volumes (where "Foo" and "foo" can
-        // coexist) keep exact matching so we never pick the wrong sibling.
-        let caseSensitive: Bool = {
-            var vals = URLResourceValues()
-            vals = (try? root.url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])) ?? vals
-            return vals.volumeSupportsCaseSensitiveNames ?? false
-        }()
+        // differs from the on-disk name silently misses every node. Use the cached
+        // result (populated on first walk/reveal, cleared in setRoot when the root
+        // moves to a new directory). Genuine CS volumes keep exact matching so we
+        // never pick the wrong sibling when two names differ only by case.
+        if caseSensitiveFS == nil { caseSensitiveFS = FileOperationPolicy.caseSensitiveFSAtRoot(root.url) }
+        let caseSensitive = caseSensitiveFS ?? false
         var current: FileNode = root
         // Skip the root's own components; descend through the remainder.
         let descendantComponents = components.dropFirst(rootComponents.count)
