@@ -92,12 +92,15 @@ jobs:
             check-renderer-config.sh \
             check-links.sh \
             check-command-outcome.sh \
+            check-close-confirm.sh \
             check-shell-integration.sh \
+            check-dock-attention.sh \
             check-cwd-follow.sh \
             check-git-status.sh \
             check-theme-contrast.sh \
             check-light-theme.sh \
-            check-afk-loc.sh
+            check-afk-loc.sh \
+            check-shell-exit.sh
           do
             echo "::group::$s"
             "./Scripts/$s"

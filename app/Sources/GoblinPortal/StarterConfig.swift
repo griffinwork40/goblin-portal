@@ -76,6 +76,9 @@ enum StarterConfig {
       "// lineHeight": "Multiplier on the font's natural line height (default 1.0). 1.2 = 20% extra leading. Range 0.8–2.0. Uses SwiftTerm's public lineSpacing property, which correctly resizes the terminal grid after changing.",
       "lineHeight": 1.0,
 
+      "// closeOnShellExit": "clean (default) | always | never. clean = close the pane when the shell exits with code 0, keep it when the shell exits with a nonzero code or a signal — so you can read the last output. always = close unconditionally (pre-T2.2 behaviour). never = always keep the pane until you press CmdW. On keep: an inline status line shows the exit code or signal name; press Return to restart a fresh login shell in the same pane at the last known directory (scrollback is preserved). Unknown values warn and fall back to clean.",
+      "// closeOnShellExit-note": "Does not add a Preferences UI control in this release — set it in config.json.",
+
       "// editor": "editing behaviour for the file viewer (the tab you get when you double-click a file in the sidebar)",
       "// editor.tabWidth": "spaces per indent level, 1-16. Default 4.",
       "// editor.softTabs": "true inserts spaces when you press Tab; false inserts a literal tab character",

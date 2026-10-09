@@ -235,10 +235,14 @@ final class SpaceViewController: NSSplitViewController {
 
     func closeDocument(at index: Int) {
         guard documents.indices.contains(index) else { return }
-        // Every close path in the app — ⌘W, the tab's ×, closing the Space, quitting —
-        // reaches a document through here, which is what makes this the one place a
-        // dirty buffer has to be able to say no.
-        guard documents[index].documentShouldClose() else { return }
+        // The tab's × destroys its peers too: ask for the actual victim set, not
+        // just documents[index]. Space/quit use the same aggregate decision seam
+        // without mutating this list (CloseConfirmation.swift:17).
+        let primary = documents[index]
+        guard CloseConfirmation.confirm([primary] + allSplitDocuments(for: primary)) else {
+            recoverVetoedDeadShell(primary)
+            return
+        }
         let document = documents.remove(at: index)
         // Close any split peer before the primary tears down — teardownSplit removes it
         // from splitPeers, calls its documentWillClose(), and collapses the split layout.
@@ -283,6 +287,7 @@ final class SpaceViewController: NSSplitViewController {
         // *not* looking at. `view.window` is nil until installed; `windowDidBecomeKey()`
         // re-syncs, so the early no-op is harmless.
         view.window?.isDocumentEdited = hasEditedDocuments
+        syncDockAttention()
     }
 
     // MARK: - Config / lifecycle

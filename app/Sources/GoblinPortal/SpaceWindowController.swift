@@ -319,6 +319,7 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
 
     func windowWillClose(_ notification: Notification) {
         Self.open.removeAll { $0 === self }
+        (NSApp.delegate as? AppDelegate)?.recountAndUpdateBadge()
         // `windowShouldClose` only asked permission; this is where the close commits, so it is
         // where every document's unmanaged state is released. Safe to run on the ⌘Q path too
         // even though AppKit "generally does not" send this on quit (see the note at the top of
