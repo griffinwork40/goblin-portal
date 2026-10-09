@@ -114,7 +114,7 @@ extension FileTreeViewController {
 
     // MARK: Reload
 
-    /// Every post-operation reload goes through here (H5). `refresh()` keeps the
+    /// Every post-operation reload goes through here (H5). `refreshSynchronously()` keeps the
     /// expansion and selection of rows whose paths survived; `rebasing` carries the
     /// expansion of renamed or moved directories across to their new paths, which
     /// identity-based restoration cannot do because the node is new. Then the
@@ -132,10 +132,12 @@ extension FileTreeViewController {
         }
         // The span wraps the whole body — rebase walk, refresh, expansion replay, and
         // reveal — so the logged elapsed time matches the actual mutation-reload cost.
-        // `refresh()` is NOT separately timed here; it handles its own `deferred` log
+        // `refreshSynchronously()` logs its own `refreshSync` line and its own `deferred` log
         // when an inline edit is active, so callers never see two near-equal lines.
         TreeRefreshTiming.measure(site: "afterMutation", expandedCount: expanded.count) {
-            refresh()
+            // SYNCHRONOUS on purpose: the walk/expand/reveal below need the new children
+            // in place this turn. It also invalidates any async refresh in flight (#158).
+            refreshSynchronously()
             // Shallowest first, so each parent is expanded (and loaded) before its child.
             for dir in rebased.sorted(by: { $0.pathComponents.count < $1.pathComponents.count }) {
                 if let node = walk(to: dir) { outlineView.expandItem(node) }
@@ -192,6 +194,9 @@ extension FileTreeViewController {
         guard let parent else { return }
         if parent !== root { outlineView.expandItem(parent) }
         parent.reloadChildren()
+        // An async listing issued before this would land without the placeholder and
+        // reload the outline under the editor about to open on it — invalidate it (#158).
+        invalidatePendingLoads()
         let placeholder = FileNode(url: url, isDirectory: isDirectory)
         parent.insertChild(placeholder)
         // `reloadItem(nil, …)` is how the root's children are reloaded.

@@ -59,4 +59,28 @@ enum TreeRefreshTiming {
         let line = "[diag] tree-refresh: site=\(site) dirs=\(expandedCount) elapsed=\(String(format: "%.1f", ms))ms\n"
         FileHandle.standardError.write(Data(line.utf8))
     }
+
+    /// The async loaders (`+Loading.swift`) cannot wrap one closure: their main-thread
+    /// work is split across an issue and a landing, with the listing off-main between.
+    /// They time each part themselves and log it here. `site` is `refresh`/`setRoot`
+    /// for main-thread time and `refresh-list`/`setRoot-list` for the off-main listing,
+    /// so a log reader never mistakes background time for a main-thread stall.
+    static func record(site: String, expandedCount: Int, ms: Double) {
+        guard enabled else { return }
+        let line = "[diag] tree-refresh: site=\(site) dirs=\(expandedCount) elapsed=\(String(format: "%.1f", ms))ms\n"
+        FileHandle.standardError.write(Data(line.utf8))
+    }
+
+    /// A landing that did not apply: `dropped (stale)` or `deferred (inline edit active)`.
+    static func note(site: String, _ what: String) {
+        guard enabled else { return }
+        FileHandle.standardError.write(Data("[diag] tree-refresh: site=\(site) \(what)\n".utf8))
+    }
+
+    /// Milliseconds since `start`. `nonisolated` because the background listing calls it.
+    nonisolated static func ms(since start: ContinuousClock.Instant) -> Double {
+        let elapsed = ContinuousClock.now - start
+        return Double(elapsed.components.seconds) * 1_000.0
+            + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000.0
+    }
 }

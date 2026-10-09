@@ -93,33 +93,37 @@ func measureHeartbeat(
     timerInterval: Double = 0.01,
     action: @escaping @MainActor () -> Void
 ) -> Int {
+    // Ticks are counted only INSIDE the blocked window [t0, t0+releaseAfter): a
+    // synchronous listing holds main for the whole window, so its first tick lands
+    // after the release and counts 0. An async one returns at once; the harness then
+    // pumps through the window, and the ticks that fire there are the proof.
     var ticks = 0
+    let t0 = Date()
+    let windowEnd = t0.addingTimeInterval(releaseAfter - 0.02)
     let timer = Timer.scheduledTimer(withTimeInterval: timerInterval, repeats: true) { _ in
-        // Timer fires on main run loop — increments only if main is NOT blocked.
-        MainActor.assumeIsolated { ticks += 1 }
+        MainActor.assumeIsolated { if Date() < windowEnd { ticks += 1 } }
     }
     RunLoop.main.add(timer, forMode: .common)
 
-    // Release the semaphore from a background thread after `releaseAfter`.
-    // This guarantees the harness always terminates even if main is blocked.
+    // Released from a background thread so the harness always terminates.
     let sem = DispatchSemaphore(value: 0)
     DispatchQueue.global().asyncAfter(deadline: .now() + releaseAfter) { sem.signal() }
 
-    // Set up the blocking lister BEFORE calling the action.
-    // The lister blocks until `sem` is signalled.
+    // Every listing call blocks until the release; `wait(); signal()` chains it so a
+    // multi-directory refresh does not wedge its second call forever.
     let original = DirectoryListing.lister
     DirectoryListing.lister = { url in
-        // Block ONLY the root URL (the first call from setRoot/refresh).
-        // Child URLs are served immediately so we don't hang indefinitely.
-        sem.wait()
+        sem.wait(); sem.signal()
         return original(url)
     }
 
-    action()   // this blocks main if listing is synchronous
+    action()   // blocks main for the whole window if listing is synchronous
 
-    DirectoryListing.lister = original
+    DirectoryListing.lister = original   // in-flight listings keep the stub they captured
+    let remaining = t0.addingTimeInterval(releaseAfter + 0.05).timeIntervalSinceNow
+    if remaining > 0 { pump(remaining) }
     timer.invalidate()
-    pump(0.05)   // let any pending ticks drain
+    pump(0.1)   // let the released listing land
     return ticks
 }
 
@@ -222,7 +226,11 @@ guard CommandLine.arguments.count >= 2 else {
 }
 
 _ = app
-DispatchQueue.main.async {
-    exit(runGate(treePath: CommandLine.arguments[1]))
+// A run-loop block, NOT `DispatchQueue.main.async`: the async loaders land through
+// `Task { @MainActor }`, i.e. the main dispatch queue, and a nested `RunLoop.run`
+// (`pump`) inside a main-QUEUE block can never drain that queue — every landing
+// would wait until the gate exited. A run-loop block leaves the queue drainable.
+RunLoop.main.perform {
+    MainActor.assumeIsolated { exit(runGate(treePath: CommandLine.arguments[1])) }
 }
 RunLoop.main.run()
