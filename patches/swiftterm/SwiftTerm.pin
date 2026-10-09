@@ -25,11 +25,11 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-10-05 the tree differs from upstream in TEN places (twelve patches):
+# As of 2026-10-08 the tree differs from upstream in TWELVE files (THIRTEEN patches):
 # Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005),
 # PtmuxDcsHandler.swift (0005, new file), MacTerminalView.swift (0006/0008/0009/0010),
-# AppleTerminalView.swift (0007/0010), TerminalViewSearch.swift (0009),
-# MacDisplayLinkPacer.swift (0010, new file), MetalTerminalRenderer.swift (0011/0012), and
+# AppleTerminalView.swift (0007/0010/0013), TerminalViewSearch.swift (0009),
+# MacDisplayLinkPacer.swift (0010, new file), MetalTerminalRenderer.swift (0011/0012/0013), and
 # CoreTextGlyphRasterizer.swift (0012). File count and patch count are not the same number
 # and have not been since 0003; do not infer one from the other. For the history of how
 # the patch set grew, see git log patches/swiftterm/SwiftTerm.pin.
@@ -211,10 +211,14 @@ patched_mac_terminal_view  = fda8156433639a4989c0bb5144b61a5e3d5d2c8af7a9ec9673d
 upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac60417864168cded4041
 
 # AppleTerminalView.swift AFTER applying
-# 0007-gate-feedprepare-selection-clear-on-mouse-mode.patch and
+# 0007-gate-feedprepare-selection-clear-on-mouse-mode.patch,
 # 0010-pace-redraws-on-display-link.patch (0010: queuePendingDisplay and
 # queueMetalDisplay try the display-link pacer before upstream's asyncAfter timer, and
-# updateDisplay calls TerminalView.frameTimingObserver once per real paint).
+# updateDisplay calls TerminalView.frameTimingObserver once per real paint), and
+# 0013-fix-combining-mark-after-wide-char.patch (0013: in the glyph-position loop,
+# for wide-char segments columnWidth >= 2, use ctPosition.x / cellDimension.width to
+# derive glyphColumn instead of i * columnWidth, so combining marks with zero CT advance
+# stay at the base glyph's column rather than being placed at the next narrow cell).
 #
 # What 0007 fixes: upstream's feedPrepare() callback clears the terminal selection
 # on every chunk of pty output when `allowMouseReporting` is true — which it is by
@@ -234,7 +238,7 @@ upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac604178
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-patched_apple_terminal_view  = 1385a503a31f8d50ae59d844d9eef84348dddd5f23450cc51c1e768441e8f422
+patched_apple_terminal_view  = 623d3febc951c5bd8568d5650debd8e65e20532878703838e2687aac2b523fa2
 
 # AppleTerminalView.swift as shipped upstream at v1.15.0.
 upstream_apple_terminal_view = d28360034441f9a4573debcfe8ac5f86b3c57b3059da5f94ba2549838714e45e
@@ -272,12 +276,14 @@ patched_terminal_view_search  = 59314eda53d681038224cd9525f65a1f1ced1bad21d5983c
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
 mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae67765795bd200
 
-# Apple/Metal/MetalTerminalRenderer.swift AFTER 0011-cache-empty-glyphs-and-font-names.patch
-# AND 0012-rasterize-color-glyphs-at-logical-size.patch (one combined hash, the Buffer.swift
-# rule: a tree with only one of them matches neither), and the pristine v1.15.0 file (no
-# earlier patch touches it). Checked in verify-vendor-views.sh. 0012's part is three
-# hunks: GlyphKey gains backingScale, the frame sets rasterizer.backingScale beside
-# fontSmoothing, and glyphEntry keys on it. See the 0012 entry below for why.
+# Apple/Metal/MetalTerminalRenderer.swift AFTER 0011-cache-empty-glyphs-and-font-names.patch,
+# 0012-rasterize-color-glyphs-at-logical-size.patch (one combined hash, the Buffer.swift
+# rule: a tree with only one of them matches neither), and
+# 0013-fix-combining-mark-after-wide-char.patch (0013: same column-derivation fix as the
+# AppleTerminalView.swift hunk — uses ctPos.x / cellWidth for wide-char segments).
+# The pristine v1.15.0 file (no earlier patch touches it). Checked in verify-vendor-views.sh.
+# 0012's part is three hunks: GlyphKey gains backingScale, the frame sets rasterizer.backingScale
+# beside fontSmoothing, and glyphEntry keys on it. See the 0012 entry below for why.
 #
 # What 0011 does: glyphEntry(for:glyph:) cached only successful rasterizations, and
 # CoreTextGlyphRasterizer returns nil for zero-bounds glyphs (the space), so every blank
@@ -294,7 +300,7 @@ mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae6776
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-patched_metal_terminal_renderer  = f7be237b4ebd3549e22fb5353c8f1ecc391b092f3c6b14918ace84a927784666
+patched_metal_terminal_renderer  = c02956eef57adb7c9c9fb7d4f3d368cb235e9314fa0c68d35b182e83f22c55b7
 upstream_metal_terminal_renderer = 916d4e1cb0ecf36bcb3dcd8d8b0d9cb79b2c5b5653c0f075ecce6a603133b166
 
 # Apple/Metal/CoreTextGlyphRasterizer.swift AFTER 0012-rasterize-color-glyphs-at-logical-size.patch,

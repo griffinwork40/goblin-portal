@@ -1,5 +1,5 @@
 # Sourced by verify-vendor.sh — never run on its own. The VIEW-LAYER half of the vendor
-# verdict: every check on the files patches 0006-0012 touch (MacTerminalView.swift,
+# verdict: every check on the files patches 0006-0013 touch (MacTerminalView.swift,
 # AppleTerminalView.swift, TerminalViewSearch.swift, MacDisplayLinkPacer.swift,
 # Apple/Metal/MetalTerminalRenderer.swift, Apple/Metal/CoreTextGlyphRasterizer.swift).
 #
@@ -113,6 +113,7 @@ fi
 if [[ "$GOT_ATV" != "$WANT_ATV" ]]; then
   err "error: vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift matches neither"
   err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
+  err "  (Pin covers 0007 + 0010 + 0013; a tree missing 0013 also lands here.)"
   err ""
   err "  expected (patched): $WANT_ATV"
   err "  found:              $GOT_ATV"
@@ -172,7 +173,7 @@ if [ "$GOT_MTR" = "$(pin_value upstream_metal_terminal_renderer)" ]; then
 fi
 if [ "$GOT_MTR" != "$(pin_value patched_metal_terminal_renderer)" ]; then
   err "error: MetalTerminalRenderer.swift hash mismatch (got $GOT_MTR)."
-  err "  The pinned hash covers 0011 AND 0012; a tree with only one of them lands here."
+  err "  The pinned hash covers 0011, 0012, AND 0013; a tree missing any of them lands here."
   err "  Regenerate: shasum -a 256 $MTR  # then update patched_metal_terminal_renderer"
   exit 3
 fi

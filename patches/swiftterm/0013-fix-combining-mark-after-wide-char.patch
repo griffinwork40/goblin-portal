@@ -1,0 +1,95 @@
+Patch 0013: fix(#151) combining mark after wide char misplaced in both renderers
+
+Root cause: in the glyph-position loop, each glyph's column was computed as
+startColumn + (i * columnWidth). For a wide-char EGC with a combining mark,
+Core Text produces 2+ glyphs (base + mark). The combining mark has zero advance
+(ctPosition.x ≈ prev glyph position), so its true column is the same as the
+base glyph. The i * columnWidth formula placed it at startColumn + columnWidth
+instead — one full wide-cell offset, i.e. drawn over the next narrow cell (F10).
+Fix: for wide-char segments (columnWidth >= 2), detect zero-advance glyphs by
+comparing adjacent CT positions. When advance < 0.5 * cellWidth, pin the glyph
+to the previous column. Regular CJK chars have advance ≈ 2 * cellWidth, unaffected.
+Applied to both the Core Text path (AppleTerminalView.swift) and the Metal path
+(MetalTerminalRenderer.swift) since both shared the same formula. The Metal hunk
+also removes a dead ternary: totalGlyphIndex > 0 is guaranteed by the enclosing
+conditional, making the CGPoint.zero fallback unreachable.
+
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+@@ -1527,9 +1527,31 @@
+                     CTRunGetPositions(run, CFRange(), &coreTextPositions)
+ 
+                     var positions = [CGPoint](repeating: .zero, count: runGlyphsCount)
++                    // For wide-char segments (columnWidth >= 2), a combining mark after a
++                    // wide CJK glyph has zero CT advance and is drawn by CT at the SAME x
++                    // as its base glyph. Without a correction the column is computed as
++                    // startColumn + (i * columnWidth), placing the mark one full wide slot
++                    // past the base — drawn over the next narrow cell instead of the CJK
++                    // glyph (F10, #151). Patch 0013 detects combining glyphs by their
++                    // near-zero advance (< 0.5 × cellWidth) and pins them to the previous
++                    // glyph's column. Regular wide chars are unaffected: their CT advance
++                    // is ≈ columnWidth × cellWidth, well above the 0.5 threshold.
++                    var prevGlyphColumn = startColumn
+                     for i in 0..<runGlyphsCount {
+                         let ctPosition = coreTextPositions[i]
+-                        let glyphColumn = startColumn + (i * prepared.segment.columnWidth)
++                        let glyphColumn: Int
++                        if prepared.segment.columnWidth >= 2 && i > 0 {
++                            let advance = ctPosition.x - coreTextPositions[i - 1].x
++                            if advance < 0.5 * cellDimension.width {
++                                // Zero-advance glyph (combining mark): draw over the base.
++                                glyphColumn = prevGlyphColumn
++                            } else {
++                                glyphColumn = startColumn + (i * prepared.segment.columnWidth)
++                            }
++                        } else {
++                            glyphColumn = startColumn + (i * prepared.segment.columnWidth)
++                        }
++                        prevGlyphColumn = glyphColumn
+                         positions[i] = CGPoint(
+                             x: lineOrigin.x + CGFloat(glyphColumn) * cellDimension.width,
+                             y: lineOrigin.y + yOffset + ctPosition.y)
+--- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
++++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+@@ -1219,6 +1219,16 @@
+                 let textColor = runAttributes[.foregroundColor] as? TTColor ?? terminalView.nativeForegroundColor
+                 let textColorSIMD = colorToSIMD(textColor)
+ 
++                // For wide-char segments (columnWidth >= 2), a combining mark after a
++                // wide CJK glyph has zero CT advance and is drawn at the SAME x as its
++                // base glyph. Without a correction the column is startColumn +
++                // ((drawnGlyphsInRun + i) * columnWidth), placing the mark one full wide
++                // slot past the base — over the next narrow cell (F10, #151). Patch 0013
++                // detects combining glyphs by near-zero advance (< 0.5 × cellWidth) and
++                // pins them to the previous glyph's column. Regular wide chars are
++                // unaffected: their advance is ≈ columnWidth × cellWidth, well above the
++                // 0.5 threshold.
++                var prevGlyphColumnMetal = startColumn
+                 var drawnGlyphsInRun = 0
+                 for glyphRun in run.shaperRun.glyphRuns {
+                     let scaledFont = scaledFontFor(font: glyphRun.font, scale: scale)
+@@ -1231,7 +1241,23 @@
+                             continue
+                         }
+                         let ctPos = glyphRun.positions[i]
+-                        let glyphColumn = startColumn + ((drawnGlyphsInRun + i) * shaped.segment.columnWidth)
++                        let totalGlyphIndex = drawnGlyphsInRun + i
++                        let glyphColumn: Int
++                        if shaped.segment.columnWidth >= 2 && cellWidth > 0 && totalGlyphIndex > 0 {
++                            // totalGlyphIndex > 0 is guaranteed by the enclosing if, so the
++                            // ternary fallback to CGPoint.zero is dead; index directly.
++                            let prevPos = run.shaperRun.positions[totalGlyphIndex - 1]
++                            let advance = ctPos.x - prevPos.x
++                            if advance < 0.5 * cellWidth {
++                                // Zero-advance glyph (combining mark): draw over the base.
++                                glyphColumn = prevGlyphColumnMetal
++                            } else {
++                                glyphColumn = startColumn + (totalGlyphIndex * shaped.segment.columnWidth)
++                            }
++                        } else {
++                            glyphColumn = startColumn + (totalGlyphIndex * shaped.segment.columnWidth)
++                        }
++                        prevGlyphColumnMetal = glyphColumn
+                         // Center full-width (CJK) and substituted glyphs within
+                         // their multi-cell slot instead of pinning them to the
+                         // cell's left edge, mirroring the CoreGraphics path. The

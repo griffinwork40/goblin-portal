@@ -76,8 +76,10 @@ pin_value() {
 # other frame of a 60fps producer; 0011 caches rasterizer misses (blank glyphs) and the
 # per-font PostScript name so an idle spinner pane stops re-asking CoreText about every
 # blank cell on every row rebuild; 0012 rasterizes colour glyphs (emoji) at logical size
-# under a scaled CTM so Metal draws them at Core Text's size and position (N4). A tree
-# missing any
+# under a scaled CTM so Metal draws them at Core Text's size and position (N4); 0013 fixes
+# a combining mark after a wide CJK char being placed one full wide-cell offset too far
+# right — in the glyph-position loop, adjacent CT positions now detect zero-advance
+# (combining) glyphs and pin them to the previous column (#151). A tree missing any
 # one of them is not the tree this project is tested against, which is the whole
 # reason the pin records hashes rather than a version.
 PATCHES=(
@@ -93,6 +95,7 @@ PATCHES=(
   "0010-pace-redraws-on-display-link.patch"
   "0011-cache-empty-glyphs-and-font-names.patch"
   "0012-rasterize-color-glyphs-at-logical-size.patch"
+  "0013-fix-combining-mark-after-wide-char.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then
