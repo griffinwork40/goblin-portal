@@ -60,46 +60,63 @@ final class FileNode {
     /// survive a refresh or `NSOutlineView` loses every expanded row: it tracks
     /// disclosure state by item identity, so handing it fresh objects for unchanged
     /// paths collapses the whole tree on each reload.
+    ///
+    /// Synchronous, on the main thread. The async loaders in
+    /// `FileTreeViewController+Loading.swift` list off-main and land the result through
+    /// `applyListings(_:)` below; both go through `reconcile(_:)`, so there is exactly
+    /// one identity rule.
     func reloadChildren() {
         guard isDirectory else { return }
+        // Delegate the FileManager call and URL re-rooting to the seam so the
+        // test harness can replace `DirectoryListing.lister` with a controlled
+        // stub (DirectoryListing.swift).  Production behaviour is identical:
+        // same keys, same re-rooting, same isVisible filter.
+        reconcile(DirectoryListing.lister(url))
+
+        // Recurse only into what the user already opened, so a refresh costs the
+        // same as the disclosure state and not the size of the tree.
+        for child in children ?? [] where child.children != nil {
+            child.reloadChildren()
+        }
+    }
+
+    /// Land listings that were read off the main thread: reconcile this node from
+    /// `listings[url]`, then recurse into loaded children the same way
+    /// `reloadChildren()` does. A directory missing from `listings` (loaded on main
+    /// after the snapshot was taken, e.g. by a disclosure) keeps its children as-is.
+    func applyListings(_ listings: [URL: [DirectoryEntry]]) {
+        guard isDirectory, let entries = listings[url] else { return }
+        reconcile(entries)
+        for child in children ?? [] where child.children != nil {
+            child.applyListings(listings)
+        }
+    }
+
+    /// Every directory whose contents are loaded, starting with this one — the set a
+    /// refresh must re-read so it costs what `reloadChildren()`'s recursion costs.
+    func loadedDirectories() -> [URL] {
+        guard isDirectory else { return [] }
+        return [url] + (children ?? []).filter { $0.children != nil }.flatMap { $0.loadedDirectories() }
+    }
+
+    /// The identity rule: an entry whose URL, `isDirectory` and `isHidden` all match an
+    /// existing child gets that child object back; anything else is a new node.
+    private func reconcile(_ entries: [DirectoryEntry]) {
         let existing = Dictionary(
             (children ?? []).map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
-
-        let contents =
-            (try? FileManager.default.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey],
-                options: [])) ?? []
-
-        // Re-root each child URL under `url` rather than using the URL returned by
-        // contentsOfDirectory directly. On macOS, FileManager resolves symlinks in
-        // the path it returns (e.g. /var/folders → /private/var/folders) even when
-        // `url` itself was not resolved. Using appendingPathComponent preserves the
-        // caller's path prefix, so walk(to:) never sees a /private discrepancy.
-        let normalized = contents.map { child -> (URL, URL) in
-            (url.appendingPathComponent(child.lastPathComponent), child)
-        }
-
         children =
-            normalized
-            .filter { Self.isVisible($0.0) }
-            .map { (normURL, child) -> FileNode in
-                let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isHiddenKey])
-                let isDir = values?.isDirectory ?? false
-                // Falls back to the dot convention rather than to "not hidden": a
-                // failed resource read should degrade to the mostly-right answer,
-                // not silently promote every dotfile to the top of the tree.
-                let isHidden = values?.isHidden ?? child.lastPathComponent.hasPrefix(".")
+            entries
+            .map { entry -> FileNode in
                 // Reuse check: look up by the normalized URL so identity survives
                 // a refresh even when FileManager changes its symlink resolution.
                 // Both facts gate reuse. A reused node is returned as-is, so a flag
                 // that flipped on disk would otherwise never reach the UI.
-                if let reused = existing[normURL], reused.isDirectory == isDir,
-                    reused.isHidden == isHidden
+                if let reused = existing[entry.url], reused.isDirectory == entry.isDirectory,
+                    reused.isHidden == entry.isHidden
                 {
                     return reused
                 }
-                return FileNode(url: normURL, isDirectory: isDir, isHidden: isHidden)
+                return FileNode(url: entry.url, isDirectory: entry.isDirectory, isHidden: entry.isHidden)
             }
             .sorted { lhs, rhs in
                 // Directories first, then case-insensitive name — Finder's order,
@@ -115,20 +132,13 @@ final class FileNode {
                 if lhs.isHidden != rhs.isHidden { return !lhs.isHidden }
                 return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
-
-        // Recurse only into what the user already opened, so a refresh costs the
-        // same as the disclosure state and not the size of the tree.
-        for child in children ?? [] where child.children != nil {
-            child.reloadChildren()
-        }
     }
 
     /// Dotfiles are deliberately **shown**: this is a developer tool, and hiding
     /// `.github`, `.env` or this project's own `.afk/` in a terminal-first IDE
     /// would be actively obstructive. Only the two entries nobody ever wants to
     /// browse are dropped. A config field can generalise this later.
-    private static func isVisible(_ url: URL) -> Bool {
-        let name = url.lastPathComponent
-        return name != ".git" && name != ".DS_Store"
-    }
+    // isVisible moved to DirectoryListing.isVisible (DirectoryListing.swift:88-91)
+    // and still called from DirectoryListing.list(_:). The method is intentionally
+    // removed from FileNode to keep the listing logic in one place.
 }
