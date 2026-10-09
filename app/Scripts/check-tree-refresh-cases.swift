@@ -23,13 +23,16 @@ import AppKit
 /// A lister that waits for `sem` and then answers from `frozen` (a listing taken on
 /// main BEFORE anything changed), falling back to a live read. `wait(); signal()`
 /// lets every call through once released, so a multi-directory listing cannot wedge.
+/// The 2s timeout is the anti-hang: if listing ever runs ON main again (the
+/// sync-setroot falsify mutant), the release — which main itself sends — can never
+/// arrive, so the stub gives up and the case then fails instead of hanging the gate.
 @MainActor
 func stalledLister(_ sem: DispatchSemaphore, frozen: [URL: [DirectoryEntry]] = [:])
     -> @Sendable (URL) -> [DirectoryEntry]
 {
     let live = DirectoryListing.lister
     return { url in
-        sem.wait(); sem.signal()
+        _ = sem.wait(timeout: .now() + 2); sem.signal()
         return frozen[url] ?? live(url)
     }
 }
