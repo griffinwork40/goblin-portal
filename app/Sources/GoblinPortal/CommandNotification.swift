@@ -83,9 +83,20 @@ enum CommandNotification {
         let status = exitCode == 0 ? "completed" : "failed (exit \(exitCode))"
         let durationText = formatDuration(durationSeconds)
 
+        post(title: "Command \(status)", body: "\(title) — \(durationText)")
+    }
+
+    /// Explicit OSC requests have no command-duration threshold, but share the
+    /// visibility guard, authorization and delivery path with command completion.
+    static func postEscapeNotification(title: String, body: String, isActiveDocument: Bool) {
+        guard !isActiveDocument else { return }
+        post(title: title, body: body)
+    }
+
+    private static func post(title: String, body: String) {
         let content = UNMutableNotificationContent()
-        content.title = "Command \(status)"
-        content.body = "\(title) — \(durationText)"
+        content.title = title
+        content.body = body
         content.sound = .default
 
         // Use a unique identifier so each notification is separate.

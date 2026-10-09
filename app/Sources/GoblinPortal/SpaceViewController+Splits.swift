@@ -129,6 +129,7 @@ extension SpaceViewController {
     /// In v2, ⌘W removes the focused leaf one level at a time -- sub-pane first,
     /// then the outer split on the next ⌘W.
     func closeSplitPane() {
+        defer { syncDockAttention() } // Sub-split collapse can remove an unread peer.
         guard let primary = activeDocument,
               var entry = splitPeers[ObjectIdentifier(primary)] else { return }
 
@@ -234,6 +235,7 @@ extension SpaceViewController {
     // MARK: - Peer-initiated termination
 
     func terminateSplitPeer(_ document: SpaceDocument) {
+        defer { syncDockAttention() } // Recount after the peer dictionary has changed.
         for primary in documents {
             guard var entry = splitPeers[ObjectIdentifier(primary)] else { continue }
 

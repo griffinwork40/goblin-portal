@@ -283,6 +283,7 @@ final class SpaceViewController: NSSplitViewController {
         // *not* looking at. `view.window` is nil until installed; `windowDidBecomeKey()`
         // re-syncs, so the early no-op is harmless.
         view.window?.isDocumentEdited = hasEditedDocuments
+        syncDockAttention()
     }
 
     // MARK: - Config / lifecycle

@@ -97,6 +97,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // for the four members it does carry and why reaching the bell needs a subclass
         // override rather than a delegate slot.
         view.bellDelegate = self
+        registerNotifications() // Install before the shell can emit its first OSC.
         view.autoresizingMask = [.width, .height]
         apply(config: config)
     }
@@ -345,6 +346,6 @@ extension TerminalPane: GoblinPortalTerminalViewDelegate {
         // marker is to label a tab you are *not* looking at, and lighting up the front
         // tab would train the eye to ignore it.
         guard !isActiveDocument else { return }
-        status = .attention
+        signalAttention(kind: .bell)
     }
 }
