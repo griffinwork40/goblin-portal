@@ -102,78 +102,6 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         apply(config: config)
     }
 
-    /// Start the user's login shell in `workingDirectory`. `-l` so their real PATH and
-    /// rc files load — without it, tools installed via Homebrew or a node version
-    /// manager are missing and the terminal is useless for actual work.
-    ///
-    /// The working directory goes through SwiftTerm's own `currentDirectory:`
-    /// parameter, which it has: `MacLocalTerminalView.swift:175` forwards it to
-    /// `LocalProcess.startProcess` (`LocalProcess.swift:383`) and on into
-    /// `PseudoTerminalHelpers.fork` (`Pty.swift:60`), which `chdir()`s **inside the
-    /// forked child, between `forkpty` and `execve`** (`Pty.swift:101-106`). So this
-    /// is a real per-process cwd, not a `cd` typed into the shell: nothing is written
-    /// to the user's scrollback or shell history, and there is no window where the
-    /// prompt shows the wrong directory. The rejected alternatives were feeding
-    /// `cd '<path>'\n` (visible, racy against rc-file output, and it would land in
-    /// `HISTFILE`) and setting `PWD` in the environment (a lie — `PWD` is a shell
-    /// convention, the process cwd would still be wrong, so `$(pwd)` and every
-    /// relative path would disagree with the prompt).
-    ///
-    /// Passing `nil` reproduces the old behaviour exactly — SwiftTerm skips the
-    /// `chdir` entirely when the parameter is nil (`Pty.swift:101-104`) — so an
-    /// unrooted pane inherits the app process's cwd as before.
-    func start() { startProcessInDirectory(resolvedWorkingDirectory()) }
-
-    /// One launch path for initial start and Return restart: same login arguments,
-    /// integration environment, cursor style and OSC 133 registration. The view is
-    /// deliberately reused so its terminal buffer and scrollback survive restart.
-    func startProcessInDirectory(_ directory: String?) {
-        var env = Terminal.getEnvironmentVariables()
-        env.append("TERM_PROGRAM=GoblinPortal")
-        env.append("TERM_PROGRAM_VERSION=0.1")
-        appendShellIntegrationEnv(&env)  // GOBLIN_PORTAL_INTEGRATION — see TerminalPane+ShellIntegration
-        startedShellName = URL(fileURLWithPath: config.shell).resolvingSymlinksInPath().lastPathComponent
-        view.startProcess(executable: config.shell, args: ["-l"],
-            environment: env, currentDirectory: directory)
-        applyCursorStyle(config.cursorStyle)
-        registerShellIntegration()       // OSC 133 — see TerminalPane+ShellIntegration
-    }
-
-    /// The cwd to hand the shell, or nil to let it inherit the app's.
-    ///
-    /// Checked rather than passed through blind because SwiftTerm **discards the
-    /// `chdir` result** — `Pty.swift:103` is `_ = chdir(cCurrentDirectory)`, in the
-    /// forked child where there is no way to report anything back — so a root that
-    /// has been deleted or renamed since the Space opened would start the shell in
-    /// the app process's cwd with no error anywhere. A persisted root makes that a
-    /// live case, not a theoretical one: `LastSpaceRoot` restores a directory across
-    /// launches, and directories get moved between them. Failing soft to the same
-    /// place, but *saying so* under `GOBLIN_PORTAL_DIAG`, matches `AppConfig.load()`'s
-    /// per-field contract: degrade, warn, never throw.
-    ///
-    /// The predicate itself is `FileManager.isUsableSpaceRoot(atPath:)` rather than an
-    /// inlined `fileExists(atPath:isDirectory:)` — a third caller of the rule that
-    /// `Defaults.swift:96` already warns about duplicating ("two copies of a
-    /// check-don't-trust rule is two places for it to drift"). Same question, one
-    /// answer: a remembered root can be replaced by a *file* of the same name, and
-    /// that has to read as unusable here exactly as it does for Space restore.
-    /// `internal` (not `private`) so `TerminalPane+ShellExit.swift` can call it for
-    /// restart CWD resolution. Same cross-file concern as `workingDirectory` above.
-    func resolvedWorkingDirectory() -> String? {
-        // `.path`, not `absoluteString`: `chdir()` takes a filesystem path, and a
-        // `file://` URL string with percent-escapes is not one.
-        let path = workingDirectory.standardizedFileURL.path
-        guard FileManager.default.isUsableSpaceRoot(atPath: path) else {
-            if ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil {
-                FileHandle.standardError.write(
-                    "[diag] pane root not a usable directory, shell will inherit app cwd: \(path)\n"
-                        .data(using: .utf8)!)
-            }
-            return nil
-        }
-        return path
-    }
-
     // MARK: - Appearance
 
     func apply(config: AppConfig) {
@@ -252,7 +180,7 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// Bare `CursorStyle` resolves correctly only by same-module shadowing, and
     /// `check-cursor-style.sh` compiles the enum standalone so it cannot see this collision at
     /// all. Spelling the module is what makes the right one an assertion rather than a default.
-    private func applyCursorStyle(_ style: GoblinPortal.CursorStyle) {
+    func applyCursorStyle(_ style: GoblinPortal.CursorStyle) {  // internal: TerminalPane+Launch.swift calls it
         view.feed(text: "\u{1b}[\(style.decscusrCode) q")
     }
 
