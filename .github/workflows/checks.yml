@@ -99,6 +99,7 @@ jobs:
             check-close-confirm.sh \
             check-shell-integration.sh \
             check-dock-attention.sh \
+            check-notification-permission.sh \
             check-cwd-follow.sh \
             check-foreground-process.sh \
             check-git-status.sh \
