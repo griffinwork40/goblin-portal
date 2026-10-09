@@ -11,7 +11,7 @@
 //
 // EXIT CODES
 //   0  all cases pass (BLOCKING cases must be made non-blocking before this is green)
-//   1  one or more assertion failures (expected today for BLOCKING-SETROOT, BLOCKING-REFRESH)
+//   1  one or more assertion failures
 //   2  environmental failure (tree not found, window not created)
 //
 // CASES
@@ -19,9 +19,8 @@
 //   2. EXPANSION  — expanded dirs survive a refresh (NSOutlineView keeps state)
 //   3. SAME-PATH  — setRoot with the same path does no listing at all
 //   4. BLOCKING-SETROOT  — main-thread heartbeat must keep firing while lister blocks
-//                          (RED today: synchronous lister blocks main)
 //   5. BLOCKING-REFRESH  — same for refresh()
-//                          (RED today: synchronous lister blocks main)
+//   6-8. STALE-DROP, EDIT-DEFER, MUTATION-INVALIDATES — check-tree-refresh-cases.swift
 //
 // DESIGN: AVOIDING A HANG
 //   The blocking lister releases its semaphore after 300ms from a background thread,
@@ -182,8 +181,7 @@ func runGate(treePath: String) -> Int32 {
 
     // -----------------------------------------------------------------------
     // CASE 4: BLOCKING-SETROOT — heartbeat must advance while lister blocks
-    // Expectation TODAY (synchronous): ticks == 0  → FAIL (main was blocked)
-    // After async fix: ticks > 0 → PASS
+    // Synchronous listing: ticks == 0 → FAIL. Async (#158): ticks > 5 → PASS.
     let altURL = vc.root.children?.first(where: { $0.isDirectory })?.url
         ?? treeURL.appendingPathComponent("__nonexistent__")
     let ticksSetRoot = measureHeartbeat(releaseAfter: 0.30) {
@@ -211,9 +209,12 @@ func runGate(treePath: String) -> Int32 {
     if refreshPassed { pass("BLOCKING-REFRESH (ticks=\(ticksRefresh))") }
     else { fail("BLOCKING-REFRESH", "main blocked during listing: ticks=\(ticksRefresh)/~30 expected") }
 
+    // CASES 6-8: staleness and deferral (check-tree-refresh-cases.swift).
+    runStalenessCases(vc: vc, treeURL: treeURL)
+
     // -----------------------------------------------------------------------
     print()
-    if gBad == 0 { print("all tree-refresh gate cases passed (5 cases)") }
+    if gBad == 0 { print("all tree-refresh gate cases passed (8 cases)") }
     else { print("\(gBad) tree-refresh gate case(s) FAILED") }
     return gBad == 0 ? 0 : 1
 }

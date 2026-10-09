@@ -9,16 +9,22 @@
 #   A 10ms repeating timer measures whether the run loop kept turning.
 #
 # EXIT CONTRACT
-#   0  all 5 cases pass (expected ONLY after async listing is implemented)
-#   1  real assertion failure (expected TODAY for BLOCKING-SETROOT and BLOCKING-REFRESH)
+#   0  all 8 cases pass
+#   1  real assertion failure
 #   2  environmental (swiftc missing, build failed, objects missing, no window server)
 #
 # CASES
 #   1. IDENTITY        — child node objects reused after refresh (green today)
 #   2. EXPANSION       — expanded rows survive refresh (green today)
 #   3. SAME-PATH       — setRoot same path skips listing (green today)
-#   4. BLOCKING-SETROOT — heartbeat must fire during blocked listing (RED today)
-#   5. BLOCKING-REFRESH — same for refresh() (RED today)
+#   4. BLOCKING-SETROOT — heartbeat must fire during blocked listing
+#   5. BLOCKING-REFRESH — same for refresh()
+#   6. STALE-DROP       — setRoot(A), setRoot(B), A lands last: root B, no A rows
+#   7. EDIT-DEFER       — landing during an inline edit is deferred, replayed after
+#   8. MUTATION-INVALIDATES — a file op's sync refresh drops an in-flight async one
+#   (6-8 live in check-tree-refresh-cases.swift)
+#
+# --falsify  runs check-tree-refresh-falsify.sh instead (mutation testing).
 #
 # HOW THE HANG IS AVOIDED
 #   The blocking lister releases its semaphore from a background thread after 300ms,
@@ -28,16 +34,21 @@
 
 set -uo pipefail
 
+if [[ "${1:-}" == "--falsify" ]]; then
+  exec "$(dirname "$0")/check-tree-refresh-falsify.sh"
+fi
+
 QUIET="${QUIET:-0}"
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 HARNESS="$ROOT/Scripts/check-tree-refresh-harness.swift"
+CASES="$ROOT/Scripts/check-tree-refresh-cases.swift"
 PRODUCTS="$ROOT/.build/out/Products/Debug"
 
 command -v swiftc >/dev/null 2>&1 || { echo "error: swiftc not found" >&2; exit 2; }
-[[ -f "$HARNESS" ]] || { echo "error: harness not found: $HARNESS" >&2; exit 2; }
+[[ -f "$HARNESS" && -f "$CASES" ]] || { echo "error: harness not found: $HARNESS / $CASES" >&2; exit 2; }
 
 BFLAGS=()
 swift build --help 2>&1 | grep -q -- '--build-system' && BFLAGS=(--build-system swiftbuild)
@@ -68,10 +79,11 @@ echo "hello" > "$TREE/a/x.txt"
 echo "world" > "$TREE/b/y.txt"
 
 cp "$HARNESS" "$TMP/main.swift"
+cp "$CASES" "$TMP/cases.swift"
 OBJS=$(ls "$TOBJ"/*.o | grep -v '/main\.o$' | tr '\n' ' ')
 
 say "==> compiling harness"
-if ! swiftc -o "$TMP/gate" "$TMP/main.swift" \
+if ! swiftc -o "$TMP/gate" "$TMP/main.swift" "$TMP/cases.swift" \
     -I "$TOBJ" -I "$PRODUCTS" -I "$PRODUCTS/include" -L "$PRODUCTS" \
     $OBJS "$PRODUCTS/SwiftTerm.o" \
     -framework AppKit 2>"$TMP/compile.log"; then
