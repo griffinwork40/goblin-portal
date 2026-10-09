@@ -96,7 +96,8 @@ jobs:
             check-cwd-follow.sh \
             check-git-status.sh \
             check-theme-contrast.sh \
-            check-light-theme.sh
+            check-light-theme.sh \
+            check-afk-loc.sh
           do
             echo "::group::$s"
             "./Scripts/$s"
