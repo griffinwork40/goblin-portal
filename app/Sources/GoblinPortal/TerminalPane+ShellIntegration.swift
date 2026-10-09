@@ -197,49 +197,46 @@ extension TerminalPane {
     /// SwiftTerm delivers this via the full callback chain described in the file header.
     /// The shell-integration script emits `ESC ] 7 ; file://<host><percent-encoded-path> BEL`
     /// in its precmd hook. SwiftTerm delivers the raw OSC 7 payload (`file://hostname/path`)
-    /// without stripping the scheme or percent-decoding — the `parseOsc7Directory` call
+    /// without stripping the scheme or percent-decoding — the `Osc7Directory.parse` call
     /// below handles both. (An earlier comment claimed SwiftTerm stripped the scheme at
     /// `Terminal.oscSetCurrentDirectory:1730-1742`; that is not what the source does — it
-    /// stores `txt` verbatim into `hostCurrentDirectory` and the `hasPrefix` branch here
-    /// is what actually strips it.)
+    /// stores `txt` verbatim into `hostCurrentDirectory`, and the parser strips it.)
     ///
-    /// Storing in `_reportedDirectory` gives `ShellHosting.currentDirectory` a fast answer from
-    /// the stored value; the 750ms kernel poller (`SpaceViewController+DirectoryFollow.swift`)
-    /// reads it through `focusedShellHost`.
-    /// The poller remains the single writer of the file-tree root — calling `followDirectory`
-    /// here directly would create a second writer and break the one-writer invariant the
-    /// `DirectoryFollow` header documents at length.
-    ///
-    /// With OSC 7 now wired, the kernel poll is the *fallback* — it fires between OSC 7
-    /// reports and on panes whose shells do not source the integration script. Its cost
-    /// (one `tcgetpgrp` + one `proc_pidinfo` per 750ms) is unchanged; it just becomes
-    /// redundant for panes that do source the script.
+    /// The report is parsed WITH its host (`Osc7Directory.parse`) and stored in the pane's
+    /// `PaneDirectoryState` (`TerminalPane+DirectoryState.swift`): a local path as the
+    /// shell's report, a remote host as display-only status scoped to the process group in
+    /// front when it arrived. A remote report never becomes a path — the old parser
+    /// dropped the host, so an ssh session reporting `/tmp` re-rooted the local sidebar.
+    /// `ShellHosting.shellContext` decides which stored input answers for what is in front.
+    /// The 750 ms poller (`SpaceViewController+DirectoryFollow.swift`) remains the single
+    /// writer of the file-tree root — calling `followDirectory` here directly would create
+    /// a second writer and break the one-writer invariant its header documents.
     func handleOsc7Directory(_ directory: String?) {
         guard let raw = directory,
-              // Delegate URL parsing to the Foundation-only `ShellIntegration.parseOsc7Directory`
-              // so the logic is gateable headlessly by `check-shell-integration.sh`.
-              // That function handles both `file://hostname/path` and bare-path forms,
-              // percent-decodes the path component, and returns nil for empty/invalid input.
-              let path = ShellIntegration.parseOsc7Directory(raw)
+              // Foundation-only and gated headlessly by `check-shell-integration.sh`:
+              // handles `file://host/path` and bare paths, percent-decodes once, and
+              // returns nil for empty/invalid input.
+              let report = Osc7Directory.parse(raw, localHostnames: Self.localHostnames)
         else { return }
-        // Normalise the same way ShellDirectory.current does, so OSC 7 and the kernel
-        // path compare equal and the poller's early-return fires correctly.
-        let url = URL(fileURLWithPath: path)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-        _reportedDirectory = url.path
-        termDiag("OSC 7 pwd -> \(url.path)")
+        let state = directoryState
+        switch report {
+        case .local(let path):
+            // Normalise the same way ShellDirectory.workingDirectory does, so OSC 7 and
+            // the kernel path compare equal and the poller's early-return fires correctly.
+            let url = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
+            state.localReport = url.path
+            termDiag("OSC 7 pwd -> \(url.path)")
+        case .remote(let host):
+            // Scoped to the foreground group in front NOW, so a later session (another
+            // ssh, or a local shell after `exit`) can never inherit this host.
+            let group = view.process.map { tcgetpgrp($0.childfd) } ?? -1
+            state.remoteReport = RemoteOsc7Report(host: host, foregroundGroup: group)
+            termDiag("OSC 7 remote host -> \(host) (foreground group \(group))")
+        }
     }
 
-    // Internal storage — cannot add a stored property in an extension, so back it
-    // with associated object storage keyed on a second static variable.
-    // `fileprivate(set)` restricts writes to this file — only `handleOsc7Directory`
-    // (above) is the writer; reads cross file boundaries for `ShellHosting.currentDirectory`.
-    fileprivate(set) var _reportedDirectory: String? {
-        get { objc_getAssociatedObject(self, &TerminalPane.reportedDirectoryKey) as? String }
-        set { objc_setAssociatedObject(
-            self, &TerminalPane.reportedDirectoryKey,
-            newValue, .OBJC_ASSOCIATION_COPY_NONATOMIC) }
-    }
-    private static var reportedDirectoryKey: UInt8 = 0
+    /// The host names that mean "this machine", computed once per process: `gethostname`
+    /// is cheap but OSC 7 fires on every prompt, and the hostname does not change under a
+    /// running shell in any way that zsh's `$HOST` would follow either.
+    private static let localHostnames: Set<String> = Osc7Directory.currentLocalHostnames()
 }

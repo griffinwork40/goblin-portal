@@ -68,12 +68,27 @@ MainActor.assumeIsolated {
     expect("after ssh exits: the shell's local directory returns (stale remote ignored)",
            ctx.foreground == .shell && ctx.directory == dirB && ctx.followStatus == .local,
            describe(ctx))
+    // A SECOND remote session that reports nothing must not inherit the first one's host:
+    // the host is scoped to the session that sent it, not to "the last remote report".
+    pane.send(text: "GATE_SSH_SILENT=1 \(q(URL(fileURLWithPath: fakeSsh)))\n")
+    (ctx, _) = poll(pane, 5) { isRemote($0.foreground) }
+    _ = pump(0.3)
+    ctx = pane.shellContext
+    expect("a later silent ssh: .remote(host: nil), not the earlier other-host",
+           isRemote(ctx.foreground) && ctx.followStatus == .remote(host: nil)
+           && ctx.directory == nil, describe(ctx))
+    pane.send(text: "\u{03}")
+    (ctx, _) = poll(pane, 5) { $0.foreground == .shell }
 
     print("CASE 5 — a local OSC 7 report wins for the shell")
-    pane.send(text: "printf '\\033]7;file://localhost%s\\a' \(q(dirR))\n")
-    (ctx, _) = poll(pane, 5) { $0.directory == dirR }
-    expect("local OSC 7 outranks the kernel cwd under .shell", ctx.foreground == .shell
-           && ctx.directory == dirR, describe(ctx))
+    // Sent in the kernel's `/private/tmp` spelling: the stored report must be normalised
+    // to the short form the kernel path also reduces to, or the poller's unchanged-root
+    // guard sees two spellings of one directory (ShellDirectory.swift:78).
+    let privateR = "/private" + dirR.path
+    pane.send(text: "printf '\\033]7;file://localhost%s\\a' \(ShellDirectory.singleQuoted(privateR))\n")
+    (ctx, _) = poll(pane, 5) { $0.directory?.path.hasSuffix("/reported") == true }
+    expect("local OSC 7 outranks the kernel cwd under .shell, normalised", ctx.foreground == .shell
+           && ctx.directory == dirR, describe(ctx) + " want=\(dirR.path)")
 
     print("CASE 6 — tmux: the active pane's directory, asynchronously")
     pane.send(text: "export TMUX_TMPDIR=\(q(work)); \(q(URL(fileURLWithPath: tmuxBin))) "

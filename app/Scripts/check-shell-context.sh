@@ -117,9 +117,11 @@ TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
 mkdir -p "$WORK/bin" "$WORK/home" "$WORK/wire"
 cat > "$WORK/bin/ssh.c" <<'C'
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 int main(void) {
-    printf("\033]7;file://other-host/tmp\a");
+    /* GATE_SSH_SILENT models a remote shell with no integration: no OSC 7 at all. */
+    if (!getenv("GATE_SSH_SILENT")) printf("\033]7;file://other-host/tmp\a");
     fflush(stdout);
     sleep(30);
     return 0;
