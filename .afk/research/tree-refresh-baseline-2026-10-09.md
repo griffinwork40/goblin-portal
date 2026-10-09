@@ -96,3 +96,37 @@ baseline: tree=node_modules expanded=190
 [diag] tree-refresh: site=refresh dirs=190 elapsed=66.7ms
 [diag] tree-refresh: site=refresh dirs=190 elapsed=69.3ms
 ```
+
+## After #158: async refresh() and setRoot listing (re-measured 2026-10-09)
+
+Same script and trees (`TREE_REFRESH_OUT=/tmp/... ./Scripts/check-tree-refresh-baseline.sh`),
+with expanded dirs at 300 (synthetic) and 190 (node_modules). The harness now pumps
+0.4s between calls, because a newer call issued before the last one landed would drop
+it as stale; no `dropped`/`deferred` lines appeared in the run. Load averages were
+4.98 7.03 7.55.
+`refresh`/`setRoot` = **main-thread** time (issue half plus landing: reconcile, sort,
+reloadData, restore expansion and selection). `*-list` = the **off-main** listing,
+which no longer blocks main.
+
+| site | tree | p50 ms | p95 ms | max ms | N |
+|------|------|-------:|-------:|-------:|---|
+| refresh (main)      | synthetic    |  38.6 |  39.6 |  39.6 | 11 |
+| refresh-list (bg)   | synthetic    |  56.7 |  57.7 |  57.7 | 11 |
+| setRoot (main)      | synthetic    |   1.3 |   1.4 |   1.4 | 10 |
+| setRoot-list (bg)   | synthetic    |   1.1 |   1.1 |   1.1 | 10 |
+| refresh (main)      | node_modules |  31.8 |  32.9 |  32.9 | 11 |
+| refresh-list (bg)   | node_modules |  38.5 |  40.1 |  40.1 | 11 |
+| setRoot (main)      | node_modules |   0.3 |   0.7 |   0.7 | 10 |
+| setRoot-list (bg)   | node_modules |   0.6 |   0.7 |   0.7 | 10 |
+
+**Before → after, main thread, p50:** refresh 85.8 → 38.6 ms (synthetic) and
+68.9 → 31.8 ms (node_modules). setRoot 2.1 → 1.3 ms and 0.8 → 0.3 ms, and its
+listing (seconds on SMB/iCloud) is now entirely off main. The remaining ~35 ms of
+refresh is main-actor work over FileNode objects (reconcile plus localized sort of
+about 3k children across 300 dirs, `reloadData`, and re-expanding 300 rows). It is
+a follow-up candidate: sort off-main inside the listing, and restore expansion
+incrementally.
+
+Still synchronous on main by design: loadView (first frame), reveal(_:),
+walk(to:), insertPlaceholder, disclosure (shouldExpandItem), the filter's
+collectVisible, and refreshAfterMutation → refreshSynchronously().

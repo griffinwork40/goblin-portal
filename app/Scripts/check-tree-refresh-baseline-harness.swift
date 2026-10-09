@@ -105,7 +105,9 @@ func runBaseline(treePath: String, treeTag: String, expandTarget: Int) -> Int32 
     for i in 0..<10 {
         let target = (i % 2 == 0) ? altURL : treeURL
         vc.setRoot(target)
-        pump(0.05)
+        // 0.4s, not 0.05s: since #158 the listing lands asynchronously, and a newer
+        // call issued before the last one landed would drop it as stale (by design).
+        pump(0.4)
     }
     // Restore root for refresh measurement.
     vc.setRoot(treeURL); pump(0.2)
@@ -114,7 +116,9 @@ func runBaseline(treePath: String, treeTag: String, expandTarget: Int) -> Int32 
     // --- refresh (10 samples) ---
     for _ in 0..<10 {
         vc.refresh()
-        pump(0.05)
+        // 0.4s, not 0.05s: since #158 the listing lands asynchronously, and a newer
+        // call issued before the last one landed would drop it as stale (by design).
+        pump(0.4)
     }
 
     print("DONE treeTag=\(treeTag) expanded=\(expanded)")
@@ -138,9 +142,14 @@ let expandTarget = Int(CommandLine.arguments[3]) ?? 300
 // Top-level @main-less script: RunLoop.main drives the app.
 // Schedule the work as the first event so it runs after NSApplication.shared
 // initialises, then exit from within the body.
-DispatchQueue.main.async {
-    let code = runBaseline(treePath: treePath, treeTag: treeTag,
-        expandTarget: expandTarget)
-    exit(code)
+// A run-loop block, not `DispatchQueue.main.async`: since #158 the listings land via
+// `Task { @MainActor }` (the main queue), which a nested `pump` inside a main-QUEUE
+// block could never drain — see check-tree-refresh-harness.swift's entry point.
+RunLoop.main.perform {
+    MainActor.assumeIsolated {
+        let code = runBaseline(treePath: treePath, treeTag: treeTag,
+            expandTarget: expandTarget)
+        exit(code)
+    }
 }
 RunLoop.main.run()

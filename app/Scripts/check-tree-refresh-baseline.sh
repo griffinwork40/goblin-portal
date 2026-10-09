@@ -28,7 +28,9 @@ ROOT="$(pwd)"
 HARNESS="$ROOT/Scripts/check-tree-refresh-baseline-harness.swift"
 PRODUCTS="$ROOT/.build/out/Products/Debug"
 OUT_DIR="$ROOT/../.afk/research"
-OUT_MD="$OUT_DIR/tree-refresh-baseline-2026-10-09.md"
+# TREE_REFRESH_OUT redirects the report (the after-#158 re-measure writes to a temp
+# file and appends its table to the baseline, rather than overwriting it).
+OUT_MD="${TREE_REFRESH_OUT:-$OUT_DIR/tree-refresh-baseline-2026-10-09.md}"
 NODE_MODULES="/Users/griffinlong/Projects/open_source/agent-afk/node_modules"
 
 command -v swiftc >/dev/null 2>&1 || { echo "error: swiftc not found" >&2; exit 2; }
