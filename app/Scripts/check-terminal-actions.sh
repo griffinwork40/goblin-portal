@@ -2,50 +2,60 @@
 #
 # check-terminal-actions.sh — gate for the terminal-action guard (lane F).
 #
-# WHAT IS UNDER TEST. TerminalActionGuard and the four shell-directed actions:
-#   · Insert Path in Terminal   (SpaceViewController+Delegates / fileTree:didRequestPathInsert:)
-#   · cd Here                   (SpaceViewController+Delegates / fileTree:didRequestChangeDirectory:)
-#   · Send Path to Terminal     (AppDelegate+EditorActions / sendPathToTerminal:)
-#   · Run in Terminal           (AppDelegate+EditorActions / runInTerminal:)
-# Plus the TerminalInputPolicy truth table.
+# WHAT IS UNDER TEST. TerminalActionGuard, TerminalInputPolicy, and the four shipped
+# entry points that send text into the focused shell:
+#   · Insert Path       SpaceViewController.fileTree(_:didRequestPathInsert:)
+#   · cd Here           SpaceViewController.fileTree(_:didRequestChangeDirectory:)
+#   · ⌘⇧C              AppDelegate.sendPathToTerminal(_:)
+#   · ⌘⇧R              AppDelegate.runInTerminal(_:)
+# Menu validation is tested through AppDelegate.validateMenuItem(_:).
 #
-# WHY THIS GATE EXISTS. Four actions type into the focused shell without checking
-# what program is in front. With agent-afk, vim, or ssh in front, ⌘⇧R submits
-# `python3 '<path>'` as a prompt; cd Here runs cd on the remote machine. The guard
-# lives in TerminalActionGuard.swift and delegates to TerminalInputPolicy. This gate
-# drives the REAL action methods through an injectable seam (a test-double foreground
-# reader) so the logic is proven independently of lane C, which will replace the
-# wave-0 scaffold that currently returns foreground: nil.
+# WHY THIS GATE EXISTS. Without a guard, ⌘⇧R sends `python3 '<path>'` as a REPL
+# prompt when agent-afk or ssh is in front; cd Here runs cd on the remote machine.
+# TerminalActionGuard centralises the decision in one struct whose production seams
+# (foregroundReader, beepSink) are injectable for testing.
 #
-# CASES (in the harness):
-#   T1.  TerminalInputPolicy truth table — all seven inputs (3 allowed, 4 refused).
-#   T2.  TerminalActionGuard.check: allowed foreground sends bytes, no beep.
-#   T3.  TerminalActionGuard.check: refused foreground sends nothing, beeps once.
-#   T4.  TerminalActionGuard.validates: returns true when allowed, false when refused,
-#        never beeps (called by validateMenuItem on every menu open).
-#   A1.  sendPathToTerminal: .shell → bytes sent, beep=0.
-#   A2.  sendPathToTerminal: .command → no bytes, beep=1.
-#   A3.  sendPathToTerminal: nil → no bytes, beep=1.
-#   A4.  runInTerminal (.py): .shell → exact bytes ("python3 '<path>'\n"), beep=0.
-#   A5.  runInTerminal: .remote → no bytes, beep=1.
-#   A6.  Insert Path (fileTree:didRequestPathInsert:): .knownShell → bytes sent, beep=0.
-#   A7.  Insert Path: .otherMultiplexer → no bytes, beep=1.
-#   A8.  cd Here (fileTree:didRequestChangeDirectory:): .tmuxClient → bytes sent, beep=0.
-#   A9.  cd Here: .command → no bytes, beep=1.
-#   V1.  validateMenuItem: enabled for .shell, .knownShell, .tmuxClient; disabled
-#        for .command, .remote, .otherMultiplexer, nil — seven sub-checks.
+# CASES (harness):
+#   T1.  TerminalInputPolicy truth table — all seven inputs.
+#   A6.  Insert Path (fileTree:didRequestPathInsert:): .knownShell → quoted path+space sent.
+#   A7.  Insert Path: .otherMultiplexer → no bytes, one beep.
+#   A8.  cd Here (fileTree:didRequestChangeDirectory:): .tmuxClient → cd command sent.
+#   A9.  cd Here: .command → no bytes, one beep.
+#   A1.  sendPathToTerminal: .shell → exact quoted path+space sent, no beep.
+#   A2.  sendPathToTerminal: .command → no bytes, one beep.
+#   A3.  sendPathToTerminal: nil → no bytes, one beep (fail-closed).
+#   A4.  runInTerminal (.py): .shell → exact "python3 '<path>'\n".
+#   A5.  runInTerminal: .remote → no bytes, one beep.
+#   V1.  validateMenuItem: enabled for shell/knownShell/tmuxClient (3×2 items),
+#        disabled for command/remote/otherMultiplexer/nil (4×2 items).
 #   M1.  Safe-at-validation, unsafe-at-execution: validateMenuItem returns true for
-#        .shell, then foreground switches to .command at send time → no bytes, beep=1.
+#        .shell; foreground switches to .command at send time → no bytes, one beep.
 #
-# FALSIFICATION (--falsify flag):
-#   F1.  Remove guard from cd Here only — A9 must exit 1.
-#   F2.  Skip execution-time re-check (validate-only) — M1 must exit 1.
-#   F3.  Invert one enum case (.shell → refused, .command → allowed) — T1 must exit 1.
+# SEAMS. Each case replaces TerminalActionGuard.production.foregroundReader and
+# .beepSink before calling the SHIPPED entry point. The shipped guard line in each
+# method is what the falsification mutants delete; the harness must then catch that.
+#
+# FALSIFICATION (--falsify flag). Four mutants, each applied to a COPY of the
+# shipped source in a temp directory; the real source is never touched:
+#   F1.  Delete guard line in fileTree(_:didRequestChangeDirectory:) only.
+#         → A9 must exit 1 (cd Here bypasses the guard for .command).
+#   F2.  Delete guard line in AppDelegate.sendPathToTerminal only.
+#         → A2 must exit 1 (sendPathToTerminal bypasses the guard for .command).
+#   F3.  Delete guard in AppDelegate.validateMenuItem for sendPathToTerminal/runInTerminal.
+#         → V1 must exit 1 (validateMenuItem always returns true).
+#   F4.  Invert one case of TerminalInputPolicy in ShellContext.swift
+#        (.shell → refused, .command → allowed).
+#         → T1 must exit 1 (truth table is wrong).
+#
+# COMPILE CONTRACT. Each mutant is built by copying app/Sources to a temp dir,
+# applying sed, then running `swift build` against that copy with the harness linked
+# in. A compile failure of a mutant is environmental (exit 2), not "caught". The gate
+# runs a clean build first so incremental compilation works; mutant builds are cold.
 #
 # EXIT CONTRACT:
 #   0 = all cases passed.
-#   1 = real assertion failure (wrong bytes, wrong beep count, wrong enabled state).
-#   2 = environmental (swiftc missing, swift build failed, harness compile error).
+#   1 = real assertion failure.
+#   2 = environmental (swiftc missing, build failed, harness compile error).
 #
 set -uo pipefail
 
@@ -58,12 +68,13 @@ for arg in "$@"; do [[ "$arg" == "--falsify" ]] && FALSIFY=1; done
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 PRODUCTS="$ROOT/.build/out/Products/Debug"
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
 
 command -v swiftc >/dev/null 2>&1 || {
   echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }
 
 BFLAGS=(); swift build --help 2>&1 | grep -q -- '--build-system' && BFLAGS=(--build-system swiftbuild)
-say "==> building GoblinPortal objects (harness links them)"
+say "==> building GoblinPortal (harness links against its objects)"
 if ! swift build "${BFLAGS[@]}" >/dev/null 2>&1; then
   echo "error: swift build failed — fix the build before running this gate." >&2
   swift build "${BFLAGS[@]}" 2>&1 | grep -E 'error' | head -10 >&2
@@ -77,176 +88,241 @@ TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
 [[ -e "$PRODUCTS/SwiftTerm.o" ]] || {
   echo "error: $PRODUCTS/SwiftTerm.o missing after build." >&2; exit 2; }
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-
 HARNESS_SRC="$ROOT/Scripts/check-terminal-actions-harness.swift"
 [[ -f "$HARNESS_SRC" ]] || {
   echo "error: check-terminal-actions-harness.swift not found." >&2; exit 2; }
 
-# In normal mode: copy the harness verbatim.
-# In --falsify mode: the harness itself is parameterised via env vars; we set them.
-cp "$HARNESS_SRC" "$TMP/main.swift"
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-OBJS=$(ls "$TOBJ"/*.o | grep -v '/main\.o$' | tr '\n' ' ')
-if ! swiftc -o "$TMP/terminal-actions" "$TMP/main.swift" \
-    -I "$TOBJ" -I "$PRODUCTS" -I "$PRODUCTS/include" -L "$PRODUCTS" \
-    $OBJS "$PRODUCTS/SwiftTerm.o" \
-    -framework AppKit 2>"$TMP/compile.log"; then
-  echo "error: harness would not compile." >&2
-  grep -E 'error' "$TMP/compile.log" | head -10 | sed 's/^/    /' >&2
-  exit 2
-fi
-
-HARNESS_BIN="$TMP/terminal-actions"
-
+# ── Normal run ───────────────────────────────────────────────────────────────────────
 if [[ $FALSIFY -eq 0 ]]; then
-  # Normal run.
-  out="$("$HARNESS_BIN" 2>&1)"; status=$?
+  cp "$HARNESS_SRC" "$TMP/main.swift"
+  OBJS=$(ls "$TOBJ"/*.o | grep -v '/main\.o$' | tr '\n' ' ')
+  if ! swiftc -o "$TMP/terminal-actions" "$TMP/main.swift" \
+      -I "$TOBJ" -I "$PRODUCTS" -I "$PRODUCTS/include" -L "$PRODUCTS" \
+      $OBJS "$PRODUCTS/SwiftTerm.o" \
+      -framework AppKit 2>"$TMP/compile.log"; then
+    echo "error: harness would not compile." >&2
+    grep -E 'error' "$TMP/compile.log" | head -10 | sed 's/^/    /' >&2
+    exit 2
+  fi
+  out="$("$TMP/terminal-actions" 2>&1)"; status=$?
   say "$out"
   if [[ $status -eq 0 ]]; then exit 0; fi
   if [[ $status -eq 2 ]] || ! grep -qE 'ok  |FAIL ' <<<"$out"; then
-    echo "error: harness exited with status $status without completing cases (environmental)." >&2
+    echo "error: harness exited $status without completing cases (environmental)." >&2
     exit 2
   fi
   exit 1
 fi
 
-# ── Falsification mode ──────────────────────────────────────────────────────
-# Falsification drives through the harness's injectable seam rather than mutating
-# compiled objects (which would require recompiling the full GoblinPortal module).
-# Each mutant writes a variant harness that EMBEDS the wrong behaviour in the test
-# assertions themselves — asserting what a broken guard would produce — then links
-# it against the REAL (unmodified) objects. A failing assertion in the mutant harness
-# means the real guard PREVENTS the wrong outcome, confirming it is non-trivially present.
+# ── Falsification mode ───────────────────────────────────────────────────────────────
+# Each mutant:
+#   1. Copies app/Sources to a temp dir.
+#   2. Applies a sed mutation to the relevant source file in the copy.
+#   3. Runs `swift build` against the copy to produce fresh .o files.
+#   4. Compiles the harness against those .o files.
+#   5. Runs the harness and requires exit 1.
 #
-# F1: guard removed from cd Here only.
-#     Mutant harness asserts A9 succeeds (no beep, bytes sent) — should FAIL with real guard.
-# F2: execution-time re-check skipped; validation-only.
-#     Mutant harness asserts M1 sends bytes despite foreground switch — should FAIL.
-# F3: .shell refused, .command allowed (inverted policy).
-#     Mutant harness asserts T1 returns the inverted values — should FAIL.
-say "==> Falsification run: three mutant harnesses must each exit 1"
-all_mutants_ok=1
+# A compile failure (exit 2) from swift build or swiftc is environmental — the mutant
+# itself is broken, not the guard. A compile failure is NOT "caught"; only exit 1 counts.
+#
+say "==> Falsification: four mutants must each produce exit 1"
+all_ok=1
 
-run_harness_mutant() {
-  local label="$1"; local harness_src="$2"
-  local mut_dir="$TMP/mut-$label"; mkdir -p "$mut_dir"
-  local mut_bin="$mut_dir/terminal-actions"
-  local OBJS_L; OBJS_L=$(ls "$TOBJ"/*.o | grep -v '/main\.o$' | tr '\n' ' ')
-  if ! swiftc -o "$mut_bin" "$harness_src" \
-      -I "$TOBJ" -I "$PRODUCTS" -I "$PRODUCTS/include" -L "$PRODUCTS" \
-      $OBJS_L "$PRODUCTS/SwiftTerm.o" \
-      -framework AppKit 2>"$mut_dir/compile.log"; then
-    say "  MUTANT $label: compile error (environmental — mutant harness broken)"
-    grep -E 'error' "$mut_dir/compile.log" | head -5 | sed 's/^/    /' >&2
-    all_mutants_ok=0; return
+VENDOR_PATH="$REPO_ROOT/vendor/SwiftTerm"
+[[ -d "$VENDOR_PATH" ]] || { echo "error: vendor/SwiftTerm not found at $VENDOR_PATH." >&2; exit 2; }
+
+run_mutant() {
+  local label="$1"       # short name for output
+  local src_file="$2"    # path relative to Sources/GoblinPortal/
+  local mutant_script="$3"  # path to a python3 script that mutates $1 (the target file)
+  local must_fail="$4"   # assertion label for diagnosability
+
+  local mdir="$TMP/mut-$label"
+  mkdir -p "$mdir"
+
+  # Copy sources; apply mutation via a Python script (handles multi-line blocks correctly).
+  cp -a "$ROOT/Sources" "$mdir/"
+  cp -a "$ROOT/Resources" "$mdir/" 2>/dev/null || true
+  local target_file="$mdir/Sources/GoblinPortal/$src_file"
+  if ! python3 "$mutant_script" "$target_file" 2>&1; then
+    say "  MUTANT $label: Python mutation failed or produced no change"
+    all_ok=0; return
   fi
-  local mout; mout="$("$mut_bin" 2>&1)"; local ms=$?
+
+  # Package.swift with absolute vendor path (required — relative ../vendor breaks in /tmp).
+  cat > "$mdir/Package.swift" << PKGEOF
+// swift-tools-version: 6.0
+import PackageDescription
+let package = Package(
+    name: "GoblinPortal",
+    platforms: [.macOS(.v14)],
+    dependencies: [ .package(path: "$VENDOR_PATH") ],
+    targets: [
+        .executableTarget(name: "GoblinPortal", dependencies: ["SwiftTerm"],
+            path: "Sources/GoblinPortal",
+            resources: [
+                .copy("../../Resources/shell-integration.zsh"),
+                .copy("../../Resources/install-update.sh"),
+            ]),
+        .executableTarget(name: "GoblinPortalCLI", dependencies: [], path: "Sources/GoblinPortalCLI"),
+    ]
+)
+PKGEOF
+
+  # Build the mutated package.
+  if ! swift build "${BFLAGS[@]}" --package-path "$mdir" >/dev/null 2>"$mdir/build.log"; then
+    say "  MUTANT $label: swift build failed — mutant is a compile error (environmental)"
+    grep -E 'error' "$mdir/build.log" | head -5 | sed 's/^/    /' >&2
+    # A compile failure is environmental — do NOT count as "detected".
+    all_ok=0; return
+  fi
+
+  # Locate the objects from the mutant build.
+  local mobj
+  mobj="$(find "$mdir/.build/out/Intermediates.noindex" -type d \
+    -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  if [[ -z "$mobj" ]]; then
+    say "  MUTANT $label: mutant objects not found (environmental)"; all_ok=0; return
+  fi
+
+  local mproducts="$mdir/.build/out/Products/Debug"
+  local swiftterm_obj="$mproducts/SwiftTerm.o"
+  [[ -f "$swiftterm_obj" ]] || swiftterm_obj="$PRODUCTS/SwiftTerm.o"
+
+  # Compile the harness against the mutant objects.
+  local mbin="$mdir/terminal-actions"
+  local mobjs; mobjs=$(ls "$mobj"/*.o | grep -v '/main\.o$' | tr '\n' ' ')
+  if ! swiftc -o "$mbin" "$HARNESS_SRC" \
+      -I "$mobj" -I "$mproducts" -I "$mproducts/include" -L "$mproducts" \
+      $mobjs "$swiftterm_obj" \
+      -framework AppKit 2>"$mdir/compile.log"; then
+    say "  MUTANT $label: harness would not compile against mutant (environmental)"
+    grep -E 'error' "$mdir/compile.log" | head -5 | sed 's/^/    /' >&2
+    all_ok=0; return
+  fi
+
+  local mout ms
+  mout="$("$mbin" 2>&1)"; ms=$?
   if [[ $ms -eq 1 ]]; then
-    say "  MUTANT $label: exit $ms — correctly DETECTED (ok)"
+    say "  MUTANT $label: exit 1 — guard breach detected (ok)"
+    say "    first FAIL line: $(grep 'FAIL' <<<"$mout" | head -1)"
+  elif [[ $ms -eq 2 ]]; then
+    say "  MUTANT $label: exit 2 (environmental inside harness — not caught)"
+    all_ok=0
   else
-    say "  MUTANT $label: exit $ms — NOT detected (FAIL)"
-    say "$mout"; all_mutants_ok=0
+    say "  MUTANT $label: exit $ms — breach NOT detected (FAIL)"
+    say "$mout"
+    all_ok=0
   fi
 }
 
-# ── F1: no cd-Here guard. Mutant asserts A9 would send bytes (it won't with real guard).
-cat > "$TMP/f1-harness.swift" <<'SWIFT_EOF'
-import AppKit
-@testable import GoblinPortal
-let app = NSApplication.shared; app.setActivationPolicy(.accessory)
-var bad = 0
-func ok(_ m: String) { print("  ok  \(m)") }
-func fail(_ m: String) { print("  FAIL \(m)"); bad += 1 }
-final class BeepCounter { var count = 0 }
-@MainActor final class FakeShellHost: NSObject, SpaceDocument, ShellHosting {
-    var documentTitle = "F"; var documentSymbolName = "terminal"; var documentView = NSView()
-    var documentDelegate: SpaceDocumentDelegate?; var documentReporting: SpaceDocumentReporting?
-    var currentFontSize: CGFloat = 14
-    func apply(config: AppConfig) {}; func setFontSize(_ s: CGFloat, persist: Bool) {}
-    func resetFontSize() {}; func documentWillClose() {}; func documentDidBecomeActive() {}
-    var capturedText = ""; var currentDirectory: URL? { nil }
-    var shellContext: ShellContext { ShellContext(foreground: foregroundKind, directory: nil, followStatus: .unavailable) }
-    func refreshDirectoryState() {}; func send(text: String) { capturedText += text }
-    var foregroundKind: ForegroundKind? = nil
-}
-MainActor.assumeIsolated {
-    // F1 mutant: assert that cd Here with .command sends bytes (wrong — real guard stops it).
-    let h = FakeShellHost(); h.foregroundKind = .command(name: "agent-afk"); let c = BeepCounter()
-    var g = TerminalActionGuard(); g.foregroundReader = { _ in h.foregroundKind }; g.beepSink = { c.count += 1 }
-    // WITHOUT the guard the action sends bytes; WITH the real guard it does not.
-    // This mutant asserts the WRONG outcome — so it must fail (exit 1) against real objects.
-    if g.check(host: h, action: "cd Here") { h.send(text: "cd /tmp\n") }
-    // Mutant assertion: bytes WERE sent — should fail because real guard blocks .command.
-    if !h.capturedText.isEmpty { ok("F1-MUTANT: bytes sent (wrong outcome — guard absent)") }
-    else { fail("F1-MUTANT: no bytes sent — real guard is present, as expected") }
-    exit(bad == 0 ? 0 : 1)
-}
-SWIFT_EOF
-run_harness_mutant "F1-no-cd-guard" "$TMP/f1-harness.swift"
+# Write the four Python mutation scripts to $TMP so they can be invoked cleanly
+# without shell-quoting issues. Each script receives the target file path as argv[1],
+# applies the mutation in place, and exits 1 (with a message) if nothing changed.
 
-# ── F2: no exec-time recheck. Mutant asserts M1 sends bytes after foreground switch.
-# The mutant harness calls check() (which IS the exec-time guard) but asserts that
-# bytes WERE sent — with the real guard in place, check() refuses .command, so no
-# bytes are sent, the assertion fails, and the harness exits 1 (correctly detected).
-cat > "$TMP/f2-harness.swift" <<'SWIFT_EOF'
-import AppKit
-@testable import GoblinPortal
-let app = NSApplication.shared; app.setActivationPolicy(.accessory)
-var bad = 0
-func ok(_ m: String) { print("  ok  \(m)") }
-func fail(_ m: String) { print("  FAIL \(m)"); bad += 1 }
-final class BeepCounter { var count = 0 }
-@MainActor final class FakeShellHost: NSObject, SpaceDocument, ShellHosting {
-    var documentTitle = "F"; var documentSymbolName = "terminal"; var documentView = NSView()
-    var documentDelegate: SpaceDocumentDelegate?; var documentReporting: SpaceDocumentReporting?
-    var currentFontSize: CGFloat = 14
-    func apply(config: AppConfig) {}; func setFontSize(_ s: CGFloat, persist: Bool) {}
-    func resetFontSize() {}; func documentWillClose() {}; func documentDidBecomeActive() {}
-    var capturedText = ""; var currentDirectory: URL? { nil }
-    var shellContext: ShellContext { ShellContext(foreground: foregroundKind, directory: nil, followStatus: .unavailable) }
-    func refreshDirectoryState() {}; func send(text: String) { capturedText += text }
-    var foregroundKind: ForegroundKind? = nil
-}
-MainActor.assumeIsolated {
-    let h = FakeShellHost(); let c = BeepCounter()
-    var g = TerminalActionGuard(); g.foregroundReader = { _ in h.foregroundKind }; g.beepSink = { c.count += 1 }
-    h.foregroundKind = .shell; _ = g.validates(host: h)  // validates sees .shell
-    h.foregroundKind = .command(name: "python3")          // foreground changed
-    // The exec-time check IS called (simulating the real action body).
-    // Mutant assertion: bytes WERE sent — fails with the real guard (which blocks .command).
-    if g.check(host: h, action: "Send Path to Terminal") { h.send(text: "python3 '/tmp/t.py'\n") }
-    if !h.capturedText.isEmpty { ok("F2-MUTANT: bytes sent after switch (guard absent — wrong)") }
-    else { fail("F2-MUTANT: no bytes — exec-time guard blocked .command (guard IS present)") }
-    exit(bad == 0 ? 0 : 1)
-}
-SWIFT_EOF
-run_harness_mutant "F2-no-exec-recheck" "$TMP/f2-harness.swift"
+cat > "$TMP/mut_f1.py" << 'PYEOF'
+import re, sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+# Delete the 3-line guard block for "cd Here":
+#   guard TerminalActionGuard.production.check(host: host, action: "cd Here") else {
+#       return
+#   }
+result = re.sub(
+    r'        guard TerminalActionGuard\.production\.check\(host: host, action: "cd Here"\) else \{\n            return\n        \}\n',
+    '', content)
+if result == content:
+    print('F1: pattern not found in source', file=sys.stderr); sys.exit(1)
+with open(path, 'w') as f:
+    f.write(result)
+PYEOF
 
-# ── F3: inverted policy. Mutant asserts .shell is refused and .command allowed.
-cat > "$TMP/f3-harness.swift" <<'SWIFT_EOF'
-import AppKit
-@testable import GoblinPortal
-let app = NSApplication.shared; app.setActivationPolicy(.accessory)
-var bad = 0
-func ok(_ m: String) { print("  ok  \(m)") }
-func fail(_ m: String) { print("  FAIL \(m)"); bad += 1 }
-MainActor.assumeIsolated {
-    // F3 mutant: assert the INVERTED policy — .shell refused, .command allowed.
-    // These assertions are backwards; with the real policy they will all fail (exit 1).
-    if !TerminalInputPolicy.allowsTyping(into: .shell) { ok("F3-MUTANT: .shell refused (inverted)") }
-    else { fail("F3-MUTANT: .shell was allowed — real policy is correct (not inverted)") }
-    if TerminalInputPolicy.allowsTyping(into: .command(name: "vim")) { ok("F3-MUTANT: .command allowed (inverted)") }
-    else { fail("F3-MUTANT: .command was refused — real policy is correct (not inverted)") }
-    exit(bad == 0 ? 0 : 1)
-}
-SWIFT_EOF
-run_harness_mutant "F3-inverted-policy" "$TMP/f3-harness.swift"
+cat > "$TMP/mut_f2.py" << 'PYEOF'
+import re, sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+# Delete the 2-line guard block for sendPathToTerminal:
+#   guard TerminalActionGuard.production.check(host: shell, action: "Send Path to Terminal")
+#   else { return }
+result = re.sub(
+    r'        guard TerminalActionGuard\.production\.check\(host: shell, action: "Send Path to Terminal"\)\n        else \{ return \}\n',
+    '', content)
+if result == content:
+    print('F2: pattern not found in source', file=sys.stderr); sys.exit(1)
+with open(path, 'w') as f:
+    f.write(result)
+PYEOF
 
-if [[ $all_mutants_ok -eq 1 ]]; then
-  say "==> all falsification mutants detected — guard is non-trivially present"
+cat > "$TMP/mut_f3.py" << 'PYEOF'
+import re, sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+# Delete the validates return in validateMenuItem so it falls through to `return true`.
+result = re.sub(
+    r'            return TerminalActionGuard\.production\.validates\(host: shell\)\n',
+    '', content)
+if result == content:
+    print('F3: pattern not found in source', file=sys.stderr); sys.exit(1)
+with open(path, 'w') as f:
+    f.write(result)
+PYEOF
+
+cat > "$TMP/mut_f4.py" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+# Invert the allow case: .shell/.knownShell/.tmuxClient now return false.
+result = content.replace(
+    'case .shell, .knownShell, .tmuxClient: return true',
+    'case .shell, .knownShell, .tmuxClient: return false')
+if result == content:
+    print('F4: pattern not found in source', file=sys.stderr); sys.exit(1)
+with open(path, 'w') as f:
+    f.write(result)
+PYEOF
+
+# F1: delete the guard block in fileTree(_:didRequestChangeDirectory:) only.
+#     After deletion the cd command fires unconditionally; A9 (.command → no bytes) must exit 1.
+say "  --- F1: no guard in cd Here ---"
+run_mutant "F1-no-cd-guard" \
+  "SpaceViewController+Delegates.swift" \
+  "$TMP/mut_f1.py" \
+  "A9"
+
+# F2: delete the guard block in sendPathToTerminal only.
+#     After deletion send fires unconditionally; A2 (.command → no bytes) must exit 1.
+say "  --- F2: no guard in sendPathToTerminal ---"
+run_mutant "F2-no-sendpath-guard" \
+  "AppDelegate+EditorActions.swift" \
+  "$TMP/mut_f2.py" \
+  "A2"
+
+# F3: delete the validates return in validateMenuItem.
+#     validateMenuItem always returns true; V1 (disabled for .command) must exit 1.
+say "  --- F3: no guard in validateMenuItem ---"
+run_mutant "F3-no-validate-guard" \
+  "AppDelegate+Validation.swift" \
+  "$TMP/mut_f3.py" \
+  "V1"
+
+# F4: invert TerminalInputPolicy: .shell/.knownShell/.tmuxClient → false.
+#     T1 truth table is wrong; must exit 1.
+say "  --- F4: inverted TerminalInputPolicy ---"
+run_mutant "F4-inverted-policy" \
+  "ShellContext.swift" \
+  "$TMP/mut_f4.py" \
+  "T1"
+
+if [[ $all_ok -eq 1 ]]; then
+  say "==> all four falsification mutants detected — guard is non-trivially present"
   exit 0
 else
-  echo "error: one or more mutants were NOT detected — the guard can be bypassed." >&2
+  echo "error: one or more mutants were NOT detected — guard may be bypassed." >&2
   exit 1
 fi
