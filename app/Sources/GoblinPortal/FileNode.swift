@@ -65,31 +65,18 @@ final class FileNode {
         let existing = Dictionary(
             (children ?? []).map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
 
-        let contents =
-            (try? FileManager.default.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey],
-                options: [])) ?? []
-
-        // Re-root each child URL under `url` rather than using the URL returned by
-        // contentsOfDirectory directly. On macOS, FileManager resolves symlinks in
-        // the path it returns (e.g. /var/folders → /private/var/folders) even when
-        // `url` itself was not resolved. Using appendingPathComponent preserves the
-        // caller's path prefix, so walk(to:) never sees a /private discrepancy.
-        let normalized = contents.map { child -> (URL, URL) in
-            (url.appendingPathComponent(child.lastPathComponent), child)
-        }
+        // Delegate the FileManager call and URL re-rooting to the seam so the
+        // test harness can replace `DirectoryListing.lister` with a controlled
+        // stub (DirectoryListing.swift).  Production behaviour is identical:
+        // same keys, same re-rooting, same isVisible filter.
+        let entries = DirectoryListing.lister(url)
 
         children =
-            normalized
-            .filter { Self.isVisible($0.0) }
-            .map { (normURL, child) -> FileNode in
-                let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isHiddenKey])
-                let isDir = values?.isDirectory ?? false
-                // Falls back to the dot convention rather than to "not hidden": a
-                // failed resource read should degrade to the mostly-right answer,
-                // not silently promote every dotfile to the top of the tree.
-                let isHidden = values?.isHidden ?? child.lastPathComponent.hasPrefix(".")
+            entries
+            .map { entry -> FileNode in
+                let normURL = entry.url
+                let isDir = entry.isDirectory
+                let isHidden = entry.isHidden
                 // Reuse check: look up by the normalized URL so identity survives
                 // a refresh even when FileManager changes its symlink resolution.
                 // Both facts gate reuse. A reused node is returned as-is, so a flag
@@ -127,8 +114,7 @@ final class FileNode {
     /// `.github`, `.env` or this project's own `.afk/` in a terminal-first IDE
     /// would be actively obstructive. Only the two entries nobody ever wants to
     /// browse are dropped. A config field can generalise this later.
-    private static func isVisible(_ url: URL) -> Bool {
-        let name = url.lastPathComponent
-        return name != ".git" && name != ".DS_Store"
-    }
+    // isVisible moved to DirectoryListing.isVisible (DirectoryListing.swift:88-91)
+    // and still called from DirectoryListing.list(_:). The method is intentionally
+    // removed from FileNode to keep the listing logic in one place.
 }
