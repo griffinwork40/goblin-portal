@@ -261,54 +261,53 @@ if let sleepPid = spawnForeground(slave: sleepSlave) {
 } else { print("  – SKIP sleep foreground (helper spawn failed)") }
 close(pSleep)
 
-// --- binary renamed "zsh" in a temp dir: two sub-cases ---
+// --- a "zsh" that is really /bin/sleep: the name a process ARRIVES under is not trusted ---
 //
-// DOCUMENTED LIMIT: classification is by basename of the kernel executable path, not
-// by code signature. The kind() truth table already asserts this: kind("zsh",…) →
-// .knownShell regardless of what binary is actually running. That is the limit.
+// CORRECTED 2026-10-09 (coordinator). This case originally copied /bin/sleep to a temp
+// dir and asserted current() == nil, attributing the nil to a "macOS restriction on
+// proc_pidpath for temp-dir binaries". That was wrong: proc_pidpath works for any
+// same-uid process (measured: Homebrew tmux resolves to
+// /opt/homebrew/Cellar/tmux/3.6a/bin/tmux). The nil came from the copied platform
+// binary being KILLED by code signing (SIGKILL, "Killed: 9") before it was ever
+// inspected, so the case passed for a reason unrelated to the code under test.
 //
-// SECONDARY LIMIT: proc_pidpath returns ESRCH (errno 3) for processes whose binary
-// lives in user temp dirs (/tmp, /var/folders, /private/tmp). This is a macOS
-// restriction — verified by probe during gate development: /bin/sleep works,
-// /tmp/sleep and /var/folders/.../sleep return 0. This means current() returns nil
-// for a renamed binary in a temp dir, not .knownShell — the system is MORE
-// restrictive than basename identity suggests, not less.
-//
-// The two cases below verify both behaviors:
-// (a) kind("zsh") via truth table already covers the pure classification.
-// (b) A renamed /bin/sleep in a temp dir → current() returns nil (proc_pidpath
-//     restricted by macOS), which is the correct fail-closed behavior.
+// What it now proves: a symlink named `zsh` pointing at /bin/sleep is classified by
+// the kernel's RESOLVED executable (`sleep`), not by the name it was launched under.
+// That is the property the typing guard relies on: neither argv0 nor a symlink name
+// can make an arbitrary program pass as a shell. The remaining, documented limit is a
+// real binary FILE named `zsh`: kind() trusts the basename, not a code signature
+// (asserted directly below via the truth table).
 let (pRename, renameSlave) = openPtyPair()
-let fakeZshPath = workDir + "/fake_zsh"
-let copied = (try? FileManager.default.copyItem(atPath: "/bin/sleep",
-                                                 toPath: fakeZshPath)) != nil
-if copied {
-    try? FileManager.default.setAttributes([.posixPermissions: 0o755],
-                                            ofItemAtPath: fakeZshPath)
-    if let fakePid = spawnForeground(slave: renameSlave, program: fakeZshPath) {
+let fakeZshPath = workDir + "/zsh"
+if (try? FileManager.default.createSymbolicLink(
+        atPath: fakeZshPath, withDestinationPath: "/bin/sleep")) != nil {
+    // "10" explicitly: the helper only defaults sleep's argument for the literal path
+    // /bin/sleep, and an argument-less sleep exits at once, which would read as nil.
+    if let fakePid = spawnForeground(slave: renameSlave, program: fakeZshPath, extraArgs: ["10"]) {
         usleep(200_000)
-        // proc_pidpath returns 0 for temp-dir binaries (macOS restriction).
-        // current() → nil, not .knownShell. Fail-closed, tested explicitly.
         let fakeResult = ForegroundProcess.current(childfd: pRename,
                                                     integratedShellPid: fakePid + 200)
-        check("binary in temp dir → nil (proc_pidpath macOS restriction, fail-closed)",
-              fakeResult == nil, "got=\(String(describing:fakeResult))")
-        // Also confirm kind("zsh") → .knownShell directly (the classification layer).
-        // This is the 'basename limit' case: IF the kernel gives us "zsh", kind() trusts it.
+        if case .command(let n)? = fakeResult {
+            check("symlink named zsh -> /bin/sleep classifies by resolved path (.command(sleep))",
+                  n == "sleep", "got=\(n)")
+        } else {
+            check("symlink named zsh -> /bin/sleep classifies by resolved path (.command(sleep))",
+                  false, "got=\(String(describing: fakeResult))")
+        }
         let kindResult = ForegroundProcess.kind(executableName: "zsh",
                                                 pid: fakePid, integratedShellPid: fakePid + 200,
                                                 clientTTY: renameSlave)
         if case .knownShell(_, let n) = kindResult {
-            check("kind('zsh') → .knownShell (basename limit: if kernel names it, we trust it)",
+            check("kind('zsh') → .knownShell (basename limit: a real FILE named zsh is trusted)",
                   n == "zsh", "name=\(n)")
         } else {
             check("kind('zsh') → .knownShell (basename limit)", false,
                   "\(String(describing:kindResult))")
         }
         kill(fakePid, SIGKILL); var st: Int32 = 0; waitpid(fakePid, &st, 0)
-    } else { print("  – SKIP renamed-zsh cases (helper spawn failed)") }
+    } else { print("  – SKIP symlinked-zsh cases (helper spawn failed)") }
     try? FileManager.default.removeItem(atPath: fakeZshPath)
-} else { print("  – SKIP renamed-zsh cases (copy of /bin/sleep failed)") }
+} else { print("  – SKIP symlinked-zsh cases (symlink creation failed)") }
 close(pRename)
 
 // --- exited pid → nil ---
