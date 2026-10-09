@@ -25,7 +25,7 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-10-05 the tree differs from upstream in TWELVE places:
+# As of 2026-10-05 the tree differs from upstream in TEN places (twelve patches):
 # Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005),
 # PtmuxDcsHandler.swift (0005, new file), MacTerminalView.swift (0006/0008/0009/0010),
 # AppleTerminalView.swift (0007/0010), TerminalViewSearch.swift (0009),
