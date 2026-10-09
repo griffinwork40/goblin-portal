@@ -72,4 +72,26 @@ extension SpaceViewController {
     }
 
     var hasEditedDocuments: Bool { allClosingDocuments.contains { $0.documentIsEdited } }
+
+    /// F1: when a close is vetoed by a busy split peer, but the primary shell is
+    /// already dead (its exit triggered the close), put it into the kept/exited state
+    /// so keystrokes are swallowed and Return can restart it.
+    ///
+    /// Without this, the pane has a dead pty but `isShellExited` is false, so
+    /// `LocalProcess.send`'s `guard running` (LocalProcess.swift:217) drops every
+    /// keystroke silently and the status line never appears. The user cannot tell the
+    /// pane is dead or restart it. `waitStatus: nil` is safe — the kept-state status dot
+    /// shows "failed" (non-nil clean exit was the only path to this branch) and the
+    /// restart path does not re-use the status word.
+    func recoverVetoedDeadShell(_ document: SpaceDocument) {
+        guard let pane = document as? TerminalPane,
+              !pane.isShellExited,
+              let process = pane.view.process,
+              !process.running else { return }
+        // Prefer the last OSC 7 cwd over the kernel poll: waitpid has already reaped
+        // the PID (LocalProcess.swift:368), so ShellDirectory would see a stale or
+        // reused PID. `currentDirectory` uses `_reportedDirectory` first
+        // (ShellHosting.swift:129), which was populated while the shell was live.
+        pane.enterKeptState(waitStatus: nil, directory: pane.currentDirectory?.path)
+    }
 }

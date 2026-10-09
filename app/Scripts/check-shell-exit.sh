@@ -222,5 +222,24 @@ else
 fi
 
 say ""
+say "Wiring checks (comment-stripped grep, matching constructs not prose)..."
+
+# Strip line comments before matching so doc comments citing the same symbol don't
+# satisfy the wiring assertion. Each grep matches the CALL SITE, not a mention.
+wire() {
+    local file="Sources/GoblinPortal/$1" pattern="$2"
+    [[ -f "$file" ]] || { echo "ENV: $file not found" >&2; exit 2; }
+    sed 's|//.*||' "$file" | grep -Eq "$pattern" \
+        || { echo "FAIL wiring $1: $pattern"; exit 1; }
+}
+# processTerminated calls shellDidExit (TerminalPane.swift is the delegate receiver)
+wire TerminalPane.swift 'shellDidExit\('
+# Config+Load.swift assigns closeOnShellExit via CloseOnShellExit.named (Config+Load.swift:134)
+wire Config+Load.swift 'CloseOnShellExit\.named\('
+# The mode-reset sequence is defined and non-empty — grep for the opening escape literal
+wire ShellExitPolicy.swift '1049l'
+say "  ✓ wiring: processTerminated → shellDidExit, Config+Load closeOnShellExit, modeResetSequence"
+
+say ""
 say "check-shell-exit: all cases passed."
 exit 0

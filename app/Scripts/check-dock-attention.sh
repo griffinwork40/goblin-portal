@@ -27,6 +27,17 @@ for input in ["", "  \n", String(repeating: "x", count: cap + 1), String(repeati
 check("9 invalid UTF8", NotificationEscape.parseOsc9([255][...]) == .ignored)
 check("9 exact cap", NotificationEscape.parseOsc9(bytes(String(repeating: "x", count: cap))) != .ignored)
 check("9 not progress", NotificationEscape.parseOsc9(bytes("4")) == .notification(title: "4", body: ""))
+// OSC 9 numeric subcommand rows (F4): ConEmu-style payloads are ignored.
+// `4;` is a progress payload (handled above), not a numeric subcommand.
+check("9 subcommand 9;9;<cwd>", NotificationEscape.parseOsc9(bytes("9;9;/some/path")) == .ignored)
+check("9 subcommand 9;1;",      NotificationEscape.parseOsc9(bytes("9;1;")) == .ignored)
+check("9 subcommand 9;2;",      NotificationEscape.parseOsc9(bytes("9;2;")) == .ignored)
+check("9 subcommand plain 1;",  NotificationEscape.parseOsc9(bytes("1;")) == .ignored)
+// A plain message starting with digits but no immediate semicolon MUST notify.
+// "42 tests passed" starts with digits but the next byte is a space, not ";", so
+// isNumericSubcommand returns false → it reaches the normal notification path.
+check("9 digits-no-semicolon notify", NotificationEscape.parseOsc9(bytes("42 tests passed"))
+    == .notification(title: "42 tests passed", body: ""))
 check("777 body separators", NotificationEscape.parseOsc777(bytes("notify;title;a;b;")) == .notification(title: "title", body: "a;b;"))
 check("777 empty body", NotificationEscape.parseOsc777(bytes("notify;title;")) == .notification(title: "title", body: ""))
 for input in ["", "notify", "notify;title", "notify;;body", "notify; ;body", "alert;title;body", "notify;t;" + String(repeating: "x", count: cap)] {
@@ -54,11 +65,15 @@ SWIFT
 compile() { swiftc "$1" "$TMP/main.swift" -o "$TMP/gate" || exit 2; }
 compile "$SRC/DockAttention.swift"
 "$TMP/gate" || exit $?
-for mutation in progress active; do
+for mutation in progress active subcommand; do
     if [ "$mutation" = progress ]; then
         sed 's/return .progressPayload/return .ignored/' "$SRC/DockAttention.swift" > "$TMP/mutant.swift"
-    else
+    elif [ "$mutation" = active ]; then
         sed 's/bounce: !isAppActive/bounce: isAppActive/' "$SRC/DockAttention.swift" > "$TMP/mutant.swift"
+    else
+        # Remove the numeric-subcommand exclusion so ConEmu payloads notify — the
+        # "9;9;<cwd>" row must then fail. This verifies the gate is not blind to the filter.
+        sed 's/if isNumericSubcommand(data) { return .ignored }//' "$SRC/DockAttention.swift" > "$TMP/mutant.swift"
     fi
     compile "$TMP/mutant.swift"
     "$TMP/gate" > "$TMP/$mutation.log" 2>&1
@@ -67,9 +82,12 @@ for mutation in progress active; do
     echo "ok mutant $mutation rejected with exit 1"
 done
 # No block comments in these production files; remove line comments before matching calls.
+# A missing shipped file is a REAL failure (exit 1), not an environment problem (exit 2):
+# it means the file was deleted or renamed, which is a logic error, not a broken toolchain.
 wire() {
-    [ -f "$SRC/$1" ] || exit 2
-    sed 's|//.*||' "$SRC/$1" | grep -Eq "$2" || { echo "FAIL wiring $1: $2"; exit 1; }
+    local file="$SRC/$1"
+    [ -f "$file" ] || { echo "FAIL wiring: $file not found (renamed/deleted?)"; exit 1; }
+    sed 's|//.*||' "$file" | grep -Eq "$2" || { echo "FAIL wiring $1: $2"; exit 1; }
 }
 wire AppDelegate+DockAttention.swift 'let action = DockAttention.decide\('
 wire GoblinPortalTerminalView+Notify.swift 'let parsed = NotificationEscape.parseOsc9\(data\)'

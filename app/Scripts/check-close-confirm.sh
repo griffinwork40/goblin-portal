@@ -60,13 +60,22 @@ exit(failures == 0 ? 0 : 1)
 SWIFT
 if ! swiftc -swift-version 6 "$TMP/policy.swift" "$TMP/directory.swift" "$TMP/main.swift" -o "$TMP/check"; then exit 2; fi
 "$TMP/check" || exit $?
-# Non-obvious falsification: count UNIQUE names instead of jobs. Classification
-# still works, but closing two vim panes would misleadingly report one process.
+# Falsification 1: count UNIQUE names instead of jobs. Classification still works,
+# but closing two vim panes would misleadingly report one process.
 sed 's/names.count) processes/unique.count) processes/' "$TMP/policy.swift" > "$TMP/mutant.swift"
 if ! swiftc -swift-version 6 "$TMP/mutant.swift" "$TMP/directory.swift" "$TMP/main.swift" -o "$TMP/mutant"; then exit 2; fi
 "$TMP/mutant"; result=$?
 rm -f "$TMP/mutant.swift"
-[ "$result" -eq 1 ] || { echo 'FAIL falsification did not fail with exit 1'; exit 1; }
+[ "$result" -eq 1 ] || { echo 'FAIL falsification-1 did not fail with exit 1'; exit 1; }
+# Falsification 2: break classification — drop the `name == shellName` exec-replacement
+# check so that exec'd vim (same PID as shell) is never reported as a job.
+# "exec replaced shell" case expects "vim" but the mutant returns nil → exit 1.
+# This verifies the gate is not blind to a broken busyName implementation.
+sed 's/name == shellName/name == "____NEVER____"/' "$TMP/policy.swift" > "$TMP/mutant2.swift"
+if ! swiftc -swift-version 6 "$TMP/mutant2.swift" "$TMP/directory.swift" "$TMP/main.swift" -o "$TMP/mutant2"; then exit 2; fi
+"$TMP/mutant2"; result2=$?
+rm -f "$TMP/mutant2.swift"
+[ "$result2" -eq 1 ] || { echo 'FAIL falsification-2 (exec comparison) did not fail with exit 1'; exit 1; }
 cat > "$TMP/pty.py" <<'PYTHON'
 import os, select, signal, subprocess, sys, time
 pid, fd = os.forkpty()

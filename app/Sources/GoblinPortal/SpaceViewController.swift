@@ -238,7 +238,11 @@ final class SpaceViewController: NSSplitViewController {
         // The tab's × destroys its peers too: ask for the actual victim set, not
         // just documents[index]. Space/quit use the same aggregate decision seam
         // without mutating this list (CloseConfirmation.swift:17).
-        guard CloseConfirmation.confirm([documents[index]] + allSplitDocuments(for: documents[index])) else { return }
+        let primary = documents[index]
+        guard CloseConfirmation.confirm([primary] + allSplitDocuments(for: primary)) else {
+            recoverVetoedDeadShell(primary)
+            return
+        }
         let document = documents.remove(at: index)
         // Close any split peer before the primary tears down — teardownSplit removes it
         // from splitPeers, calls its documentWillClose(), and collapses the split layout.

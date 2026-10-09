@@ -39,11 +39,22 @@ extension TerminalPane {
             }
             return
         }
+        // Prefer the last OSC 7 report for the cwd. The kernel fallback (tcgetpgrp +
+        // proc_pidinfo) is NOT used here: waitpid has already reaped the PID
+        // (LocalProcess.swift:368) and childfd may already be -1 (LocalProcess.swift:297),
+        // so ShellDirectory would see a stale or reused PID. The OSC 7 value is exact
+        // and was recorded while the shell was live. If absent, nil is stored and the
+        // restart falls back to resolvedWorkingDirectory() (TerminalPane+Launch.swift).
+        let lastDirectory = _reportedDirectory
+        enterKeptState(waitStatus: waitStatus, directory: lastDirectory)
+    }
 
-        // Capture the kernel fallback while the old process still has a valid pty
-        // and PID. `currentDirectory` prefers the last OSC 7 report, then asks
-        // ShellDirectory for the foreground process (ShellHosting.swift:127-135).
-        let lastDirectory = currentDirectory?.standardizedFileURL.path
+    /// Enter the kept/exited state: record the exit, show the status line, swallow
+    /// further input. Called from `shellDidExit` when the policy is `.keep`, and from
+    /// `SpaceViewController.closeDocument(at:)` when the user vetoes a close that was
+    /// triggered by a dead shell (F1: the primary is already dead but its close was
+    /// blocked by a busy split peer — entering kept state lets the tab stay usable).
+    func enterKeptState(waitStatus: Int32?, directory: String?) {
         isShellExited = true
         // Reuse the existing finished-good / finished-bad marks. Unlike a
         // command's mark, an exited shell's mark persists across tab focus.
@@ -52,11 +63,18 @@ extension TerminalPane {
 
         // The fallback root was supplied at construction. A deleted cwd is checked
         // again at restart rather than handed to SwiftTerm's unchecked chdir.
-        exitedDirectory = lastDirectory
+        exitedDirectory = directory
+        // Feed a mode reset BEFORE the status line so it lands in the normal buffer
+        // (visible with scrollback) rather than the alt screen. A TUI killed in the
+        // alt screen leaves ?1049 active; status in the alt buffer has no scrollback
+        // and the restarted shell inherits all surviving modes (mouse, bracketed paste,
+        // kitty keyboard flags). The reset sequence is Foundation-only so the gate can
+        // assert it (ShellExitPolicy.modeResetSequence).
         // Let SwiftTerm finish processing queued pty output before appending the
         // status line. This does not wait for an arbitrarily large output backlog.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isShellExited else { return }
+            self.view.feed(text: ShellExitPolicy.modeResetSequence)
             self.view.feed(text: "\r\n\(ShellExitPolicy.statusLine(waitStatus: waitStatus, canRestart: true))\r\n")
         }
     }
@@ -71,13 +89,18 @@ extension TerminalPane {
     /// Return true when a write must not reach the dead pty. SwiftTerm forwards
     /// all terminal input through LocalProcessTerminalView.send(source:data:)
     /// (MacLocalTerminalView.swift:145-148), including paste and programmatic send.
-    /// Only an unmodified Return KEY can restart, never a pasted newline.
+    /// Only an unmodified Return KEY event can restart, never a pasted newline.
+    ///
+    /// The data-byte check (`data.first == 13`) is intentionally absent: when a
+    /// kitty keyboard client has pushed flags including `reportAllKeys`, SwiftTerm's
+    /// KittyKeyboardEncoder encodes Return as `CSI 13 u` (KittyKeyboardEncoder.swift:882,891)
+    /// — multiple bytes with no leading 0x0d. Checking the NSEvent keyCode is both
+    /// necessary and sufficient: keyCode 36 is Return, 76 is numpad Enter.
     func handleSendWhileExited(data: ArraySlice<UInt8>) -> Bool {
         guard isShellExited else { return false }
         if let event = NSApp.currentEvent, event.type == .keyDown,
            (event.keyCode == 36 || event.keyCode == 76),
-           event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-           data.count == 1, data.first == 13 {
+           event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
             restartShell()
         }
         return true

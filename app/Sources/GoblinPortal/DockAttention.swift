@@ -17,10 +17,39 @@ enum NotificationEscape {
         if data.starts(with: [UInt8(ascii: "4"), UInt8(ascii: ";")]) {
             return .progressPayload
         }
+        // Ignore ConEmu/iTerm2 numeric subcommands: `9;N;…` where N is a decimal
+        // integer followed immediately by a semicolon. These include:
+        //   9;1;    ConEmu "Is ConEmu" query
+        //   9;2;    ConEmu "print to prompt"
+        //   9;9;<cwd>  ConEmu "set cwd" (emitted by many prompts on every prompt draw)
+        // A message that STARTS with digits but has no semicolon after them (e.g.
+        // "42 tests passed") is a normal notification and must reach the user.
+        // The `4;` prefix check above already handles progress before we get here,
+        // so this guard filters everything else that looks like `<digit+>;`.
+        if isNumericSubcommand(data) { return .ignored }
         guard data.count <= maxPayloadBytes,
               let message = String(bytes: data, encoding: .utf8),
               !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .ignored }
         return .notification(title: message, body: "")
+    }
+
+    /// True when `data` matches the pattern `^[0-9]+;` — a decimal integer prefix
+    /// immediately followed by a semicolon. `4;` is already handled before this call.
+    private static func isNumericSubcommand(_ data: ArraySlice<UInt8>) -> Bool {
+        var i = data.startIndex
+        var hasDigit = false
+        while i < data.endIndex {
+            let b = data[i]
+            if b >= UInt8(ascii: "0") && b <= UInt8(ascii: "9") {
+                hasDigit = true
+                i = data.index(after: i)
+            } else if b == UInt8(ascii: ";") && hasDigit {
+                return true   // matched `<digit+>;`
+            } else {
+                return false  // non-digit, non-semicolon → not a numeric subcommand
+            }
+        }
+        return false  // digits only, no semicolon → not a subcommand
     }
 
     static func parseOsc777(_ data: ArraySlice<UInt8>) -> Parsed {

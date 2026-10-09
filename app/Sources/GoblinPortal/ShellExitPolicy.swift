@@ -99,12 +99,15 @@ enum CloseOnShellExit: String {
     /// Config spellings, for the gate's drift check.
     static let configNames = "clean | always | never"
 
-    /// Parse the config string. Case-insensitive, hyphen or underscore treated as
-    /// equivalent (matching the pattern in `Renderer.named(_:)`). Returns nil when
-    /// the value is not recognised; the caller appends a warning.
+    /// Parse the config string. Case-insensitive. Returns nil when the value is not
+    /// recognised; the caller appends a warning.
+    ///
+    /// Note: hyphen/underscore normalisation was removed (F6d): none of the three
+    /// values contain a separator, so normalising "_" → "-" bought nothing and silently
+    /// accepted e.g. "clean_extra" as "clean_extra" (no match), which was already safe
+    /// — but documenting a nonexistent acceptance in the doc comment was misleading.
     static func named(_ raw: String) -> CloseOnShellExit? {
-        let normalised = raw.lowercased().replacingOccurrences(of: "_", with: "-")
-        switch normalised {
+        switch raw.lowercased() {
         case "clean":  return .clean
         case "always": return .always
         case "never":  return .never
@@ -152,6 +155,46 @@ enum ShellExitPolicy {
             return .keep
         }
     }
+
+    // MARK: - Mode reset
+
+    /// VT/DEC/kitty mode reset to emit before the status line in a kept pane.
+    ///
+    /// A TUI killed in the alt screen leaves terminal modes that corrupt the status
+    /// line (it lands in the alt buffer with no scrollback) and poison the restarted
+    /// shell. The sequence resets, in order:
+    ///
+    ///  1. `ESC[?1049l`  — leave alt screen and restore the normal buffer (DECSET 1049;
+    ///     Terminal.swift:3376 branches on this code in `csiSetDecPrivateMode`). Without
+    ///     this, the status line renders in the alt buffer where scrollback is absent and
+    ///     the next `startProcess` still inherits the alt-screen context.
+    ///  2. `ESC[?1000l ESC[?1002l ESC[?1003l` — disable mouse tracking modes vt200,
+    ///     buttonEvent, anyEvent (Terminal.swift:3353-3356). All three, because apps
+    ///     may have enabled any one of the three independently.
+    ///  3. `ESC[?1006l` — disable SGR mouse protocol (Terminal.swift:3365).
+    ///  4. `ESC[?1004l` — disable focus event reporting DECSET 1004 (Terminal.swift:3361).
+    ///  5. `ESC[?2004l` — disable bracketed paste mode (Terminal.swift:3378).
+    ///  6. `ESC[?1l`    — disable application cursor keys (DECCKM).
+    ///  7. `ESC[= 0 u`  — reset kitty keyboard flags to 0 via mode 1 (set) with value 0
+    ///     (Terminal.swift:926-938, `cmdCsiU` with `=` collect byte, mode 1 = set).
+    ///  8. `ESC[< 999 u` — pop 999 entries from the kitty keyboard stack (Terminal.swift:
+    ///     958-968, `cmdCsiU` with `<` collect byte); 999 exceeds the stack limit of 5
+    ///     (`Terminal.keyboardModeStackLimit` = 5 per Terminal.swift:366-370 pattern),
+    ///     so this always empties the stack regardless of how many pushes accumulated.
+    ///
+    /// No RIS (ESC c) — that would wipe scrollback, which we deliberately preserve.
+    /// Foundation-only so `check-shell-exit.sh` can assert it compiles and its value.
+    static let modeResetSequence: String =
+        "\u{1B}[?1049l"    // leave alt screen
+        + "\u{1B}[?1000l"  // disable vt200 mouse
+        + "\u{1B}[?1002l"  // disable button-event mouse
+        + "\u{1B}[?1003l"  // disable any-event mouse
+        + "\u{1B}[?1006l"  // disable SGR mouse protocol
+        + "\u{1B}[?1004l"  // disable focus events
+        + "\u{1B}[?2004l"  // disable bracketed paste
+        + "\u{1B}[?1l"     // disable application cursor keys
+        + "\u{1B}[=0u"     // reset kitty keyboard flags to 0 (mode 1 = set, value 0)
+        + "\u{1B}[<999u"   // pop up to 999 kitty keyboard stack entries
 
     // MARK: - Status line text
 
