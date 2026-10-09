@@ -25,7 +25,7 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-10-08 the tree differs from upstream in TWELVE files (FOURTEEN patches):
+# As of 2026-10-09 the tree differs from upstream in TWELVE files (FIFTEEN patches):
 # Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005),
 # PtmuxDcsHandler.swift (0005, new file), MacTerminalView.swift (0006/0008/0009/0010/0014),
 # AppleTerminalView.swift (0007/0010/0013/0014/0015), TerminalViewSearch.swift (0009),
@@ -252,7 +252,7 @@ upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac604178
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-patched_apple_terminal_view  = 7f3af1bf33e8270e8cdbce373bdae50163bfc5d1315bea673610a669e086e6ad
+patched_apple_terminal_view  = 48c4becc0e2e32e785dd4aefdd2a21a7948561b6bfda7763438ba8b378c6d501
 
 # AppleTerminalView.swift as shipped upstream at v1.15.0.
 upstream_apple_terminal_view = d28360034441f9a4573debcfe8ac5f86b3c57b3059da5f94ba2549838714e45e
@@ -318,7 +318,7 @@ mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae6776
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-patched_metal_terminal_renderer  = 8318962f269daa614b4a9e6c248ce612e27c3f7d7e0ac08434ac934324834bec
+patched_metal_terminal_renderer  = 615ae98b2452b190652e6568cb9ebec86d8d4ac0907b5e239afc14e4024d9905
 upstream_metal_terminal_renderer = 916d4e1cb0ecf36bcb3dcd8d8b0d9cb79b2c5b5653c0f075ecce6a603133b166
 
 # Apple/Metal/CoreTextGlyphRasterizer.swift AFTER 0012-rasterize-color-glyphs-at-logical-size.patch,
