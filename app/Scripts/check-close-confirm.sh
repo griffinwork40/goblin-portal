@@ -10,8 +10,8 @@ cd "$(dirname "$0")/.." || exit 2
 command -v swiftc >/dev/null 2>&1 || exit 2
 command -v python3 >/dev/null 2>&1 || exit 2
 TMP="$(mktemp -d)" || exit 2
-# All scratch is outside the checkout; remove only the named files we create.
-trap 'rm -f "$TMP/main.swift" "$TMP/policy.swift" "$TMP/directory.swift" "$TMP/check" "$TMP/mutant" "$TMP/pty.py"; rmdir "$TMP"' EXIT
+# All scratch lives in our own mktemp dir outside the checkout; remove that dir whole.
+trap 'rm -rf "$TMP"' EXIT  # whole mktemp dir: a per-file list leaked it each time a mutant was added
 cp Sources/GoblinPortal/CloseConfirmPolicy.swift "$TMP/policy.swift" || exit 2
 cp Sources/GoblinPortal/ShellDirectory.swift "$TMP/directory.swift" || exit 2
 cat > "$TMP/main.swift" <<'SWIFT'
