@@ -217,13 +217,13 @@ final class FileTreeViewController: NSViewController {
         guard url.resolvingSymlinksInPath().path != root.url.resolvingSymlinksInPath().path
         else { return }
         root = FileNode(url: url, isDirectory: true)
-        invalidatePendingLoads()
-        TreeRefreshTiming.measure(site: "setRoot", expandedCount: 0) { root.reloadChildren() }
         // The new root may sit on a different volume with different case semantics, so
         // the cached query must be invalidated; it is re-populated lazily on the next
         // walk or reveal call (#176).
         caseSensitiveFS = nil
-        outlineView.reloadData()
+        // Lists the new root OFF the main thread and reloads when it lands (#158) —
+        // `FileTreeViewController+Loading.swift`. Everything above stays synchronous.
+        beginRootLoad()
         // The tree now shows a different project, so the decorations on screen belong to
         // the old one. Waiting out the poller's 2s tick would leave them there — not merely
         // late but *wrong*, which is worse than showing none. The follower re-discovers the
