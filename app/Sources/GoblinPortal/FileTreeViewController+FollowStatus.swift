@@ -25,10 +25,9 @@
 //  The SCM panel replaces the Explorer tree entirely; a cwd-follow note is meaningless
 //  there and would confuse more than inform.
 //
-//  IDEMPOTENCY MARKER. Two comments tag the lines the falsification harness mutates so
-//  sed-based mutants land precisely:
-//    // IDEMPOTENT_INSTALL_GUARD  ← removed by M2 mutant
-//    // STATUS_UPDATE_EVERY_TICK  ← replaced by M1 mutant (caller-side)
+//  IDEMPOTENCY. The install guard (IDEMPOTENT_INSTALL_GUARD comment) ensures a second
+//  call updates the existing view in place rather than appending a new one. This is the
+//  invariant case 7 of check-directory-indicator.sh verifies.
 //
 
 import AppKit

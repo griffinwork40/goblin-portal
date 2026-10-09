@@ -56,9 +56,11 @@ final class DirectoryFollow {
     /// the cheap pre-filter in front of it.
     private var lastPushed: URL?
 
-    /// Testing seam: when non-nil, `tick()` reads this host instead of
-    /// `space.focusedShellHost`. Set only by `SpaceViewController.addDocumentForTesting(_:)`
-    /// in `@testable import` harnesses; never set in production code.
+    /// Test seam — production never sets this.
+    ///
+    /// When non-nil, `tick()` reads this host instead of `space.focusedShellHost`.
+    /// Set only by `SpaceViewController.addDocumentForTesting(_:)` in
+    /// `@testable import GoblinPortal` harnesses (check-directory-indicator gate).
     var testShellHostOverride: ShellHosting?
 
     init(space: SpaceViewController) {
@@ -134,12 +136,9 @@ final class DirectoryFollow {
 
         // Read shellContext ONCE. This is the plan's "obtain one ShellContext per tick" rule.
         // (plan §4, lane E brief): status changes are independent of the directory, so the
-        // indicator must update EVERY tick, not only when the directory changes.
-        //
-        // STATUS_UPDATE_EVERY_TICK — this line is the mutation target for M1 falsification:
-        // M1 wraps the status update in `guard directory != nil else { return }`, which means
-        // a remote status with nil directory never updates the indicator. The real code always
-        // updates regardless of whether directory is nil.
+        // indicator must update EVERY tick, not only when the directory changes. A nil
+        // directory is normal — shell is starting, exiting, or remote — and the indicator
+        // must still show the remote/paused status while the tree stays on the last local root.
         let context = host.shellContext
         space.fileTree.updateDirectoryFollowStatus(context.followStatus)
 

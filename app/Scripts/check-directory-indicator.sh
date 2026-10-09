@@ -34,19 +34,22 @@
 #      when the directory is nil; setRoot is never called when directory is nil.
 #  10  LOCAL-RECOVERY       — local directory after remote: hides the note AND moves root.
 #
-# FALSIFICATION (--falsify flag):
-#   Builds three mutants from temp copies; each must exit 1.
-#     M1  never update status when directory is nil (tick omits status call)
-#     M2  install a new view on every call (idempotency removed)
-#     M3  show indicator for .unavailable (unavailable case treated as paused)
+# FALSIFICATION (--falsify flag).
+#   Delegates to check-directory-indicator-falsify.sh, which runs four mutants,
+#   each against a full APFS clone of app/. Every mutant must cause exit 1;
+#   any mutant that passes (exit 0) means the gate is blind to that defect.
+#     M1  gate status update behind `guard let directory` — nil-dir remote never shown
+#     M2  remove idempotency guard — new view installed on every call
+#     M3  show indicator for .unavailable — transient state leaks into UI
+#     M4  indicator inserted at stack index 0 (above git header) — wrong view order
 #
-# EXIT CONTRACT:
+# EXIT CONTRACT.
 #   0 = all cases passed.
 #   1 = real assertion failure.
 #   2 = environmental (swiftc missing, build failed, objects missing, compile error,
 #       harness crash before any case reported, or the harness binary exits 2).
 #   Under --falsify: 0 = all mutants caused exit 1 (gate is sensitive); 1 = some mutant
-#   passed (gate is blind); 2 = environmental.
+#   passed (gate is blind); 2 = environmental (stale pattern, clone failure, …).
 #
 # LINK INPUTS.
 #   GoblinPortal-p.build/Objects-normal/<arch>/*.o (minus main.o) + SwiftTerm.o.
@@ -140,160 +143,16 @@ if [[ $FALSIFY -eq 0 ]]; then
 fi
 
 # -------------------------------------------------------------------------
-# Falsification mode (--falsify)
-#
-# Three mutants, each built from a temp copy of the two owned source files.
-# The gate must exit 1 for each. If any passes (exit 0), the gate is blind.
+# Falsification mode (--falsify): delegate to the companion script.
+# check-directory-indicator-falsify.sh runs each mutant against an APFS
+# clone of app/ and exits 0 iff every mutant was caught (exit 1 from the clone).
+# An empty-run (no mutants attempted) exits 2 there, not 0.
 # -------------------------------------------------------------------------
-say "==> falsification mode — three mutants, each must cause exit 1"
+FALSIFY_SCRIPT="$ROOT/Scripts/check-directory-indicator-falsify.sh"
+[[ -x "$FALSIFY_SCRIPT" ]] || {
+  echo "error: $FALSIFY_SCRIPT not found or not executable — falsify script missing." >&2
+  exit 2; }
 
-SOURCES_DIR="$ROOT/Sources/GoblinPortal"
-FOLLOW_SRC="$SOURCES_DIR/SpaceViewController+DirectoryFollow.swift"
-INDICATOR_SRC="$SOURCES_DIR/DirectoryFollowIndicatorView.swift"
-FOLLOWSTATUS_SRC="$SOURCES_DIR/FileTreeViewController+FollowStatus.swift"
-
-all_ok=1
-
-run_mutant() {
-  local label="$1" mutant_dir="$2"
-  local mutant_objs=""
-
-  # Recompile only the mutated files; swap them in place of the real .o in the link.
-  local mutated_follow="$mutant_dir/SpaceViewController+DirectoryFollow.swift"
-  local mutated_indicator="$mutant_dir/DirectoryFollowIndicatorView.swift"
-  local mutated_followstatus="$mutant_dir/FileTreeViewController+FollowStatus.swift"
-
-  # Compile each mutated file that exists.
-  for f in "$mutated_follow" "$mutated_indicator" "$mutated_followstatus"; do
-    [[ -f "$f" ]] || continue
-    local base; base="$(basename "$f" .swift)"
-    local obj="$mutant_dir/${base}.o"
-    if ! swiftc -c "$f" \
-        -o "$obj" \
-        -I "$TOBJ" -I "$PRODUCTS" -I "$PRODUCTS/include" \
-        -module-name GoblinPortal \
-        -parse-as-library \
-        2>"$mutant_dir/compile_${base}.log"; then
-      say "  note: mutant $label: $base failed to compile (skip — structural mutant)"
-      # A mutant that does not compile cannot be measured. If it was supposed to
-      # compile, flag as environmental.
-      return
-    fi
-    mutant_objs="$mutant_objs $obj"
-  done
-
-  # Build the link list: original .o set but replace any mutated files.
-  local replaced_bases=()
-  for f in "$mutated_follow" "$mutated_indicator" "$mutated_followstatus"; do
-    [[ -f "$f" ]] && replaced_bases+=("$(basename "$f" .swift)")
-  done
-
-  local link_objs=""
-  for o in $(ls "$TOBJ"/*.o | grep -v '/main\.o$'); do
-    local base; base="$(basename "$o" .o)"
-    local skip=0
-    for rb in "${replaced_bases[@]}"; do [[ "$base" == "$rb" ]] && skip=1; done
-    [[ $skip -eq 0 ]] && link_objs="$link_objs $o"
-  done
-  link_objs="$link_objs$mutant_objs"
-
-  # Copy harness to its own main.swift.
-  cp "$HARNESS" "$mutant_dir/main.swift"
-
-  if ! swiftc -o "$mutant_dir/indicator_mutant" "$mutant_dir/main.swift" \
-      -I "$TOBJ" -I "$PRODUCTS" -I "$PRODUCTS/include" -L "$PRODUCTS" \
-      $link_objs "$PRODUCTS/SwiftTerm.o" \
-      -framework AppKit 2>"$mutant_dir/link.log"; then
-    say "  note: mutant $label link failed — skip (structural mutant requires broader refactor)"
-    return
-  fi
-
-  local mout; mout="$("$mutant_dir/indicator_mutant" "$SPACE_ROOT" 2>&1)"; local mstatus=$?
-  if [[ $mstatus -eq 1 ]]; then
-    say "  ok  mutant $label → exit 1 (gate detected the defect)"
-  elif [[ $mstatus -eq 0 ]]; then
-    say "  FAIL mutant $label → exit 0 (gate is BLIND to this defect)"
-    all_ok=0
-  else
-    say "  note: mutant $label → exit $mstatus (environmental, skip)"
-  fi
-}
-
-# M1: tick() does not call updateDirectoryFollowStatus when directory is nil.
-# Simulated by having the harness run in M1 mode (pass "M1" as arg).
-# We instead patch +DirectoryFollow to skip the status update when dir is nil.
-M1="$TMP/m1"
-mkdir -p "$M1"
-# Mutant: in tick(), only call updateDirectoryFollowStatus when directory is non-nil.
-# The real code calls it every tick (even with nil dir). We drop the nil-dir update.
-sed 's|// STATUS_UPDATE_EVERY_TICK|// MUTANT-M1: status NOT updated when directory nil|g' \
-  "$FOLLOW_SRC" > "$M1/SpaceViewController+DirectoryFollow.swift" 2>/dev/null || \
-  cp "$FOLLOW_SRC" "$M1/SpaceViewController+DirectoryFollow.swift"
-# Apply M1 mutation: wrap the status update in `if directory != nil`.
-# The real tick() always calls it; we gate it.
-python3 - "$M1/SpaceViewController+DirectoryFollow.swift" <<'PYEOF'
-import sys, re
-
-src = open(sys.argv[1]).read()
-# Replace the unconditional status update with a conditional one
-# The real tick calls updateDirectoryFollowStatus unconditionally; mutant gates it.
-mutated = src.replace(
-    '        // Update the indicator on every tick regardless of directory',
-    '        guard directory != nil else { return }  // MUTANT-M1'
-)
-open(sys.argv[1], 'w').write(mutated)
-PYEOF
-
-say "  --- mutant M1 (status not updated when directory nil) ---"
-run_mutant "M1" "$M1"
-
-# M2: install a new view on every updateDirectoryFollowStatus call (no idempotency).
-M2="$TMP/m2"
-mkdir -p "$M2"
-sed 's|// IDEMPOTENT_INSTALL_GUARD|// MUTANT-M2: idempotency removed|g' \
-  "$FOLLOWSTATUS_SRC" > "$M2/FileTreeViewController+FollowStatus.swift" 2>/dev/null || \
-  cp "$FOLLOWSTATUS_SRC" "$M2/FileTreeViewController+FollowStatus.swift"
-python3 - "$M2/FileTreeViewController+FollowStatus.swift" <<'PYEOF'
-import sys, re
-
-src = open(sys.argv[1]).read()
-# Remove the idempotency guard so a new view is installed on every call.
-mutated = src.replace(
-    'if followIndicatorView(on: self) != nil { updateExistingFollowIndicator(status) ; return }',
-    '// MUTANT-M2: idempotency guard removed'
-)
-open(sys.argv[1], 'w').write(mutated)
-PYEOF
-
-say "  --- mutant M2 (new view installed on every call) ---"
-run_mutant "M2" "$M2"
-
-# M3: show indicator for .unavailable (treat it like .paused).
-M3="$TMP/m3"
-mkdir -p "$M3"
-cp "$FOLLOWSTATUS_SRC" "$M3/FileTreeViewController+FollowStatus.swift"
-python3 - "$M3/FileTreeViewController+FollowStatus.swift" <<'PYEOF'
-import sys, re
-
-src = open(sys.argv[1]).read()
-# Treat .unavailable like .paused — show the indicator text.
-mutated = src.replace(
-    'case .unavailable:\n            indicator.isHidden = true',
-    'case .unavailable:\n            indicator.configure(status: status)  // MUTANT-M3\n            indicator.isHidden = false'
-).replace(
-    'case .unavailable: indicator.isHidden = true',
-    'case .unavailable: indicator.configure(status: status); indicator.isHidden = false // MUTANT-M3'
-)
-open(sys.argv[1], 'w').write(mutated)
-PYEOF
-
-say "  --- mutant M3 (.unavailable shows indicator) ---"
-run_mutant "M3" "$M3"
-
-if [[ $all_ok -eq 1 ]]; then
-  say "==> falsification PASSED — all mutants caused exit 1"
-  exit 0
-else
-  say "==> falsification FAILED — some mutant was not detected"
-  exit 1
-fi
+say "==> falsification mode — 4 mutants via APFS clones, each must exit 1"
+QUIET="$QUIET" "$FALSIFY_SCRIPT"
+exit $?
