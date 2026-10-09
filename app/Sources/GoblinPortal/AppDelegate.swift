@@ -4,16 +4,18 @@
 //
 //  Three concerns live in extensions of their own, each in its own file: the menu
 //  tree and its validation in `AppMenu.swift`, launch-time Space restore in
-//  `SpaceRestore.swift`, and the first-run config template in
-//  `StarterConfig.swift`. What stays here is the lifecycle (launch, terminate)
-//  and the `@objc` actions those menu items send.
+//  `SpaceRestore.swift`, and the first-run config template in `StarterConfig.swift`.
+//  Menu-item validation (`NSMenuItemValidation`, `validateMenuItem`) lives in
+//  `AppDelegate+Validation.swift` — extracted when the terminal-action guard added
+//  4 lines and pushed the file past the 350-LOC ceiling.
+//  What stays here is the lifecycle (launch, terminate) and the `@objc` actions.
 //
 
 import AppKit
 import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `private(set)`, not `private`: `restoreSpaces()` moved to
     /// `SpaceRestore.swift` and builds each Space with this config, and Swift's
     /// `private` is *file*-scoped. Only the read is widened — the setter stays
@@ -85,37 +87,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// (`SpaceDocument.swift`), so this also disables Save whenever a terminal tab
     /// is focused — consistent with the action above being a no-op there
     /// (PR #2 review, finding 4).
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let sel = menuItem.action
-        if sel == #selector(saveDocument(_:)) {
-            return focusedSpace?.activeDocument?.documentIsEdited == true
-        }
-        if sel == #selector(goToLine(_:)) {
-            return focusedSpace?.activeDocument is FileViewerPane
-        }
-        if sel == #selector(toggleWordWrap(_:)) {
-            guard let viewer = focusedSpace?.activeDocument as? FileViewerPane else {
-                menuItem.state = .off
-                return false
-            }
-            menuItem.state = viewer.isWrapping ? .on : .off
-            return true
-        }
-        // Terminal-integration items need both a file viewer AND a shell.
-        if sel == #selector(sendPathToTerminal(_:)) || sel == #selector(runInTerminal(_:)) {
-            return focusedSpace?.activeDocument is FileViewerPane
-                && focusedSpace?.focusedShellHost != nil
-        }
-        // ⌘D — only enabled over a file viewer, not a terminal.
-        if sel == #selector(selectNextOccurrence(_:)) {
-            return focusedSpace?.activeDocument is FileViewerPane
-        }
-        // ⌘⇧P — always available (palette surfaces all commands).
-        if sel == #selector(showCommandPalette(_:)) { return true }
-        // `openSearch(_:)` falls through: valid in both terminal and editor contexts.
-        return true
-    }
-
     /// Quitting closes every Space, so it owes the same prompt ⌘W does. Without
     /// this, ⌘Q is a one-keystroke path past every unsaved-changes guard in the app.
     ///

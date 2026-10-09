@@ -43,20 +43,30 @@ extension AppDelegate {
     }
 
     /// Edit → Send Path to Terminal (⌘⇧C). Sends the file's path to the shell.
+    ///
+    /// Guarded by `TerminalActionGuard` at execution time — even when `validateMenuItem`
+    /// already passed, the foreground may have changed between menu-open and click, and
+    /// the command palette fires without calling validation first.
+    /// Pasted text still lands in an agent prompt if unguarded — see plan §coordinator-4.
     @objc func sendPathToTerminal(_ sender: Any?) {
         guard let viewer = focusedSpace?.activeDocument as? FileViewerPane,
               let shell = focusedSpace?.focusedShellHost else { return }
+        guard TerminalActionGuard.production.check(host: shell, action: "Send Path to Terminal")
+        else { return }
         shell.send(text: "\(shellQuoted(viewer.url)) ")
     }
 
     /// Edit → Run in Terminal (⌘⇧R). Sends a language-appropriate run command
     /// for the current file to the focused shell and executes it immediately —
     /// no confirmation dialog, same as Xcode ⌘R and Script Editor ⌘R.
-    /// `validateMenuItem` gates it behind an active `FileViewerPane` + a live
-    /// shell host; the three deliberate acts (open, focus, ⌘⇧R) are the guard.
+    /// `validateMenuItem` greys it out when unsafe; the execution-time guard
+    /// (`TerminalActionGuard`) re-checks because the foreground can change between
+    /// menu-open and click, and the command palette fires without calling validation.
     @objc func runInTerminal(_ sender: Any?) {
         guard let viewer = focusedSpace?.activeDocument as? FileViewerPane,
               let shell = focusedSpace?.focusedShellHost else { return }
+        guard TerminalActionGuard.production.check(host: shell, action: "Run in Terminal")
+        else { return }
         let quoted = shellQuoted(viewer.url)
         let ext = viewer.url.pathExtension.lowercased()
         // Language-detected run command. SyntaxLanguage already knows the file
