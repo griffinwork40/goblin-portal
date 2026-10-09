@@ -87,12 +87,14 @@ protocol ShellHosting: SpaceDocument {
     /// already parses into `hostCurrentDirectoryUpdate` — fires whenever the user sources
     /// `shell-integration.zsh`, which emits `ESC ] 7 ; file://hostname/path BEL` in its
     /// precmd hook. `TerminalPane.handleOsc7Directory` (in `TerminalPane+ShellIntegration.swift`)
-    /// fills that body and stores the path in `_reportedDirectory`. Without the script, a stock
-    /// zsh under Goblin Portal emits no OSC 7 (macOS's emitter is gated on `TERM_PROGRAM == Apple_Terminal`,
-    /// which SwiftTerm does not set — documented at length in `ShellDirectory.swift`'s header),
-    /// so the kernel poll remains the honest shape for unintegrated shells. `currentDirectory`
-    /// prefers the OSC 7 value and falls back to the kernel poll, and
-    /// `SpaceViewController+DirectoryFollow.swift` owns that polling timer.
+    /// fills that body and stores the parsed report (`TerminalPane+DirectoryState.swift`).
+    /// Without the script, a stock zsh under Goblin Portal emits no OSC 7 (macOS's emitter
+    /// is gated on `TERM_PROGRAM == Apple_Terminal`, which SwiftTerm does not set —
+    /// documented in `ShellDirectory.swift`'s header), so the kernel poll of the SHELL's
+    /// cwd remains the honest shape for unintegrated shells. Which input answers depends on
+    /// what is in front (`ShellContext.swift`): nil under ssh, screen or an unreadable
+    /// foreground, tmux's answer under tmux. `SpaceViewController+DirectoryFollow.swift`
+    /// owns the polling timer.
     var currentDirectory: URL? { get }
 
     /// The full resolved state: foreground kind, local directory (or nil), and what the
@@ -121,28 +123,9 @@ extension TerminalPane: ShellHosting {
     /// Where this pane's shell currently is: `shellContext.directory`.
     var currentDirectory: URL? { shellContext.directory }
 
-    /// K SCAFFOLD (lane C replaces with `TerminalPane+DirectoryState.swift`):
-    /// behaviour-preserving. OSC 7 first, else the kernel poll of the foreground process,
-    /// exactly as `currentDirectory` answered before the contract existed.
-    ///
-    /// `view.process` is SwiftTerm's `LocalProcess!` (`MacLocalTerminalView.swift:69`),
-    /// nil before `startProcess`, so it is bound with `guard let`: a tab that has not
-    /// started yet must answer nil rather than trap.
-    var shellContext: ShellContext {
-        if let reported = _reportedDirectory {
-            return ShellContext(
-                foreground: nil, directory: URL(fileURLWithPath: reported), followStatus: .local)
-        }
-        guard let process = view.process else {
-            return ShellContext(foreground: nil, directory: nil, followStatus: .unavailable)
-        }
-        let directory = ShellDirectory.current(
-            foregroundOf: process.childfd, fallbackPid: process.shellPid)
-        return ShellContext(foreground: nil, directory: directory, followStatus: .local)
-    }
-
-    /// K SCAFFOLD (lane C replaces): nothing slow to refresh yet.
-    func refreshDirectoryState() {}
+    // `shellContext` and `refreshDirectoryState()` live in
+    // `TerminalPane+DirectoryState.swift`: they own an asynchronous tmux cache and the
+    // stored OSC 7 reports, a whole concern too large to sit beside `send(text:)`.
 }
 
 // MARK: - Window-level focus events (DECSET 1004)

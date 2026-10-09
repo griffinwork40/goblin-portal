@@ -19,7 +19,8 @@
 //    - remote / screen / zellij / unknown → nil, so ⌘T and splits fall back to the Space
 //      root and nothing stale is persisted. The sidebar shows `followStatus` instead.
 //
-//  CONTRACT FROZEN in wave 0 (K). Lane C owns `ShellDirectoryPolicy.resolve`.
+//  CONTRACT FROZEN in wave 0 (K). Lane C owns `ShellDirectoryPolicy.resolve`, gated by
+//  `Scripts/check-shell-context.sh` (layer 1 is the full truth table over it).
 //  `TerminalInputPolicy` is final as written: it IS the typing-guard decision.
 //
 
@@ -75,14 +76,47 @@ enum ShellDirectoryPolicy {
         knownShellDirectory: URL?,
         tmuxDirectory: URL?
     ) -> ShellContext {
-        // K STUB (lane C replaces): behaviour-preserving — a local OSC 7 wins, else the
-        // shell's directory, exactly as `currentDirectory` behaved before this file.
-        let directory: URL?
-        if case .local(let path)? = reported {
-            directory = URL(fileURLWithPath: path)
-        } else {
-            directory = shellDirectory
+        // Lane C. Each branch reads ONLY the input that belongs to the program in front;
+        // the order of the `switch` is the precedence, and no branch falls through to
+        // another's input. That is the whole fix: the old `currentDirectory` let one
+        // input (a never-cleared OSC 7 value) answer for every foreground.
+        func context(_ directory: URL?, _ status: DirectoryFollowStatus) -> ShellContext {
+            ShellContext(foreground: foreground, directory: directory, followStatus: status)
         }
-        return ShellContext(foreground: foreground, directory: directory, followStatus: .local)
+        switch foreground {
+        case nil:
+            // Unreadable foreground (shell exiting, fd closed): claim nothing. A report
+            // or a shell cwd would be a guess about a pane we cannot see into.
+            return context(nil, .unavailable)
+        case .shell?, .command?:
+            // The pane's own shell is in charge of the directory either way: a command
+            // runs IN the shell's directory, and whatever it `chdir`s to itself (agent-afk
+            // into its worktree, a build into a subdir) is not where the user is. So a
+            // LOCAL report from this pane's shell wins, else the shell's kernel cwd. A
+            // `.remote` report reaching this branch is stale by construction — the remote
+            // session is no longer in front — so it is ignored, not treated as "no dir".
+            if case .local(let path)? = reported { return context(URL(fileURLWithPath: path), .local) }
+            return context(shellDirectory, .local)
+        case .knownShell?:
+            // A nested local shell (`bash`, `nix-shell`). Any stored report came from
+            // the OUTER shell, which is suspended behind it, so only the nested shell's
+            // own kernel cwd answers.
+            return context(knownShellDirectory, .local)
+        case .tmuxClient?:
+            // tmux's answer for the active pane, or nil while it is still cold. Never
+            // the outer shell's report: the integration script is silent inside tmux
+            // (`TERM_PROGRAM=tmux`, plan "Why"), so that report is from before tmux.
+            return context(tmuxDirectory, .local)
+        case .remote?:
+            // Another machine's filesystem: no directory, ever. The host is display-only
+            // and only trustworthy when a remote OSC 7 named it. The caller passes a
+            // remote report only if it arrived while THIS process group was in front
+            // (`TerminalPane+DirectoryState.swift`), so a host here is from this session.
+            if case .remote(let host)? = reported { return context(nil, .remote(host: host)) }
+            return context(nil, .remote(host: nil))
+        case .otherMultiplexer(let name)?:
+            // screen / zellij: we cannot ask for the active pane, so we say so.
+            return context(nil, .paused(program: name))
+        }
     }
 }
