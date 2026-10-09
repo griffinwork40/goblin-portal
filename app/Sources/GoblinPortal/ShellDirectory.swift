@@ -78,6 +78,15 @@ enum ShellDirectory {
         return URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
     }
 
+    /// The working directory of one specific process, normalised exactly like
+    /// `current(foregroundOf:fallbackPid:)`. Used when the caller has already decided
+    /// WHICH process answers (`ShellContext.swift`): the pane's own shell, or a nested
+    /// local shell, but never an arbitrary foreground command.
+    static func workingDirectory(of pid: pid_t) -> URL? {
+        guard pid > 0, let path = workingDirectoryPath(of: pid) else { return nil }
+        return URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
+    }
+
     /// The line that moves a shell to `url`, newline included so it submits.
     ///
     /// Submitting is the difference between this and "Insert Path in Terminal"

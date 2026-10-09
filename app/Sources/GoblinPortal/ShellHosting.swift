@@ -94,6 +94,18 @@ protocol ShellHosting: SpaceDocument {
     /// prefers the OSC 7 value and falls back to the kernel poll, and
     /// `SpaceViewController+DirectoryFollow.swift` owns that polling timer.
     var currentDirectory: URL? { get }
+
+    /// The full resolved state: foreground kind, local directory (or nil), and what the
+    /// sidebar should say about following. `currentDirectory` is `shellContext.directory`.
+    /// Computed live and cheaply (two syscalls); the only slow input, tmux's answer, is
+    /// read from a cache that `refreshDirectoryState()` fills off the main thread.
+    /// Contract: `ShellContext.swift`, plan `.afk/plans/tmux-ssh-cwd-and-158-parallel.md`.
+    var shellContext: ShellContext { get }
+
+    /// Ask for slow inputs (tmux's active-pane directory) to be refreshed in the
+    /// background. Never blocks; coalesces repeated calls. The directory poller calls it
+    /// every tick.
+    func refreshDirectoryState()
 }
 
 // MARK: - TerminalPane
@@ -106,34 +118,31 @@ extension TerminalPane: ShellHosting {
         view.send(txt: text)
     }
 
-    /// Where this pane's shell currently is.
+    /// Where this pane's shell currently is: `shellContext.directory`.
+    var currentDirectory: URL? { shellContext.directory }
+
+    /// K SCAFFOLD (lane C replaces with `TerminalPane+DirectoryState.swift`):
+    /// behaviour-preserving. OSC 7 first, else the kernel poll of the foreground process,
+    /// exactly as `currentDirectory` answered before the contract existed.
     ///
-    /// **Primary source: OSC 7** (when the user sources `shell-integration.zsh`).
-    /// `_reportedDirectory` is populated by `TerminalPane.handleOsc7Directory` every
-    /// time the shell emits `ESC ] 7 ; file://… BEL` in its precmd hook. That answer
-    /// is exact, instant, and requires no syscalls — it is the path the shell actually
-    /// has, not the path the kernel thinks the foreground process has.
-    ///
-    /// **Fallback: kernel poll** (when OSC 7 is absent — shells that have not sourced
-    /// the integration script, or between two consecutive OSC 7 reports while a
-    /// command is running). `ShellDirectory.current` asks `tcgetpgrp` + `proc_pidinfo`
-    /// for the foreground process group's cwd — the same mechanism that has always
-    /// driven `SpaceViewController+DirectoryFollow.swift`'s 750ms timer.
-    ///
-    /// `view.process` is SwiftTerm's `LocalProcess!`
-    /// (`MacLocalTerminalView.swift:69`), nil before `startProcess`, so it is bound
-    /// with `guard let` rather than force-unwrapped: a tab that has not started yet
-    /// must answer nil rather than trap.
-    var currentDirectory: URL? {
-        // OSC 7 is primary — prefer an already-normalised shell-reported path.
+    /// `view.process` is SwiftTerm's `LocalProcess!` (`MacLocalTerminalView.swift:69`),
+    /// nil before `startProcess`, so it is bound with `guard let`: a tab that has not
+    /// started yet must answer nil rather than trap.
+    var shellContext: ShellContext {
         if let reported = _reportedDirectory {
-            return URL(fileURLWithPath: reported)
+            return ShellContext(
+                foreground: nil, directory: URL(fileURLWithPath: reported), followStatus: .local)
         }
-        // Kernel fallback — works on any shell regardless of integration script.
-        guard let process = view.process else { return nil }
-        return ShellDirectory.current(
+        guard let process = view.process else {
+            return ShellContext(foreground: nil, directory: nil, followStatus: .unavailable)
+        }
+        let directory = ShellDirectory.current(
             foregroundOf: process.childfd, fallbackPid: process.shellPid)
+        return ShellContext(foreground: nil, directory: directory, followStatus: .local)
     }
+
+    /// K SCAFFOLD (lane C replaces): nothing slow to refresh yet.
+    func refreshDirectoryState() {}
 }
 
 // MARK: - Window-level focus events (DECSET 1004)
