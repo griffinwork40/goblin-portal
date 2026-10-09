@@ -48,8 +48,8 @@ enum StarterConfig {
       "cursor": "block",
 
       "// scrollback": "lines to retain; 0 disables scrollback entirely",
-      "// scrollback-note": "past ~3500 the scrollbar thumb hits its 1% floor and stops tracking position, and every window resize walks the whole buffer",
-      "scrollback": 1000,
+      "// scrollback-note": "resize cost scales linearly with scrollback (Buffer.swift:522-531); measured release p50 at 5k=5098us, 10k=10852us; scrollbar thumb uses proportional floor (patch 0015)",
+      "scrollback": 5000,
 
       "// shell": "defaults to $SHELL; launched with -l so your PATH loads",
       "// optionAsMeta": "true lets Option act as Meta instead of typing accents",

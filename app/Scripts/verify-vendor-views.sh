@@ -1,5 +1,5 @@
 # Sourced by verify-vendor.sh — never run on its own. The VIEW-LAYER half of the vendor
-# verdict: every check on the files patches 0006-0014 touch (MacTerminalView.swift,
+# verdict: every check on the files patches 0006-0015 touch (MacTerminalView.swift,
 # AppleTerminalView.swift, TerminalViewSearch.swift, MacDisplayLinkPacer.swift,
 # Apple/Metal/MetalTerminalRenderer.swift, Apple/Metal/CoreTextGlyphRasterizer.swift).
 #
@@ -14,6 +14,8 @@
 # AppleTerminalView.swift (open property + getAttributes injection), and
 # MetalTerminalRenderer.swift (ShaperKey + shape call site). All three hashes
 # therefore cover 0014 in addition to their prior patches.
+# Patch 0015 (proportional scrollbar thumb) touches only AppleTerminalView.swift
+# (scrollThumbsize formula: 0.01 floor -> 1/rows minimum). The ATV hash covers it.
 
 # --- 0010 first: is the display-link pacer present? --------------------------------
 # Checked BEFORE the MacTerminalView/AppleTerminalView hashes on purpose: a tree
@@ -119,7 +121,7 @@ fi
 if [[ "$GOT_ATV" != "$WANT_ATV" ]]; then
   err "error: vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift matches neither"
   err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
-  err "       Hash covers patches 0007, 0010, 0013, and 0014 (disableLigatures property + getAttributes)."
+  err "       Hash covers patches 0007, 0010, 0013, 0014 (disableLigatures property + getAttributes), and 0015 (proportional scrollbar thumb)."
   err ""
   err "  expected (patched): $WANT_ATV"
   err "  found:              $GOT_ATV"

@@ -36,7 +36,7 @@ of pure logic would have caught. So the checks are the `check-*.sh` scripts, a v
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all thirteen patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all fifteen patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-afk-loc.sh      # every `| \`X.swift\` | N |` row in AFK.md equals wc -l — headless (#178)
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
@@ -328,7 +328,7 @@ working terminal.
 {
   "font": { "family": "SF Mono", "size": 16 },
   "cursor": "block",
-  "scrollback": 1000,
+  "scrollback": 5000,
   "optionAsMeta": true,
   "renderer": "metal",
   "theme": { "preset": "classic-repaired" }
@@ -415,7 +415,7 @@ existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **thirteen** local patches:
+Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **fifteen** local patches:
 
 1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
    shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
@@ -512,7 +512,7 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **thirteen** loca
     by removing the `kCTLigatureAttributeName` injection. Fixes #153.
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0014` (fourteen patches) in `../patches/swiftterm/`, all pinned by
+`0001` through `0015` (fifteen patches) in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -538,8 +538,8 @@ patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-ab
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
-for p in patches/swiftterm/00{06,07,08,09,10,11,12,13,14}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all fourteen patches)
+for p in patches/swiftterm/00{06,07,08,09,10,11,12,13,14,15}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all fifteen patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader

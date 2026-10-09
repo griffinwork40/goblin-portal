@@ -1,0 +1,16 @@
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+@@ -2054,7 +2054,13 @@
+             
+             // the thumb size is the proportion of the visible content of the
+             // entire content but don't make it too small
+-            return max (CGFloat (displayBuffer.rows) / CGFloat (displayBuffer.lines.count), 0.01)
++            // Use 1/rows as the minimum proportion rather than the arbitrary 1% floor.
++            // At rows=46: min=0.022 (2.2%); at 10k scrollback: proportion=0.0046 -> 2.2%.
++            // NSScroller handles any knob proportion correctly; a 2.2% thumb is honest
++            // and position-informative, unlike the 1% hairline that was always the same
++            // size regardless of whether the buffer had 4601 or 100000 lines.
++            return max(CGFloat(displayBuffer.rows) / CGFloat(displayBuffer.lines.count),
++                       1.0 / CGFloat(displayBuffer.rows))
+         }
+     }
