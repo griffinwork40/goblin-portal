@@ -28,7 +28,7 @@
 # As of 2026-10-08 the tree differs from upstream in TWELVE files (FOURTEEN patches):
 # Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005),
 # PtmuxDcsHandler.swift (0005, new file), MacTerminalView.swift (0006/0008/0009/0010/0014),
-# AppleTerminalView.swift (0007/0010/0013/0014), TerminalViewSearch.swift (0009),
+# AppleTerminalView.swift (0007/0010/0013/0014/0015), TerminalViewSearch.swift (0009),
 # MacDisplayLinkPacer.swift (0010, new file), MetalTerminalRenderer.swift (0011/0012/0013/0014), and
 # CoreTextGlyphRasterizer.swift (0012). File count and patch count are not the same number
 # and have not been since 0003; do not infer one from the other. For the history of how
@@ -221,7 +221,10 @@ upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac604178
 # updateDisplay calls TerminalView.frameTimingObserver once per real paint), and
 # 0014-disable-ligatures-both-renderers.patch (0014: adds `open var disableLigatures`
 # with a resetCaches() flush on change, and injects kCTLigatureAttributeName=0 in
-# getAttributes(_:withUrl:) when the flag is set — the Core Text path).
+# getAttributes(_:withUrl:) when the flag is set — the Core Text path), and
+# 0015-proportional-scrollbar-thumb.patch (0015: changes scrollThumbsize formula from
+# `max(rows/lines.count, 0.01)` to `max(rows/lines.count, 1/rows)` — replacing the
+# arbitrary 1% floor with a proportional minimum of one viewport line, ~2.2% at 46 rows).
 #
 # What 0007 fixes: upstream's feedPrepare() callback clears the terminal selection
 # on every chunk of pty output when `allowMouseReporting` is true — which it is by
@@ -239,9 +242,17 @@ upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac604178
 # copy/paste — the selection highlight may even remain visible while the underlying
 # `selection.active` flag has already been cleared.
 #
+# What 0015 fixes: the scrollbar thumb degenerates to a fixed 1% hairline for any
+# scrollback above ~4554 lines (where rows/lines.count < 0.01). The thumb loses all
+# position information — scrolling to 10% of the buffer and to 90% look identical.
+# The fix uses 1/rows (~2.2% at 46 rows) as the minimum, which is still tiny but
+# preserves the invariant that the thumb is never smaller than one viewport line.
+# NSScroller handles any knob proportion correctly; no visual breakage results.
+# This is the T2.4 thumb-floor fix (AFK.md Known Risks, 2026-10-09).
+#
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-patched_apple_terminal_view  = 6379e7f1b769180f4d345e65efbabe13d77b8e6aca6e1124d48cf00b06e0ef49
+patched_apple_terminal_view  = 7f3af1bf33e8270e8cdbce373bdae50163bfc5d1315bea673610a669e086e6ad
 
 # AppleTerminalView.swift as shipped upstream at v1.15.0.
 upstream_apple_terminal_view = d28360034441f9a4573debcfe8ac5f86b3c57b3059da5f94ba2549838714e45e
@@ -307,7 +318,7 @@ mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae6776
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-patched_metal_terminal_renderer  = 615ae98b2452b190652e6568cb9ebec86d8d4ac0907b5e239afc14e4024d9905
+patched_metal_terminal_renderer  = 8318962f269daa614b4a9e6c248ce612e27c3f7d7e0ac08434ac934324834bec
 upstream_metal_terminal_renderer = 916d4e1cb0ecf36bcb3dcd8d8b0d9cb79b2c5b5653c0f075ecce6a603133b166
 
 # Apple/Metal/CoreTextGlyphRasterizer.swift AFTER 0012-rasterize-color-glyphs-at-logical-size.patch,
