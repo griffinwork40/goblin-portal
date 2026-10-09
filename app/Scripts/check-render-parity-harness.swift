@@ -186,16 +186,10 @@ MainActor.assumeIsolated {
         } else {
             let arrowStr = screen(["-> => !="])
             for kind in [RendererKind.coreText, .metal] {
-                var cfgOn = AppConfig.defaults()
-                cfgOn.font = jbFont!
-                cfgOn.renderer = kind == .metal ? .metal : .coreText
-                cfgOn.fontThicken = false
-                cfgOn.smoothScrolling = false
-                cfgOn.ligatures = true
-
-                var cfgOff = cfgOn
-                cfgOff.ligatures = false
-
+                // The renderer is configured through the `prepare:` closure, not via
+                // AppConfig, so no AppConfig import is needed in this file. The closure
+                // sets `v.font` and `v.disableLigatures` directly on the terminal view
+                // after SwiftTerm creates it, which is the minimal, correct path.
                 let (imgOn, g) = r.render(arrowStr, with: kind, prepare: { v in
                     v.font = jbFont!
                     v.disableLigatures = false
