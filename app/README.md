@@ -41,8 +41,14 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-afk-loc.sh      # every `| \`X.swift\` | N |` row in AFK.md equals wc -l — headless (#178)
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
-./Scripts/check-cwd-follow.sh    # does the sidebar follow the shell's cwd? — fast, headless
-./Scripts/check-shell-integration.sh # OSC 133 A/C/D state machine + parseOsc7Directory URL parsing — fast, headless
+./Scripts/check-cwd-follow.sh    # per-pid cwd read + cd quoting (ShellDirectory) — fast, headless; foreground-selection now in check-shell-context.sh
+./Scripts/check-foreground-process.sh # classifies pty foreground as .shell/.knownShell/.tmuxClient/.remote/.command — headless; --falsify 3 mutants
+./Scripts/check-tmux-directory.sh     # tmux active-pane directory via real tmux servers on isolated sockets — headless; --falsify 7 mutants
+./Scripts/check-shell-context.sh      # unified cwd rule + OSC 7 host check + real TerminalPane wiring — headless + offscreen GUI; --falsify 7 APFS-clone mutants
+./Scripts/check-terminal-actions.sh   # four terminal-directed actions guarded against unsafe foreground — offscreen GUI; --falsify 4 mutants
+./Scripts/check-directory-indicator.sh # sidebar follow-status note: 10 cases — offscreen GUI; --falsify 4 APFS-clone mutants
+./Scripts/check-tree-refresh.sh       # async setRoot/refresh()/refreshSynchronously(): 8 cases incl. STALE-DROP and MUTATION-INVALIDATES — offscreen GUI; --falsify 4 mutants
+./Scripts/check-shell-integration.sh  # OSC 133 A/C/D state machine + 15 OSC 7 host-check cases (Osc7Directory) — fast, headless; --falsify 3 mutants
 ./Scripts/check-git-status.sh    # porcelain-v2 parsing + repo discovery, on real repos — headless
 ./Scripts/check-reflow.sh        # does narrowing corrupt scrollback? (#494) — headless
 ./Scripts/check-altbuffer-resize.sh # does an alt-buffer resize resurrect stale cells? — headless
