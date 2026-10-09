@@ -119,7 +119,7 @@ fi
 if [[ "$GOT_ATV" != "$WANT_ATV" ]]; then
   err "error: vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift matches neither"
   err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
-  err "       Hash covers patches 0007, 0010, 0014 (disableLigatures property + getAttributes)."
+  err "       Hash covers patches 0007, 0010, 0013, and 0014 (disableLigatures property + getAttributes)."
   err ""
   err "  expected (patched): $WANT_ATV"
   err "  found:              $GOT_ATV"
@@ -179,7 +179,7 @@ if [ "$GOT_MTR" = "$(pin_value upstream_metal_terminal_renderer)" ]; then
 fi
 if [ "$GOT_MTR" != "$(pin_value patched_metal_terminal_renderer)" ]; then
   err "error: MetalTerminalRenderer.swift hash mismatch (got $GOT_MTR)."
-  err "  The pinned hash covers 0011, 0012, AND 0014 (ShaperKey + shape call site);"
+  err "  The pinned hash covers 0011, 0012, 0013, AND 0014 (ShaperKey + shape call site);"
   err "  a tree with only some of them lands here."
   err "  Regenerate: shasum -a 256 $MTR  # then update patched_metal_terminal_renderer"
   exit 3

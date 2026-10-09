@@ -354,6 +354,7 @@ tooling, and four documented wrong answers are in `.afk/research/theme-design-20
 | `scrollback` | Lines retained, default `1000`. `0` disables it. Raising it is not free: SwiftTerm sizes the scrollbar thumb as `max(rows / lines, 0.01)`, so past ~3,500 lines the thumb sticks at the 1% floor and stops tracking position, and `Buffer.resize` walks every line twice on each window resize (three times until local patch `0004` removed an ungated upstream debug assertion) |
 | `shell` | Defaults to `$SHELL`. Must be executable or it is ignored |
 | `optionAsMeta` | `true` makes Option act as Meta instead of typing accented characters |
+| `fontThicken` | **No effect on macOS 15+.** `CGContextSetFontSmoothingStyle` is a no-op in both renderers — confirmed by an on-screen pixel probe (0 bytes differed between the baseline and thickened frames, captured via `screencapture -l <windowid>` from a real NSWindow on macOS 27). Setting `true` emits a config warning. The key is still parsed so existing configs stay valid and the warning is visible. See PR #152 for the probe methodology |
 | `renderer` | `metal` (default, since PR #134, 2026-09-27; was `coretext`) or `coretext`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
 | `smoothScrolling` | `true` (default) or `false`. When `true`, trackpad scroll gestures use pixel-smooth sub-cell offsets with OS-provided momentum — the terminal content drifts naturally after a flick. When `false`, every scroll event goes straight to SwiftTerm's line-by-line handler. Automatically off for alternate-buffer programs (tmux, vim) and when mouse reporting is active, since those programs own the pointer themselves. The state machine is gated by `./Scripts/check-smooth-scroll.sh` |
 | `theme` | **Defaults to `classic-repaired`** (changed 2026-08-20, `Config.swift:265`; was `umber` since 2026-08-03; was previously "install nothing", which measured as the worst palette in the repo — its ANSI 4 blue sat at APCA Lc 16.9, 2.9 points from the `#0000EE` the gate exists to reject). Installing a palette is safe for the 256-colour cube: `TerminalPane.apply(config:)` pins `ansi256PaletteStrategy` to `.xterm` before any colour, so indices 16–255 keep the standard xterm values whatever you set. (Earlier docs here claimed the opposite — that installing a background regenerates 16–255 by interpolating your bg/fg. That describes SwiftTerm's *library default*, which this app has overridden for some time; corrected 2026-08-03.) |
@@ -487,7 +488,18 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **thirteen** loca
     and metrics by point size, non-linearly. `0012` rasterizes colour glyphs only at
     logical size under a scaled CTM. Gated by `check-render-parity.sh`, whose emoji cases
     fail with it reverted.
-13. `0014-disable-ligatures-both-renderers.patch` — adds `open var disableLigatures: Bool`
+13. `0013-fix-combining-mark-after-wide-char.patch` — a combining mark (e.g. U+0301 acute
+    accent) after a wide CJK character was drawn over the **next narrow cell** instead of
+    over the CJK glyph itself (#151, F10). Root cause: the glyph-position loop in both
+    renderers computed each glyph's column as `startColumn + (i × columnWidth)`, but
+    combining marks have zero CT advance and must stay at the same column as their base
+    glyph. Fix: for wide-char segments (`columnWidth ≥ 2`), detect zero-advance glyphs by
+    comparing adjacent CT positions; when advance < 0.5 × cellWidth, pin to the previous
+    column. Touches `AppleTerminalView.swift` and `MetalTerminalRenderer.swift`. Gated by
+    the F10 correctness assertion in `check-render-parity.sh` (mark ink must start inside
+    the wide-glyph slot, not over the next cell); falsified by reverting the patch.
+
+14. `0014-disable-ligatures-both-renderers.patch` — adds `open var disableLigatures: Bool`
     to `TerminalView` (backing Bool in `MacTerminalView.swift`). Core Text path: the setter
     flushes `resetCaches()` and `getAttributes(_:withUrl:)` injects `kCTLigatureAttributeName=0`
     when the flag is set. Metal path: `ShaperKey` gains `disableLigatures` and
@@ -498,7 +510,7 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **thirteen** loca
     by removing the `kCTLigatureAttributeName` injection. Fixes #153.
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0014` (thirteen patches) in `../patches/swiftterm/`, all pinned by
+`0001` through `0014` (fourteen patches) in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -524,8 +536,8 @@ patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-ab
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
-for p in patches/swiftterm/00{07,08,09,10,11,12,14}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all thirteen patches)
+for p in patches/swiftterm/00{06,07,08,09,10,11,12,13,14}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all fourteen patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader
@@ -533,8 +545,8 @@ app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all th
 ```
 
 `verify-vendor.sh` exits `2` naming the specific file if one is missing. Note that `0002`,
-`0003` and `0004` patch the **same file**, so the pin carries a
-single combined `Buffer.swift` hash: a tree with only some of them matches neither the patched
+`0003` and `0004` patch the **same file**, so the pin carries a single combined `Buffer.swift`
+hash: a tree with only some of them matches neither the patched
 nor the upstream hash and lands in the exit-`3` "unknown revision" branch. That is
 deliberate — half-patched is not a state this project supports, and it is louder than a
 hash that quietly tolerated either.

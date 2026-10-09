@@ -1,20 +1,5 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: AFK Agent <agent@agentafk.com>
-Date: Thu, 08 Oct 2026 19:16:13 -0400
-Subject: [PATCH 0014] add disableLigatures to TerminalView, both renderers
-
-Three files. MacTerminalView.swift gets the backing Bool (_disableLigatures = false).
-AppleTerminalView.swift gets an open property that flushes resetCaches() on change,
-and injects kCTLigatureAttributeName=0 into every getAttributes dict when set.
-MetalTerminalRenderer.swift extends ShaperKey with disableLigatures and threads the
-flag through shape(text:font:disableLigatures:) so the CTLine is built with the same
-attribute. Both caches key on the flag; a toggle hits no stale entry.
-Default false — ligatures stay on, matching every other terminal's default.
----
-
-diff --git a/Sources/SwiftTerm/Mac/MacTerminalView.swift b/Sources/SwiftTerm/Mac/MacTerminalView.swift
---- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
-+++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+--- a/Sources/SwiftTerm/Mac/MacTerminalView.swift	2026-10-08 21:03:49
++++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift	2026-10-08 21:03:49
 @@ -282,6 +282,11 @@
      var caretView: CaretView!
      var _fontSmoothing: Bool = true
@@ -27,10 +12,8 @@ diff --git a/Sources/SwiftTerm/Mac/MacTerminalView.swift b/Sources/SwiftTerm/Mac
      public var terminal: Terminal!
  
      /// Marked (uncommitted) text from an input source (IME, dictation, etc.).
-
-diff --git a/Sources/SwiftTerm/Apple/AppleTerminalView.swift b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
---- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-+++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift	2026-10-08 21:03:49
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift	2026-10-08 21:03:49
 @@ -132,6 +132,32 @@
          }
      }
@@ -82,11 +65,9 @@ diff --git a/Sources/SwiftTerm/Apple/AppleTerminalView.swift b/Sources/SwiftTerm
          }
  
          if withUrl {
-
-diff --git a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
---- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-+++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-@@ -1466,7 +1466,13 @@
+--- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift	2026-10-08 21:03:49
++++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift	2026-10-08 21:03:49
+@@ -1492,7 +1492,13 @@
                      return
                  }
                  let runFont = attributes[.font] as? TTFont ?? terminalView.fontSet.normal
@@ -101,7 +82,7 @@ diff --git a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift b/Sources
                      return
                  }
                  shapedRuns.append(ShapedRun(attributes: attributes, shaperRun: shaped))
-@@ -1859,6 +1865,12 @@
+@@ -1885,6 +1891,12 @@
          let fontName: String
          let fontSize: CGFloat
          let text: String
@@ -114,7 +95,7 @@ diff --git a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift b/Sources
      }
  
      private struct ShaperGlyphRun {
-@@ -1892,18 +1904,27 @@
+@@ -1918,18 +1930,27 @@
              self.maxEntries = maxEntries
          }
  

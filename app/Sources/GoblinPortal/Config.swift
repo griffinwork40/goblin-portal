@@ -180,10 +180,10 @@ struct AppConfig {
     /// Pixel-level smooth trackpad scrolling via CALayer transform. Default true.
     /// Set `"smoothScrolling": false` in config.json to opt out.
     var smoothScrolling: Bool
-    /// When `true`, OpenType ligature substitution is disabled in both renderers
-    /// via `TerminalView.disableLigatures` (patch 0014, `AppleTerminalView.swift`).
-    /// Default `false` — ligatures form when the font supports them (e.g. JetBrains Mono
-    /// `->`, `=>`, `!=`). Set `"ligatures": false` in config.json to suppress them.
+    /// Ligature toggle. When `true` (default), ligatures form when the font supports them
+    /// (e.g. JetBrains Mono `->`, `=>`, `!=`). When `false`, OpenType ligature substitution
+    /// is disabled in both renderers via `TerminalView.disableLigatures` (patch 0014).
+    /// Set `"ligatures": false` in config.json to suppress them.
     var ligatures: Bool
 
     // Editor behaviour — see `Config+Editor.swift` for the resolver.

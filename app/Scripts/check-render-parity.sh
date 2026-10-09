@@ -24,14 +24,20 @@
 #   d  emoji (N4): per 2-cell slot, Metal's ink bbox within 1px of Core Text's and ink total
 #      within 3%. Without 0012 the bbox is 8px off and the ink 0.62-0.69x.
 #   PINNED (known, unfixed, never silently loosened):
-#      F10  combining mark after a wide char: BOTH renderers draw it over the next cell, so
-#           parity passes and proves nothing about correctness. Pinned per renderer.
 #      N5   Metal's `|` paints 1px into the row below; Core Text's does not.
 #   A pinned case FAILS when the defect changes, fixed or worse, so the pin gets re-measured.
+#   F10 (fixed by patch 0013, #151): combining mark after a wide CJK char now lands over the
+#      wide glyph in BOTH renderers. The case is now a CORRECTNESS assertion: mark ink must
+#      start inside the wide-glyph slot (x < 2*cellW). With 0013 reverted it FAILS; applied, PASSES.
 #
 # FALSIFICATION OF THE FIX (done by hand when 0012 landed; transcripts in the PR): with 0012
 # reverted, the four emoji slot cases and the emoji-rows parity case FAIL (exit 1) and every
 # other case passes; with it applied, everything passes.
+#
+# FALSIFICATION OF 0013 (transcripts in the 0013 PR): with 0013 reverted, the two
+# "F10 mark placement" cases FAIL (mark at x >= 2*cellW-4, outside the wide glyph slot).
+# With 0013 applied both PASS (mark inside the slot). The parity case for F10 passes either
+# way (both renderers still agree), so the placement cases are the meaningful signal.
 #
 # WHAT IT CANNOT SEE
 #   * On-screen compositing. Both captures skip the window server (no screen-capture
@@ -41,8 +47,9 @@
 #     at the default font both cell dimensions are whole device pixels.
 #   * Fonts other than the system monospace at 14pt, ligatures, and the caret (hidden on
 #     purpose: it is a subview under Core Text and a quad under Metal).
-#   * Whether either renderer is RIGHT. Parity is agreement; F10 is the standing example of
-#     two renderers agreeing on a wrong answer.
+#   * Whether either renderer is RIGHT for cases not specifically asserted. Parity means
+#     both renderers agree, which is necessary but not sufficient. F10 (combining mark after
+#     a wide char) now asserts correctness too (patch 0013, #151).
 #
 # Exit codes: 0 pass; 1 a real failure; 2 environmental (no toolchain, build failed, no
 # GoblinPortal objects, harness would not compile, no Metal device, no 2x screen, a capture
