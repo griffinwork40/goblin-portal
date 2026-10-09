@@ -37,8 +37,8 @@ final class PreferencesWindow: NSWindowController {
     let scrollbackField  = NSTextField()
     let optionAsMetaCheck = NSButton(checkboxWithTitle: "Option as Meta",
                                      target: nil, action: nil)
-    let fontThickenCheck  = NSButton(checkboxWithTitle: "Font dilation (thicken)",
-                                     target: nil, action: nil)
+    // fontThickenCheck removed (#152): CGContextSetFontSmoothingStyle is a no-op on
+    // macOS 15+. The key is still parsed from config.json (fail-soft) and warned on.
     let rendererPopup    = NSPopUpButton()
 
     // MARK: - Config string tables
@@ -131,8 +131,7 @@ final class PreferencesWindow: NSWindowController {
         let optMeta = dict["optionAsMeta"] as? Bool ?? PreferencesSeed.defaultOptionAsMeta
         optionAsMetaCheck.state = optMeta ? .on : .off
 
-        let thicken = dict["fontThicken"] as? Bool ?? PreferencesSeed.defaultFontThicken
-        fontThickenCheck.state = thicken ? .on : .off
+        // fontThicken checkbox removed (#152): no-op on macOS 15+.
 
         // Renderer — absent key seeds from Renderer.default.configName ("metal"),
         // NOT from the literal "coretext".  The old literal silently downgraded every
@@ -241,7 +240,8 @@ final class PreferencesWindow: NSWindowController {
 
         // Booleans
         d["optionAsMeta"] = optionAsMetaCheck.state == .on
-        d["fontThicken"]  = fontThickenCheck.state  == .on
+        // fontThicken omitted: no UI control (#152). Existing configs retain their value
+        // unmodified (PreferencesDiff only writes keys that appear in `d`).
 
         // Renderer — use the canonical config name; no literal fallback.
         d["renderer"] = rendererPopup.titleOfSelectedItem ?? PreferencesSeed.defaultRendererName

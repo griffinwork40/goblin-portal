@@ -354,6 +354,7 @@ tooling, and four documented wrong answers are in `.afk/research/theme-design-20
 | `scrollback` | Lines retained, default `1000`. `0` disables it. Raising it is not free: SwiftTerm sizes the scrollbar thumb as `max(rows / lines, 0.01)`, so past ~3,500 lines the thumb sticks at the 1% floor and stops tracking position, and `Buffer.resize` walks every line twice on each window resize (three times until local patch `0004` removed an ungated upstream debug assertion) |
 | `shell` | Defaults to `$SHELL`. Must be executable or it is ignored |
 | `optionAsMeta` | `true` makes Option act as Meta instead of typing accented characters |
+| `fontThicken` | **No effect on macOS 15+.** `CGContextSetFontSmoothingStyle` is a no-op in both renderers — confirmed by an on-screen pixel probe (0 bytes differed between the baseline and thickened frames, captured via `screencapture -l <windowid>` from a real NSWindow on macOS 27). Setting `true` emits a config warning. The key is still parsed so existing configs stay valid and the warning is visible. See PR #152 for the probe methodology |
 | `renderer` | `metal` (default, since PR #134, 2026-09-27; was `coretext`) or `coretext`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
 | `smoothScrolling` | `true` (default) or `false`. When `true`, trackpad scroll gestures use pixel-smooth sub-cell offsets with OS-provided momentum — the terminal content drifts naturally after a flick. When `false`, every scroll event goes straight to SwiftTerm's line-by-line handler. Automatically off for alternate-buffer programs (tmux, vim) and when mouse reporting is active, since those programs own the pointer themselves. The state machine is gated by `./Scripts/check-smooth-scroll.sh` |
 | `theme` | **Defaults to `classic-repaired`** (changed 2026-08-20, `Config.swift:265`; was `umber` since 2026-08-03; was previously "install nothing", which measured as the worst palette in the repo — its ANSI 4 blue sat at APCA Lc 16.9, 2.9 points from the `#0000EE` the gate exists to reject). Installing a palette is safe for the 256-colour cube: `TerminalPane.apply(config:)` pins `ansi256PaletteStrategy` to `.xterm` before any colour, so indices 16–255 keep the standard xterm values whatever you set. (Earlier docs here claimed the opposite — that installing a background regenerates 16–255 by interpolating your bg/fg. That describes SwiftTerm's *library default*, which this app has overridden for some time; corrected 2026-08-03.) |
@@ -525,7 +526,7 @@ patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-ab
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
-for p in patches/swiftterm/00{07,08,09,10,11,12}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
+for p in patches/swiftterm/00{06,07,08,09,10,11,12}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # needs bash/zsh brace expansion (not POSIX sh)
 app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all twelve patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
@@ -534,8 +535,8 @@ app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all tw
 ```
 
 `verify-vendor.sh` exits `2` naming the specific file if one is missing. Note that `0002`,
-`0003` and `0004` patch the **same file**, so the pin carries a
-single combined `Buffer.swift` hash: a tree with only some of them matches neither the patched
+`0003` and `0004` patch the **same file**, so the pin carries a single combined `Buffer.swift`
+hash: a tree with only some of them matches neither the patched
 nor the upstream hash and lands in the exit-`3` "unknown revision" branch. That is
 deliberate — half-patched is not a state this project supports, and it is louder than a
 hash that quietly tolerated either.

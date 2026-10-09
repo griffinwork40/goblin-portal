@@ -14,6 +14,10 @@
 # Usage (from anywhere inside the main checkout):
 #   app/Scripts/cut-release.sh X.Y.Z --dry-run   # preflight + print the plan, change nothing
 #   app/Scripts/cut-release.sh X.Y.Z             # do it
+#   app/Scripts/cut-release.sh X.Y.Z --resume    # after timeout or manual dispatch: find the
+#                                                 # run, watch it, verify assets, print the URL.
+#                                                 # Skips steps 1-4 (bump/commit/tag/push);
+#                                                 # tag must already exist on origin.
 #
 # Preflight (cut-release-preflight.sh, sourced): on main, no tracked changes, HEAD ==
 # origin/main after a fetch, X.Y.Z strict semver and numerically > current VERSION, tag
@@ -59,16 +63,18 @@ on_exit() {
 trap on_exit EXIT
 
 # --- arguments: validated before touching anything ---------------------------------
-NEW=""; DRY=0
+NEW=""; DRY=0; RESUME=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY=1 ;;
+    --resume)  RESUME=1 ;;
     -h|--help) sed -n '3,28p' "$0"; exit 0 ;;
-    -*) refuse "unknown flag $arg (usage: cut-release.sh X.Y.Z [--dry-run])" ;;
+    -*) refuse "unknown flag $arg (usage: cut-release.sh X.Y.Z [--dry-run|--resume])" ;;
     *) [ -z "$NEW" ] || refuse "more than one version given"; NEW="$arg" ;;
   esac
 done
-[ -n "$NEW" ] || refuse "usage: cut-release.sh X.Y.Z [--dry-run]"
+[ -n "$NEW" ] || refuse "usage: cut-release.sh X.Y.Z [--dry-run|--resume]"
+[ "$DRY" -eq 0 ] || [ "$RESUME" -eq 0 ] || refuse "--dry-run and --resume are mutually exclusive"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source-path=SCRIPTDIR source=cut-release-preflight.sh
@@ -83,8 +89,6 @@ CUR=""
 _preflight_tools
 cd "$(git -C "$HERE" rev-parse --show-toplevel)" || env_fail "not inside a git checkout"
 
-preflight
-
 # A tag pushed anywhere but GitHub never triggers release.yml. Refused for real runs;
 # a dry run only warns, so it can be rehearsed in a throwaway clone.
 ORIGIN_URL="$(git remote get-url origin)"
@@ -92,6 +96,45 @@ case "$ORIGIN_URL" in
   *[/@]github.com[:/]"$REPO"|*[/@]github.com[:/]"$REPO".git) ORIGIN_OK=1 ;;
   *) ORIGIN_OK=0 ;;
 esac
+
+# --- --resume path: adopt a late or manually-dispatched run -------------------------
+# Skips all write steps (bump/commit/tag/push). The tag must already exist on origin.
+# Finds the most-recent release.yml run whose trigger input tag OR headBranch matches
+# $TAG — covering both a delayed tag-push event and a manual `gh workflow run`.
+if [ "$RESUME" -eq 1 ]; then
+  [ "$ORIGIN_OK" -eq 1 ] || refuse "origin is $ORIGIN_URL, not github.com/$REPO"
+  command -v gh >/dev/null 2>&1 || env_fail "gh not found on PATH (https://cli.github.com)"
+  gh auth status -h github.com >/dev/null 2>&1 || env_fail "gh is not authenticated (gh auth login)"
+
+  # Confirm the tag is on origin; a missing tag means there is nothing to resume.
+  rc=0; git fetch --quiet --tags origin 2>/dev/null || rc=$?
+  [ "$rc" -eq 0 ] || env_fail "git fetch --tags origin failed (network or auth?)"
+  git rev-parse -q --verify "refs/tags/$TAG" >/dev/null \
+    || refuse "tag $TAG does not exist on origin — nothing to resume (run without --resume to cut fresh)"
+  SHA="$(git rev-parse "refs/tags/$TAG")"
+  STATE="tag $TAG exists on origin; resuming watch (no local changes made)"
+
+  TMP="$(mktemp -d)"
+  _find_run
+  [ -n "$RUN_ID" ] || fail "no release.yml run for $TAG found after 120s" \
+    "check https://github.com/$REPO/actions/workflows/release.yml; to start one: gh workflow run release.yml -R $REPO -f tag=$TAG; then re-run: cut-release.sh $NEW --resume"
+
+  say "ok: adopting release.yml run $RUN_URL"
+  RERUN="gh workflow run release.yml -R $REPO -f tag=$TAG"
+  gh run watch -R "$REPO" "$RUN_ID" --exit-status --compact --interval 15 >&2 \
+    || fail "release.yml failed: $RUN_URL" \
+         "fix the cause, then: gh run rerun $RUN_ID -R $REPO --failed (or $RERUN)"
+  STATE="tag $TAG on origin; release.yml succeeded ($RUN_URL)"
+  _verify_assets
+  URL="$(gh release view "$TAG" -R "$REPO" --json url --jq .url 2>/dev/null \
+    || printf 'https://github.com/%s/releases/tag/%s' "$REPO" "$TAG")"
+  say ""
+  say "released $TAG: $URL"
+  say "next: optionally gh release edit $TAG --notes-file <file>; then the site (RELEASING.md)"
+  exit 0
+fi
+
+preflight
 
 if [ "$DRY" -eq 1 ]; then
   [ "$ORIGIN_OK" -eq 1 ] || say "warning: origin is $ORIGIN_URL, not $REPO; a real run would refuse"
@@ -101,9 +144,10 @@ if [ "$DRY" -eq 1 ]; then
   say "  2. git commit -m 'chore(app): bump version to $NEW' (as AFK Agent <agent@agentafk.com>)"
   say "  3. git tag $TAG on that commit"
   say "  4. git push origin main, then git push origin $TAG"
-  say "  5. find the release.yml run for $TAG and gh run watch --exit-status"
+  say "  5. find the release.yml run for $TAG (tag-push or workflow_dispatch) and gh run watch --exit-status"
   say "  6. download GoblinPortal-$TAG.{zip,dmg} + .sha256 and shasum -a 256 -c both"
   say "  7. print the release URL"
+  say "  (if step 5 times out: cut-release.sh $NEW --resume  picks up where it left off)"
   exit 0
 fi
 [ "$ORIGIN_OK" -eq 1 ] || refuse "origin is $ORIGIN_URL, not github.com/$REPO"
@@ -141,28 +185,15 @@ STATE="main and tag $TAG pushed"
 say "ok: pushed main and $TAG"
 
 # --- 5. find and watch the release.yml run ---------------------------------------------
-# GitHub registers the run a few seconds after the push; poll briefly rather than sleep a
-# guessed amount. Matching the tag (headBranch) AND the sha rules out a stale run from an
-# earlier push of the same tag name.
+# A tag push triggers the workflow with headBranch == the tag name. A manual
+# workflow_dispatch uses headBranch == the branch it was dispatched from (usually main).
+# _find_run checks both so a delayed push event or an operator-dispatched run are both
+# adopted — the v1.9.0 incident produced exactly the latter.
 RERUN="gh workflow run release.yml -R $REPO -f tag=$TAG"
 RUN_ID=""; RUN_URL=""
-i=0
-while [ "$i" -lt 24 ]; do
-  run="$(gh run list -R "$REPO" --workflow release.yml --branch "$TAG" -L 1 \
-    --json databaseId,headSha,url \
-    --jq '.[0] | select(. != null) | [(.databaseId | tostring), .headSha, .url] | join(" ")' \
-    2>/dev/null || true)"
-  if [ -n "$run" ]; then
-    read -r RUN_ID run_sha RUN_URL <<EOR
-$run
-EOR
-    [ "$run_sha" = "$SHA" ] && break
-    RUN_ID=""
-  fi
-  i=$((i + 1)); sleep 5
-done
+_find_run
 [ -n "$RUN_ID" ] || fail "no release.yml run for $TAG appeared within 120s" \
-  "check https://github.com/$REPO/actions/workflows/release.yml; if none ran: $RERUN"
+  "check https://github.com/$REPO/actions/workflows/release.yml; to start one manually: $RERUN; then watch with: cut-release.sh $NEW --resume"
 say "ok: release.yml run $RUN_URL"
 
 # gh's own exit code is the verdict; --compact (gh >= 2.74.0, cli/cli PR #10629) keeps
@@ -175,26 +206,7 @@ STATE="main and tag $TAG pushed; release.yml succeeded ($RUN_URL)"
 # --- 6. download what users download, and check it ------------------------------------
 # release.yml verifies its own files before upload; this verifies what the release page
 # actually serves. That gap is where v1.5.0/v1.6.0's bad .dmg.sha256 lived.
-mkdir -p "$TMP/dl"
-for a in "GoblinPortal-$TAG.zip" "GoblinPortal-$TAG.zip.sha256" \
-         "GoblinPortal-$TAG.dmg" "GoblinPortal-$TAG.dmg.sha256"; do
-  gh release download "$TAG" -R "$REPO" -D "$TMP/dl" -p "$a" --clobber >/dev/null 2>&1 \
-    || fail "release asset $a missing or not downloadable" \
-         "inspect: gh release view $TAG -R $REPO; re-upload with: $RERUN"
-  [ -s "$TMP/dl/$a" ] || fail "release asset $a downloaded empty" "re-upload with: $RERUN"
-done
-for f in "GoblinPortal-$TAG.zip" "GoblinPortal-$TAG.dmg"; do
-  # release.yml writes `<hash>  <bare filename>`. Re-pair the hash with the file we
-  # downloaded, so a sidecar that ever carries a runner-side directory prefix still
-  # checks these bytes instead of failing on a path that only existed on the runner.
-  hash="$(awk 'NR == 1 { print $1 }' "$TMP/dl/$f.sha256")"
-  printf '%s\n' "$hash" | grep -Eqx '[0-9a-f]{64}' \
-    || fail "$f.sha256 does not start with a sha256 hash" "re-upload with: $RERUN"
-  ( cd "$TMP/dl" && printf '%s  %s\n' "$hash" "$f" | shasum -a 256 -c - >/dev/null ) \
-    || fail "$f does not match its published .sha256" \
-         "the release is LIVE with a bad checksum; re-upload with: $RERUN"
-  say "ok: $f matches $f.sha256"
-done
+_verify_assets
 
 # --- 7. done ----------------------------------------------------------------------------
 URL="$(gh release view "$TAG" -R "$REPO" --json url --jq .url 2>/dev/null \

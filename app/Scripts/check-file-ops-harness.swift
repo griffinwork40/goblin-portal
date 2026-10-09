@@ -265,18 +265,19 @@ do {
 
 _ = try? FileManager.default.removeItem(at: dir6)  // harness scratch only
 
-// ── CASE 16: caseSensitiveFSAtRoot — returns a Bool, no crash ─────────────
+// ── CASE 16: caseSensitiveFSAtRoot — agrees with an independent resourceValues read ─
 // macOS temp dirs live on the boot volume (APFS, case-insensitive by default).
 // We cannot assert a hard true/false because a CI machine may be on a CS volume;
-// we assert only that the function returns *some* Bool without throwing or crashing.
-// (The compile-time type constraint already guarantees Bool, but the runtime query
-// must not crash — the earlier body used `try?` which masked a nil chain; the new
-// helper uses flatMap and ?? so it is safe on any volume.)
+// we assert that the helper agrees with a direct resourceValues read of the same URL,
+// which is the ground truth the helper is meant to wrap concisely.
 let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
 let cs16 = FileOperationPolicy.caseSensitiveFSAtRoot(tmpDir)
-// `cs16` is a Bool — the assignment alone proves it compiled and ran.
-// Report the measured value so CI logs make the volume's actual semantics visible.
-print("  case16 caseSensitiveFSAtRoot(\(tmpDir.lastPathComponent)) = \(cs16) (informational)")
+let reference16 = (try? tmpDir.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))
+    .flatMap(\.volumeSupportsCaseSensitiveNames) ?? false
+if cs16 != reference16 {
+    fail("CASE16", "caseSensitiveFSAtRoot=\(cs16) disagrees with resourceValues=\(reference16)")
+}
+print("  case16 caseSensitiveFSAtRoot(\(tmpDir.lastPathComponent)) = \(cs16)")
 
 // ── Result ────────────────────────────────────────────────────────────────
 if bad == 0 {
