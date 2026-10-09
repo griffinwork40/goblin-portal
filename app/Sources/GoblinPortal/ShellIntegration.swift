@@ -157,45 +157,31 @@ enum ShellIntegration {
 
 extension ShellIntegration {
 
-    /// Parse an OSC 7 payload into a normalised POSIX path, or nil for invalid input.
+    /// Parse an OSC 7 payload into a normalised POSIX path, or nil for invalid input
+    /// or a remote host.
     ///
-    /// Accepts two forms:
-    ///   • `file://hostname/path` — the wire format emitted by `shell-integration.zsh` and
-    ///     returned by SwiftTerm's OSC 7 callback. The hostname component is stripped; only
-    ///     the path portion is returned (per RFC 8089 §2, a `file:` URI may carry any host
-    ///     for localhost equivalents — the terminal only cares about the path).
-    ///   • A bare absolute POSIX path (no scheme) — accepted as a passthrough, so callers
-    ///     need not branch on whether SwiftTerm has already decoded the URL. Relative paths
-    ///     are rejected (they cannot be valid working directories).
+    /// Thin wrapper around `Osc7Directory.parse(_:localHostnames:)` that maintains the
+    /// original signature so callers (`TerminalPane+ShellIntegration`) are unchanged.
     ///
-    /// For `file:` URIs, `.path` returns the already-decoded POSIX path (Foundation
-    /// percent-decodes it internally). No second `.removingPercentEncoding` is applied —
-    /// that would double-decode directories whose literal names contain `%` sequences.
-    /// Empty, nil, and structurally invalid inputs all return nil rather than a partial path.
+    /// Returns the local path string for `.local` results, and nil for `.remote` results
+    /// (remote paths must never re-root the local sidebar) and for any parse failure.
     ///
-    /// Pure Foundation — no AppKit, no SwiftTerm. Compiled by `check-shell-integration.sh`
-    /// alongside `ShellIntegration.swift` so the logic is gateable headlessly.
+    /// The host comparison and single-decode contract live in `Osc7Directory.swift` —
+    /// see that file for the full specification. This function is kept in ShellIntegration
+    /// so the gate can compile it without reaching into AppKit, and so callers that have
+    /// no concept of local/remote continue to work without modification.
     static func parseOsc7Directory(_ raw: String) -> String? {
-        guard !raw.isEmpty else { return nil }
-
-        let path: String
-        if raw.hasPrefix("file://") {
-            // `file://hostname/path` — URL(string:) handles the parsing; .path gives
-            // the percent-decoded POSIX path. An invalid URL (e.g. stray BEL characters
-            // that SwiftTerm has not stripped) returns nil from URL(string:), which we
-            // propagate to the caller.
-            guard let url = URL(string: raw), !url.path.isEmpty
-            else { return nil }
-            // .path already percent-decodes (Foundation docs: "the path, unescaped").
-            path = url.path
-        } else {
-            // Bare path (no scheme). Only absolute paths are valid working directories.
-            guard raw.hasPrefix("/") else { return nil }
-            path = raw
+        switch Osc7Directory.parse(raw, localHostnames: Osc7Directory.currentLocalHostnames()) {
+        case .local(let path):
+            return path
+        case .remote:
+            // Remote host — the path belongs to another machine's filesystem. Returning nil
+            // here prevents the sidebar from re-rooting at a same-spelled local path
+            // (e.g. an ssh session reporting /tmp would otherwise open the local /tmp).
+            return nil
+        case nil:
+            return nil
         }
-
-        guard !path.isEmpty else { return nil }
-        return path
     }
 }
 

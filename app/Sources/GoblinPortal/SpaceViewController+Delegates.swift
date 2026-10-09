@@ -131,6 +131,13 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
             NSSound.beep()
             return
         }
+        // Guarded: pasted text lands in an agent prompt if the foreground is not a
+        // shell. Same rule as ⌘⇧C/⌘⇧R — plan §coordinator-4, rejected alternative 3.
+        // The beep comes from the guard (via TerminalInputPolicy), not from the
+        // no-host beep above, so both refusal paths produce the same user signal.
+        guard TerminalActionGuard.production.check(host: host, action: "Insert Path") else {
+            return
+        }
         // Single-quoted, with any embedded quote closed-escaped-reopened, so spaces,
         // `$`, and quotes in a filename survive the shell verbatim.
         let quoted = "'" + url.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
@@ -189,6 +196,14 @@ extension SpaceViewController: FileTreeViewControllerDelegate {
         // nothing reads as broken (PR #2 review, finding 5).
         guard let host = focusedShellHost else {
             NSSound.beep()
+            return
+        }
+        // Guarded: "cd Here" on an ssh session would run cd on the remote machine; on
+        // an agent REPL it submits a cd command as a prompt — plan §coordinator-4.
+        // The guard re-checks the foreground at send-time because the context-menu does
+        // not call validateUserInterfaceItem, and the foreground can change between
+        // right-click and item selection.
+        guard TerminalActionGuard.production.check(host: host, action: "cd Here") else {
             return
         }
         // Submitted, unlike path-insert, which leaves its text on the prompt. The
