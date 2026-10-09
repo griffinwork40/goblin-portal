@@ -9,7 +9,7 @@
 // WHY: T2.4 (best-mac-terminal roadmap) raises the default scrollback from 1000 lines
 // to 5000 for agent REPL sessions. The roadmap requires measured evidence:
 // (A) resident memory per 1k scrollback lines — task_info(TASK_VM_INFO).phys_footprint
-//     delta, measured with a fresh terminal per size at 80 cols and 200 cols.
+//     delta, measured with a per-case baseline at 80 cols and 200 cols.
 //     MemoryLayout<CharData>.stride × cols × lines is reported as a LOWER BOUND; the
 //     measured footprint includes BufferLine object overhead and is the authoritative figure.
 // (B) Terminal.resize narrow→widen cost at 1k, 3.5k, 5k, 10k, 20k lines — Buffer.resize
@@ -176,7 +176,7 @@ if !falsifyDebugTiming {
     print("CharData stride: \(charDataStride) bytes  termCols: \(termCols)  termRows: \(termRows)")
     print("Memory ceiling: \(memCeilingPer1kBytes/1024/1024) MB per 1k scrollback lines")
     print("")
-    print("=== Memory footprint (task_info phys_footprint delta, fresh terminal per run) ===")
+    print("=== Memory footprint (task_info phys_footprint delta, per-case baseline) ===")
     print("cols  scrollback  stride_lb      phys_footprint   per_1k_lines     result")
     print("----- ----------  -------------- ---------------- ---------------- ------")
 
