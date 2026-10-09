@@ -499,8 +499,18 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **thirteen** loca
     the F10 correctness assertion in `check-render-parity.sh` (mark ink must start inside
     the wide-glyph slot, not over the next cell); falsified by reverting the patch.
 
+14. `0014-disable-ligatures-both-renderers.patch` — adds `open var disableLigatures: Bool`
+    to `TerminalView` (backing Bool in `MacTerminalView.swift`). Core Text path: the setter
+    flushes `resetCaches()` and `getAttributes(_:withUrl:)` injects `kCTLigatureAttributeName=0`
+    when the flag is set. Metal path: `ShaperKey` gains `disableLigatures` and
+    `shape(text:font:disableLigatures:)` builds its `CTLine` with the same attribute.
+    Wired via `AppConfig.ligatures` → `TerminalPane.applyLigatures(_:)`. Default `false`
+    (ligatures on). `"ligatures": false` in config.json now actually disables them.
+    Gated by `check-render-parity.sh` ligature cases (both renderers, on+off); falsified
+    by removing the `kCTLigatureAttributeName` injection. Fixes #153.
+
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0013` in `../patches/swiftterm/`, all pinned by
+`0001` through `0014` (fourteen patches) in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -526,8 +536,8 @@ patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-ab
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
-for p in patches/swiftterm/00{06,07,08,09,10,11,12}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # needs bash/zsh brace expansion (not POSIX sh)
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all twelve patches)
+for p in patches/swiftterm/00{06,07,08,09,10,11,12,13,14}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all fourteen patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader

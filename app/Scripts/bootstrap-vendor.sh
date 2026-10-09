@@ -79,7 +79,11 @@ pin_value() {
 # under a scaled CTM so Metal draws them at Core Text's size and position (N4); 0013 fixes
 # a combining mark after a wide CJK char being placed one full wide-cell offset too far
 # right — in the glyph-position loop, adjacent CT positions now detect zero-advance
-# (combining) glyphs and pin them to the previous column (#151). A tree missing any
+# (combining) glyphs and pin them to the previous column (#151); 0014 adds
+# `open var disableLigatures: Bool` to `AppleTerminalView`, a backing `_disableLigatures`
+# Bool to `MacTerminalView`, and `kCTLigatureAttributeName: 0` injection to both the Core
+# Text attribute cache and the Metal ShaperCache — making `"ligatures": false` in
+# config.json functional in both renderers. A tree missing any
 # one of them is not the tree this project is tested against, which is the whole
 # reason the pin records hashes rather than a version.
 PATCHES=(
@@ -96,6 +100,7 @@ PATCHES=(
   "0011-cache-empty-glyphs-and-font-names.patch"
   "0012-rasterize-color-glyphs-at-logical-size.patch"
   "0013-fix-combining-mark-after-wide-char.patch"
+  "0014-disable-ligatures-both-renderers.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then

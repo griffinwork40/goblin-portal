@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its thirteen local patches applied.
+# WITH its fourteen local patches applied.
 #
 # Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
 # fine while silently corrupting scrollback (0002), bleeding stale cells across
@@ -9,10 +9,10 @@
 # sequences (0005), breaking copy/paste (0006, 0007), and painting on a free-running
 # timer that drops every other frame of a 60fps producer (0010), re-asking CoreText
 # about every blank cell on every Metal row rebuild (0011), drawing colour emoji ~20%
-# small and off-centre under Metal (0012), and misplacing combining marks after wide
-# CJK characters over the next narrow cell (0013). This script makes that silent case
-# loud. The view-file checks (0006-0013) live in verify-vendor-views.sh. Called first
-# by make-app-bundle.sh.
+# small and off-centre under Metal (0012), misplacing combining marks after wide
+# CJK characters over the next narrow cell (0013), and silently ignoring `ligatures: false`
+# (0014). This script makes that silent case loud. The view-file checks (0006-0014)
+# live in verify-vendor-views.sh. Called first by make-app-bundle.sh.
 #
 # Buffer.swift carries 0002/0003/0004 under ONE combined hash — half-patched
 # matches neither and lands in the exit-3 "unknown" branch by design. See the
@@ -93,19 +93,21 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it:"
   err "  ./Scripts/bootstrap-vendor.sh"
   err ""
-  err "That clones $UPSTREAM_TAG, applies all thirteen patches in order, and re-runs this"
+  err "That clones $UPSTREAM_TAG, applies all fourteen patches in order, and re-runs this"
   err "check for the verdict. app/README.md documents the manual equivalent if you"
   err "would rather see the steps than trust a script."
   err ""
-  err "ALL TWELVE patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
+  err "ALL THIRTEEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
   err "narrowing), 0003 fixes the alt-buffer resize defect (stale cells bleeding across tmux"
   err "panes on widening), 0004 stops an upstream release-build abort() on every resize, 0005"
   err "adds DCS Ptmux passthrough, 0006 keeps the selection alive during linefeed at a plain"
   err "prompt, 0007 keeps the selection alive during pty output (feedPrepare), 0010"
-  err "paces redraws on the display link, 0011 caches blank-glyph rasterizer misses, and"
+  err "paces redraws on the display link, 0011 caches blank-glyph rasterizer misses,"
   err "0012 draws colour emoji under Metal at Core Text's size, 0013 places combining"
-  err "marks over the correct base glyph (not the next narrow cell); check-reflow.sh,"
-  err "check-altbuffer-resize.sh and check-render-parity.sh prove 0002, 0003, 0012, 0013."
+  err "marks over the correct base glyph (not the next narrow cell), and 0014 adds"
+  err "disableLigatures so 'ligatures: false' in config.json actually works;"
+  err "check-reflow.sh, check-altbuffer-resize.sh and check-render-parity.sh"
+  err "prove 0002, 0003, 0012, 0013, and 0014."
   exit 1
 fi
 
@@ -276,4 +278,4 @@ fi
 # Sourced, not executed, so its exits are this script's.
 . "$APP_ROOT/Scripts/verify-vendor-views.sh"
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 13 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 14 local patches"

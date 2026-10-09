@@ -8,27 +8,14 @@
 //  `currentFontSize` reader all read from or write to `fontSize` and must agree on the
 //  bounds — so they move together, not piecemeal.
 //
-//  NEW: `applyTypography(_:)` applies `fontThicken` and `lineHeight` from `AppConfig`.
+//  `applyTypography(_:)` applies `fontThicken` and `lineHeight` from `AppConfig`.
 //  It is called from `apply(config:)` after the font is set, because `lineSpacing`
 //  internally calls `resetFont()`, which itself calls `computeFontDimensions()` and
 //  `processSizeChange` — both of which need the font already installed on the view.
 //
-//  LIGATURES — NOT IMPLEMENTED. SwiftTerm builds its attributed strings in
-//  `AppleTerminalView.getAttributes(_:withUrl:)` and caches them in a per-attribute
-//  dictionary (`attributes`, `urlAttributes`). Adding `kCTLigatureAttributeName: 0`
-//  to those dictionaries would disable OpenType ligature substitution. However, those
-//  dictionaries are private `var`s on `TerminalView`, with no public setter and no
-//  hook that lets a caller inject additional attributes into the cache. The only way to
-//  control ligature formation from outside the class is to clear the cache
-//  (`resetCaches()`) and hope the next fill picks up a changed setting — but there is
-//  no public setter that clears the cache *and* re-fills with a different ligature
-//  attribute. A vendored patch adding `var disableLigatures: Bool` to `TerminalView`
-//  and threading it into `getAttributes(_:withUrl:)` would be the correct fix.
-//  Patching the vendor carries merge cost, and this project already has twelve patches.
-//  Since the default terminal behaviour is ligature-off for most monospaced fonts
-//  (SF Mono and Menlo ship no programming ligatures at all; only Fira Code and JetBrains
-//  Mono do, and those are opt-in font choices), the feature is omitted rather than
-//  half-implemented.
+//  `applyLigatures(_:)` wires `AppConfig.ligatures` → `TerminalView.disableLigatures`
+//  (vendor patch 0014). The vendor property flushes the attribute/shaper caches on
+//  change, so no additional cache invalidation is needed here.
 //
 
 import AppKit
@@ -117,5 +104,19 @@ extension TerminalPane {
         // Font thickening: hand the flag to the view, which applies the private API
         // in its own draw(_:) override where the CGContext is live.
         view.fontThicken = config.fontThicken
+    }
+
+    /// Wire `AppConfig.ligatures` into `TerminalView.disableLigatures` (patch 0014).
+    ///
+    /// `AppConfig.ligatures` is the user-facing field: `true` means ligatures form.
+    /// The vendor property is inverted: `disableLigatures = !ligatures`.
+    ///
+    /// The setter on `TerminalView.disableLigatures` guards against a no-op change and
+    /// only calls `resetCaches()` when the value actually changes — so calling this on
+    /// every `apply(config:)` is cheap when the config has not changed, and correct when
+    /// it has (the caches are flushed immediately and the next paint picks up the new
+    /// ligature setting without a full font reset).
+    func applyLigatures(_ config: AppConfig) {
+        view.disableLigatures = !config.ligatures
     }
 }
