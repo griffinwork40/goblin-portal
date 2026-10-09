@@ -328,7 +328,7 @@ working terminal.
 {
   "font": { "family": "SF Mono", "size": 16 },
   "cursor": "block",
-  "scrollback": 1000,
+  "scrollback": 5000,
   "optionAsMeta": true,
   "renderer": "metal",
   "theme": { "preset": "classic-repaired" }

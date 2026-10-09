@@ -64,7 +64,9 @@ enum PreferencesSeed {
     static let defaultThemePreset: String = ThemePalette.classicRepaired.name
 
     /// The default scrollback line count from `AppConfig.defaults()`.
-    static let defaultScrollback: Int = 1_000
+    /// T2.4 (2026-10-09): raised from 1_000 to 5_000. Measured release resize cost:
+    /// 5k p50 ≈ 505 µs (31% of a 16.7 ms frame). See check-scrollback-cost.sh.
+    static let defaultScrollback: Int = 5_000
 
     /// The default optionAsMeta setting from `AppConfig.defaults()`.
     static let defaultOptionAsMeta: Bool = true
