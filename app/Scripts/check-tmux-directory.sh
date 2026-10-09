@@ -117,8 +117,9 @@ REAL_BEFORE="$(snapshot_real)"
 # $TMPDIR's /var/folders/... prefix eats half of that before the custom socket name.
 WORK="$(mktemp -d /tmp/gptmux.XXXXXX)"
 cleanup() {
-    for sock in "$WORK"/*/tmux-*/* "$WORK"/tmux-*/* "$WORK"/stale-*/* ; do
-        [ -S "$sock" ] && "$TMUX_BIN" -S "$sock" kill-server >/dev/null 2>&1 || true
+    # Every socket the fixtures made, wherever they made it; a stale one just fails fast.
+    find "$WORK" -type s 2>/dev/null | while IFS= read -r sock; do
+        "$TMUX_BIN" -S "$sock" kill-server >/dev/null 2>&1 || true
     done
     rm -rf "$WORK"
 }

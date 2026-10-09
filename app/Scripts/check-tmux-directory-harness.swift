@@ -176,17 +176,28 @@ check("TMUX_TMPDIR empty", TmuxDirectory.defaultSocketDirectories(environment: [
 check("TMUX_TMPDIR absent", TmuxDirectory.defaultSocketDirectories(environment: [:], uid: 501)
       .map(\.path) == ["/private/tmp/tmux-501"])
 
-print("TIMING — 40 resolutions of the main client across 4 sockets (1 stale, 1 decoy, 1 detached)")
-var times: [Double] = []
-for _ in 0..<40 { let (url, time) = resolve(main.tty, all); if url != nil { times.append(time * 1000) } }
-times.sort()
-check("all 40 resolved", times.count == 40, "\(times.count)")
-if !times.isEmpty {
-    print(String(format: "  timing: median %.1f ms, max %.1f ms", times[times.count / 2], times[times.count - 1]))
+/// 40 resolutions; prints median and max. Printed, not asserted: a loaded machine is not
+/// a defect, and the deadline cases above already bound the worst case.
+func timing(_ label: String, _ tty: String, _ dirs: [URL]) {
+    var times: [Double] = []
+    for _ in 0..<40 { let (url, time) = resolve(tty, dirs); if url != nil { times.append(time * 1000) } }
+    times.sort()
+    check("\(label): all 40 resolved", times.count == 40, "\(times.count)")
+    if !times.isEmpty {
+        print(String(format: "  timing \(label): median %.1f ms, max %.1f ms",
+                     times[times.count / 2], times[times.count - 1]))
+    }
 }
+print("TIMING")
+let soloDir = Fixture.directory("solo")
+let soloSock = soloDir.appendingPathComponent("s")
+Fixture.startServer(soloSock, in: dirA)
+let solo = Fixture.Client(attachingTo: soloSock)
+timing("1 socket (the common case)", solo.tty, [soloDir])
+timing("4 sockets (1 stale, 1 decoy, 1 detached)", main.tty, all)
 
 print("ISOLATION AND HYGIENE")
-for client in [main, decoy, custom] { client.terminate() }
+for client in [main, decoy, custom, solo] { client.terminate() }
 var status: Int32 = 0
 check("no zombie or live child left behind", waitpid(-1, &status, WNOHANG) == -1 && errno == ECHILD)
 check("every directory passed to current() is under GATE_WORK",
