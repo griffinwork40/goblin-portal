@@ -266,4 +266,76 @@ if ! swiftc -o "$TMP/startercheck" "$SRC" "$TMP/main.swift" 2>"$TMP/compile.log"
 fi
 
 "$TMP/startercheck"
-exit $?
+HARNESS_EXIT=$?
+[ "$HARNESS_EXIT" -ne 0 ] && exit "$HARNESS_EXIT"
+
+# ---------------------------------------------------------------------------
+# DRIFT GUARD — configFileKnownTopLevelKeys in the harness vs ConfigFile stored
+# properties in Config.swift.
+#
+# Single source of truth: the harness literal IS the authority. We extract it
+# here (comment-stripped) and compare it against what awk reads from Config.swift.
+# There is no separate PINNED variable in this script — that was the bug: two
+# copies that could diverge while the guard stayed green.
+#
+# If `struct ConfigFile` is renamed or missing, LIVE comes back empty; that is
+# an environmental failure (the guard cannot run), so we exit 2, not 1.
+#
+# The awk brace-depth counter strips // comments BEFORE counting braces so a
+# comment such as `// }` does not decrement the depth counter prematurely.
+# ---------------------------------------------------------------------------
+SRC_CONFIG="Sources/GoblinPortal/Config.swift"
+[ -f "$SRC_CONFIG" ] || { echo "error: $SRC_CONFIG not found." >&2; exit 2; }
+
+# Extract the harness's configFileKnownTopLevelKeys literal from this script.
+# We read the SCRIPT FILE ITSELF (not the compiled binary) between the
+# `Set<String> = [` and the closing `]`, strip string quotes and commas, then
+# sort the names.  The sed pattern strips // comments before extracting names.
+HARNESS_KEYS="$(sed 's|//.*||' "$0" \
+  | awk '/let configFileKnownTopLevelKeys: Set<String> = \[/{found=1; next}
+         found && /\]/{found=0; next}
+         found{print}' \
+  | tr '",\n' ' ' \
+  | tr -s ' ' '\n' \
+  | sed 's/^[[:space:]]*//' \
+  | grep -v '^$' \
+  | sort | tr '\n' ' ' | sed 's/[[:space:]]$//')"
+
+[ -n "$HARNESS_KEYS" ] || {
+    echo "error: could not extract configFileKnownTopLevelKeys from this script." >&2
+    exit 2
+}
+
+# Extract top-level ConfigFile stored-property names from Config.swift.
+# Strategy: track brace depth from the `struct ConfigFile` line; emit var names
+# only at depth 1 (direct members, not inside FontSpec/ThemeSpec/etc.).
+# Strip // comments BEFORE counting braces to avoid `// }` decrementing depth.
+LIVE="$(awk '
+  /^struct ConfigFile[^{]*\{/{found=1; depth=1; next}
+  found {
+    line=$0; gsub(/\/\/.*/, "", line)
+    n=split(line, chars, "")
+    for (i=1; i<=n; i++) {
+      if (chars[i]=="{") depth++
+      else if (chars[i]=="}") { depth--; if(depth==0){found=0; break} }
+    }
+    if (found && depth==1 && match(line, /var [a-z][a-zA-Z0-9_]*/))
+      print substr(line, RSTART+4, RLENGTH-4)
+  }
+' "$SRC_CONFIG" | sort | tr '\n' ' ' | sed 's/[[:space:]]$//')"
+
+if [ -z "$LIVE" ]; then
+    echo "error: drift guard: struct ConfigFile not found in $SRC_CONFIG." >&2
+    echo "  If the struct was renamed, update this script to match." >&2
+    exit 2
+fi
+
+if [ "$LIVE" != "$HARNESS_KEYS" ]; then
+    echo "error: ConfigFile top-level keys drifted from configFileKnownTopLevelKeys in the harness!" >&2
+    echo "  Harness set: $HARNESS_KEYS" >&2
+    echo "  Config.swift: $LIVE" >&2
+    echo "  Update configFileKnownTopLevelKeys in the harness (inside the SWIFT heredoc) to match." >&2
+    exit 1
+fi
+echo "  ok  drift guard: ConfigFile top-level keys match harness configFileKnownTopLevelKeys"
+exit 0
