@@ -53,6 +53,19 @@ MainActor.assumeIsolated {
     (ctx, _) = poll(pane, 5) { $0.foreground == .shell }
     expect("Ctrl-C returns to .shell", ctx.foreground == .shell && ctx.directory == dirB, describe(ctx))
 
+    print("CASE 3b — a nested local shell answers with ITS cwd, not the outer shell's")
+    pane.send(text: "(cd \(q(dirOther)) && exec /bin/bash --norc --noprofile)\n")
+    (ctx, _) = poll(pane, 5) {
+        if case .knownShell? = $0.foreground { return $0.directory == dirOther }
+        return false
+    }
+    expect("bash in front: .knownShell in bash's own directory (other)",
+           ctx.directory == dirOther && ctx.followStatus == .local, describe(ctx))
+    pane.send(text: "exit\n")
+    (ctx, _) = poll(pane, 5) { $0.foreground == .shell }
+    expect("bash exits: .shell in cd-target again", ctx.foreground == .shell
+           && ctx.directory == dirB, describe(ctx))
+
     print("CASE 4 — a remote session: no directory, the host from its OSC 7")
     pane.send(text: "\(q(URL(fileURLWithPath: fakeSsh)))\n")
     (ctx, _) = poll(pane, 5) {
