@@ -62,9 +62,10 @@
 # LOAD_PER_CPU_THRESHOLD × ncpu, we exit 2 (environmental) rather than exit 1 (renderer
 # regression) — exactly as compile failure does.  The threshold is 0.7 per CPU: at that
 # level the scheduler has clear headroom and GPU starvation is implausible; at 0.9+
-# (machine load 12–15 on 14 cores) it is the observed failure mode.  "Does not trip on a
-# quiet machine, does trip under synthetic load" is verified in the falsification block
-# below; the transcripts are in .afk/tmp/rendering-audit/N6-loadguard-falsification.md.
+# (machine load 12–15 on 14 cores) it is the observed failure mode.  "Fires under
+# synthetic load" was observed in the falsification run; the quiet-machine half
+# was inconclusive (load stayed at 14.36 after workers stopped).  Transcript:
+# .afk/research/N6-loadguard-falsification.md.
 #
 # Falsification: we spawn `yes > /dev/null` workers (one per CPU minus one for headroom),
 # measure load after a settle period, confirm the guard fires, then SIGTERM the workers
@@ -158,7 +159,7 @@ resolve_vendored_module          # sets PRODUCTS, or exits 2
 # The harness is in check-metal-throughput-harness.swift, extracted when the 350-LOC
 # ceiling was reached after adding the N6 load guard. Same pattern as check-git-status.sh.
 cp "$APP_ROOT/Scripts/check-metal-throughput-harness.swift" "$TMP/main.swift" \
-  || { echo "error: check-metal-throughput-harness.swift not found." >&2; exit 2; }
+  || { echo "error: check-metal-throughput-harness.swift could not be copied." >&2; exit 2; }
 
 # A harness that does not compile exits 2 — environmental, not a Metal regression.
 # The compile log is printed so it is not silently excused (issue #137, bug 1).

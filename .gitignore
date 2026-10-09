@@ -29,6 +29,10 @@ vendor
 __pycache__/
 .afk-worktrees/
 
+# Local scratch files — never committed. Described as gitignored in AFK.md;
+# made explicit here so scratch content cannot slip into a commit by accident.
+.afk/tmp/
+
 # Per-worktree bookkeeping written by afk's worktree manager. Ignored by path
 # rather than covered by `.afk-worktrees/` above, because inside a worktree that
 # directory is not on the path — the file sits at what git there treats as the
