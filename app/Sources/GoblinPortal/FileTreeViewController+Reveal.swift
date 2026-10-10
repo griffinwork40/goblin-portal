@@ -7,12 +7,38 @@
 //  sites. It is its own concern — a lazy, SYNCHRONOUS walk from the root to one URL —
 //  and it deliberately stays synchronous: it must select the row in the same turn it
 //  was asked to (see `FileTreeViewController+Loading.swift` for the full list of paths
-//  that keep reading on the main thread, and why).
+//  that keep reading on the main thread, and why). The one exception is a reveal that
+//  arrives while a setRoot listing is in flight: that one is queued (`pendingReveal`)
+//  and performed when the new root lands, because there is no row to select yet.
 //
 
 import AppKit
+import ObjectiveC
+
+nonisolated(unsafe) private var pendingRevealKey: UInt8 = 0
 
 extension FileTreeViewController {
+
+    /// A reveal asked for while a setRoot listing is in flight (`displayedRoot !== root`),
+    /// performed by `performPendingReveal()` the moment the two converge. Last request
+    /// wins: it is the active document, and only the newest one is on screen. Without
+    /// this, the real tab-select ordering (`selectDocument` → `directoryFollowPollNow` →
+    /// `setRoot`, then `revealActiveFileInTree`, SpaceViewController+Delegates.swift,
+    /// same turn) walked a root the outline did not show yet and silently selected
+    /// nothing — and listed the new root on main doing it (#158 review, I2;
+    /// check-tree-refresh case REVEAL-IN-FLIGHT).
+    var pendingReveal: URL? {
+        get { objc_getAssociatedObject(self, &pendingRevealKey) as? URL }
+        set { objc_setAssociatedObject(self, &pendingRevealKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    /// Run the queued reveal, if any. Called wherever `displayedRoot` and `root`
+    /// converge: `adoptRoot()` (+Loading.swift) and setRoot's return-to-displayed path.
+    func performPendingReveal() {
+        guard let url = pendingReveal else { return }
+        pendingReveal = nil
+        reveal(url)
+    }
 
     // MARK: - Auto-reveal
 
@@ -33,6 +59,9 @@ extension FileTreeViewController {
     /// would yank the cursor out of the editor, which is the last thing a user wants
     /// while typing. The sidebar updates its selection in the background.
     func reveal(_ url: URL) {
+        // The outline is still showing the previous root: queue, do not walk (I2). The
+        // walk below expands and selects ROWS, and `root`'s nodes are not rows yet.
+        guard displayedRoot === root else { pendingReveal = url; return }
         // Guard: URL must be inside the current tree root.
         let rootPath = root.url.resolvingSymlinksInPath().path
         let targetPath = url.resolvingSymlinksInPath().path

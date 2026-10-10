@@ -83,7 +83,8 @@ final class FileNode {
     /// Land listings that were read off the main thread: reconcile this node from
     /// `listings[url]`, then recurse into loaded children the same way
     /// `reloadChildren()` does. A directory missing from `listings` (loaded on main
-    /// after the snapshot was taken, e.g. by a disclosure) keeps its children as-is.
+    /// after the snapshot was taken, e.g. by a disclosure) keeps its children as-is —
+    /// never emptied (check-tree-refresh EXPAND-IN-FLIGHT, falsify `empty-unlisted`).
     func applyListings(_ listings: [URL: [DirectoryEntry]]) {
         guard isDirectory, let entries = listings[url] else { return }
         reconcile(entries)
@@ -138,7 +139,7 @@ final class FileNode {
     /// `.github`, `.env` or this project's own `.afk/` in a terminal-first IDE
     /// would be actively obstructive. Only the two entries nobody ever wants to
     /// browse are dropped. A config field can generalise this later.
-    // isVisible moved to DirectoryListing.isVisible (DirectoryListing.swift:88-91)
-    // and still called from DirectoryListing.list(_:). The method is intentionally
+    // isVisible moved to `DirectoryListing.isVisible(_:)` and is still called from
+    // `DirectoryListing.list(_:)`. The method is intentionally
     // removed from FileNode to keep the listing logic in one place.
 }

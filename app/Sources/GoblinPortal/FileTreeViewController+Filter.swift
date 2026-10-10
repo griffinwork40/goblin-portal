@@ -110,7 +110,10 @@ extension FileTreeViewController {
         // Walk the whole tree to build the accepted URL set: every matching leaf
         // plus every ancestor that contains at least one match.
         var accepted = Set<URL>()
-        collectVisible(node: root, query: trimmed, into: &accepted)
+        // The DISPLAYED tree: the filter narrows the rows on screen, and those belong to
+        // `displayedRoot` while a setRoot listing is in flight (`adoptRoot()` clears the
+        // filter when the new root lands, as setRoot itself does).
+        collectVisible(node: displayedRoot, query: trimmed, into: &accepted)
         visibleURLs = accepted
 
         outlineView.reloadData()
@@ -157,7 +160,7 @@ extension FileTreeViewController {
                 expandNode(child)
             }
         }
-        expandNode(root)
+        expandNode(displayedRoot)
     }
 }
 

@@ -37,7 +37,7 @@ extension FileTreeViewController {
         guard info.draggingSource as AnyObject? === outlineView else { return [] }
         let dirNode = dropDirectory(for: item)
         let urls = draggedURLs(info)
-        guard !urls.isEmpty, dropRefusal(urls, into: dirNode?.url ?? root.url) == nil else { return [] }
+        guard !urls.isEmpty, dropRefusal(urls, into: dirNode?.url ?? displayedRoot.url) == nil else { return [] }
         // Retarget "between rows" and "onto a file" to the folder that actually
         // receives the drop, so the highlight shows where the files will land.
         outlineView.setDropItem(dirNode, dropChildIndex: NSOutlineViewDropOnItemIndex)
@@ -49,7 +49,7 @@ extension FileTreeViewController {
                      item: Any?,
                      childIndex index: Int) -> Bool {
         guard info.draggingSource as AnyObject? === outlineView, !isEditingInline else { return false }
-        let target = dropDirectory(for: item)?.url ?? root.url
+        let target = dropDirectory(for: item)?.url ?? displayedRoot.url
         let urls = draggedURLs(info)
         // Re-checked, not trusted from validateDrop: the disk can change mid-drag.
         if let refusal = dropRefusal(urls, into: target) {
@@ -78,7 +78,7 @@ extension FileTreeViewController {
         guard let node = item as? FileNode else { return nil }
         if node.isDirectory { return node }
         let parent = outlineView.parent(forItem: node) as? FileNode
-        return parent === root ? nil : parent
+        return parent === displayedRoot ? nil : parent
     }
 
     private func draggedURLs(_ info: NSDraggingInfo) -> [URL] {

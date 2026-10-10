@@ -119,6 +119,16 @@ which no longer blocks main.
 | setRoot (main)      | node_modules |   0.3 |   0.7 |   0.7 | 10 |
 | setRoot-list (bg)   | node_modules |   0.6 |   0.7 |   0.7 | 10 |
 
+**SCOPE CAVEAT (added after the #158 review): the two tables do not time the same
+span.** The "before" `refresh`/`setRoot` rows wrapped `root.reloadChildren()` ONLY —
+the listing plus reconcile — and did not include `reloadData()` or restoring
+expansion and selection, which ran after the timed closure. The "after" main-thread
+rows time the issue half plus reconcile + `reloadData()` + restore. So the after
+numbers include work the before numbers left out, and the true main-thread saving is
+LARGER than the before→after difference below, by the unmeasured `reloadData()` +
+restore cost of the old path. The comparison is still conservative in the right
+direction, but it is not like-for-like.
+
 **Before → after, main thread, p50:** refresh 85.8 → 38.6 ms (synthetic) and
 68.9 → 31.8 ms (node_modules). setRoot 2.1 → 1.3 ms and 0.8 → 0.3 ms, and its
 listing (seconds on SMB/iCloud) is now entirely off main. The remaining ~35 ms of
@@ -130,3 +140,32 @@ incrementally.
 Still synchronous on main by design: loadView (first frame), reveal(_:),
 walk(to:), insertPlaceholder, disclosure (shouldExpandItem), the filter's
 collectVisible, and refreshAfterMutation → refreshSynchronously().
+
+## After the #158 review fixes (re-measured 2026-10-09, lane G3)
+
+The design changed what a setRoot costs on main: `beginRootLoad()` no longer reloads
+the outline (the old tree stays on screen as `displayedRoot`), and the landing adopts
+the new root in ONE `reloadData()` — logged as `setRoot-adopt` (issue half + reconcile
++ that reloadData + any queued reveal; no expansion to restore, `dirs=0`). `refresh`
+is unchanged in shape. Same script, `TREE_REFRESH_OUT=/tmp/g3-after.md`. **Load
+averages were 18.78 35.36 31.35 at start** (a parallel falsify run had just finished),
+against 4.98 for the previous table, so treat small differences as noise.
+
+| site | tree | p50 ms | p95 ms | max ms | N |
+|------|------|-------:|-------:|-------:|---|
+| refresh (main)       | synthetic    |  39.9 |  41.1 |  41.1 | 11 |
+| refresh-list (bg)    | synthetic    |  60.8 |  62.5 |  62.5 | 11 |
+| setRoot-adopt (main) | synthetic    |   3.4 |   3.9 |   3.9 | 10 |
+| setRoot-list (bg)    | synthetic    |   1.2 |   1.4 |   1.4 | 10 |
+| refresh (main)       | node_modules |  33.2 |  34.3 |  34.3 | 11 |
+| refresh-list (bg)    | node_modules |  42.9 |  45.2 |  45.2 | 11 |
+| setRoot-adopt (main) | node_modules |   1.9 |   2.5 |   2.5 | 10 |
+| setRoot-list (bg)    | node_modules |   0.6 |   0.8 |   0.8 | 10 |
+
+refresh is within noise of the previous table (38.6 → 39.9, 31.8 → 33.2). setRoot's
+main-thread total rose from ~1.3 to 3.4 ms (synthetic): the one `reloadData()` now
+tears down the OLD tree's realised rows at landing, work the previous design did
+earlier in the issue half (its first `reloadData()`, against an empty root) — and
+the load was 4-7× higher. Either way it is single-digit milliseconds, and what it
+buys is visible: no empty frame on any re-root, and on a slow volume the previous
+tree stays readable for the seconds the listing takes instead of a blank sidebar.
