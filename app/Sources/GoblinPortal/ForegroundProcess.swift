@@ -72,8 +72,66 @@ enum ForegroundProcess {
 
         let tty = clientTTY(childfd: childfd)
         guard let name = executableName(of: fgpid) else { return nil }
-        return kind(executableName: name, pid: fgpid,
-                    integratedShellPid: integratedShellPid, clientTTY: tty)
+        let leader = kind(executableName: name, pid: fgpid,
+                          integratedShellPid: integratedShellPid, clientTTY: tty)
+        // Only a nested shell is looked through (`refiningByGroup`): every other kind is
+        // already fail-closed or names its own program, and the enumeration costs one
+        // proc_listpids plus one proc_pidpath per member on every poll.
+        guard case .knownShell = leader else { return leader }
+        return refiningByGroup(leader, memberNames: groupMemberNames(pgid: fgpid))
+    }
+
+    /// A nested shell is only a shell if it is ALONE in front. `tcgetpgrp` names the
+    /// group LEADER, and a shebang script is a shell binary: `./deploy.sh` (`#!/bin/bash`)
+    /// running `ssh prod` WITHOUT exec leaves `/bin/bash` leading a foreground group whose
+    /// other member is ssh (measured 2026-10-09: tcgetpgrp = the script's pid, `ps -g`
+    /// lists `/bin/bash` + the child). Leader-only classification called that
+    /// `.knownShell`, so the typing guard typed into the remote shell and the sidebar
+    /// followed the script's cwd. An INTERACTIVE nested shell at its prompt is alone in
+    /// its group, because job control puts each command it runs in a new group, so it
+    /// keeps `.knownShell`. Members are classified by the same name switch as the
+    /// leader; the most specific non-shell wins: `.remote` over `.otherMultiplexer` over
+    /// `.command`, since the remote case must never yield a local directory. A tmux
+    /// client inside a script group reads `.command("tmux")` (it is classified with a nil
+    /// tty): fail-closed, because the script still shares the tty and it is not the
+    /// leader whose pid the tmux cache is keyed on. Enumeration failure (nil, empty, or a
+    /// member whose path is unreadable — exited, or not ours) refuses: `.command` with
+    /// the leader's name, because "a shell, probably" is exactly the guess that let text
+    /// reach ssh. Pure over names so `check-foreground-process.sh` can table-test it.
+    static func refiningByGroup(_ leader: ForegroundKind, memberNames: [String?]?) -> ForegroundKind {
+        guard case .knownShell(_, let leaderName) = leader else { return leader }
+        guard let names = memberNames, !names.isEmpty else { return .command(name: leaderName) }
+        let kinds = names.map { name -> ForegroundKind in
+            guard let name else { return .command(name: leaderName) }
+            return kind(executableName: name, pid: 0, integratedShellPid: -1, clientTTY: nil)
+        }
+        if let remote = kinds.first(where: { if case .remote = $0 { true } else { false } }) {
+            return remote
+        }
+        if let mux = kinds.first(where: { if case .otherMultiplexer = $0 { true } else { false } }) {
+            return mux
+        }
+        if let other = kinds.first(where: { if case .knownShell = $0 { false } else { true } }) {
+            return other
+        }
+        return leader
+    }
+
+    /// Kernel executable basenames of every process in group `pgid`, nil if the group
+    /// cannot be listed. A nil ELEMENT is a member whose path could not be read.
+    /// `proc_listpids(PROC_PGRP_ONLY)` answers with a byte count; the first call's
+    /// answer is a padded upper bound (measured: 3024 bytes for a 2-member group).
+    static func groupMemberNames(pgid: pid_t) -> [String?]? {
+        guard pgid > 0 else { return nil }
+        let stride = MemoryLayout<pid_t>.stride
+        let hint = proc_listpids(UInt32(PROC_PGRP_ONLY), UInt32(pgid), nil, 0)
+        guard hint > 0 else { return nil }
+        var pids = [pid_t](repeating: 0, count: Int(hint) / stride + 16)
+        let written = proc_listpids(UInt32(PROC_PGRP_ONLY), UInt32(pgid), &pids,
+                                    Int32(pids.count * stride))
+        guard written > 0 else { return nil }
+        let members = pids.prefix(Int(written) / stride).filter { $0 > 0 }
+        return members.isEmpty ? nil : members.map { executableName(of: $0) }
     }
 
     /// The pure mapping from an executable name to a kind. Split out from `current` so a

@@ -42,7 +42,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
 ./Scripts/check-cwd-follow.sh    # per-pid cwd read + cd quoting (ShellDirectory) — fast, headless; foreground-selection now in check-shell-context.sh
-./Scripts/check-foreground-process.sh # classifies pty foreground as .shell/.knownShell/.tmuxClient/.remote/.command — headless; --falsify 4 mutants (exec name before pid)
+./Scripts/check-foreground-process.sh # classifies pty foreground as .shell/.knownShell/.tmuxClient/.remote/.command — headless; --falsify 6 mutants (exec name before pid; script-wrapper group)
 ./Scripts/check-tmux-directory.sh     # tmux active-pane directory via real tmux servers on isolated sockets — headless; --falsify 7 mutants
 ./Scripts/check-shell-context.sh      # unified cwd rule (kernel cwd primary, OSC 7 fallback) + real TerminalPane wiring — headless (138 truth-table checks) + offscreen GUI (cases 1–9, typing-guard default reader, tmux coalescing); --falsify 11 APFS-clone mutants
 ./Scripts/check-terminal-actions.sh   # four terminal-directed actions guarded against unsafe foreground; palette uses NSApp.sendAction (execution-time check only) — offscreen GUI; --falsify 4 mutants (each caught only by its declared case; compile-fail exits 2)

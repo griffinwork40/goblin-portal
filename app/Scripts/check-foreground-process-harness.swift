@@ -12,6 +12,7 @@
 // ENVIRONMENT (set by the shell half):
 //   FP_WORK      — temp dir containing the compiled C helper binary ("helper") and
 //                  compiled exec stand-ins at bin/ssh, bin/tmux, bin/vim.
+// Part (c), the foreground GROUP, lives in check-foreground-process-group.swift.
 //
 
 import Darwin
@@ -71,6 +72,7 @@ func openPtyPair() -> (Int32, String) {
 }
 
 runKindTruthTable()
+runGroupTable()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Part (b): real processes on a real pty
@@ -226,6 +228,10 @@ for (stand, want) in [("ssh", ForegroundKind.remote(name: "ssh")),
     let (pExec, execSlave) = openPtyPair()
     let flag = workDir + "/exec-go-\(stand)"
     let target = workDir + "/bin/\(stand)"
+    // --falsify reruns this binary in the same FP_WORK: a flag left by the previous run
+    // would let zsh exec at once and fail the "before" check for a reason unrelated to
+    // the mutant (seen when mutant 6's declared-case check first ran).
+    try? FileManager.default.removeItem(atPath: flag)
     let script = "while [ ! -e '\(flag)' ]; do :; done; exec '\(target)'"
     guard let execPid = spawnForeground(slave: execSlave, program: "/bin/zsh",
                                         extraArgs: ["-f", "-c", script]) else {
@@ -248,6 +254,9 @@ for (stand, want) in [("ssh", ForegroundKind.remote(name: "ssh")),
     kill(execPid, SIGKILL); var st: Int32 = 0; waitpid(execPid, &st, 0)
     close(pExec)
 }
+
+// --- part (c): a shell leading a group is a shell only when alone (group.swift) ---
+runGroupPtyCases(workDir: workDir)
 
 // --- exited pid → nil ---
 kill(childPid, SIGKILL); var exitSt: Int32 = 0; waitpid(childPid, &exitSt, 0)
