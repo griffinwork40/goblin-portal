@@ -9,7 +9,7 @@
 #   A 10ms repeating timer measures whether the run loop kept turning.
 #
 # EXIT CONTRACT
-#   0  all 8 cases pass
+#   0  all 15 cases pass
 #   1  real assertion failure
 #   2  environmental (swiftc missing, build failed, objects missing, no window server)
 #
@@ -23,6 +23,14 @@
 #   7. EDIT-DEFER       — landing during an inline edit is deferred, replayed after
 #   8. MUTATION-INVALIDATES — a file op's sync refresh drops an in-flight async one
 #   (6-8 live in check-tree-refresh-cases.swift)
+#   9. NO-EMPTY-FRAME     — setRoot(B) in flight: outline keeps A's rows, never empty
+#  10. REVEAL-IN-FLIGHT   — reveal during B's listing is queued and done on landing
+#  11. SYNC-ADOPT         — refreshSynchronously() during B's listing shows B
+#  12. NO-MAIN-LISTING    — no lister call from main during a landing
+#  13. SELECTION-SURVIVES — selection reselected by URL after an async landing
+#  14. SUBFOLDER-REFRESH  — a new file in an expanded subfolder appears on refresh
+#  15. EXPAND-IN-FLIGHT   — a folder expanded mid-refresh keeps its children
+#   (9-15 live in check-tree-refresh-invariants.swift)
 #
 # --falsify  runs check-tree-refresh-falsify.sh instead (mutation testing).
 #
@@ -45,10 +53,12 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 HARNESS="$ROOT/Scripts/check-tree-refresh-harness.swift"
 CASES="$ROOT/Scripts/check-tree-refresh-cases.swift"
+INVARIANTS="$ROOT/Scripts/check-tree-refresh-invariants.swift"
 PRODUCTS="$ROOT/.build/out/Products/Debug"
 
 command -v swiftc >/dev/null 2>&1 || { echo "error: swiftc not found" >&2; exit 2; }
-[[ -f "$HARNESS" && -f "$CASES" ]] || { echo "error: harness not found: $HARNESS / $CASES" >&2; exit 2; }
+[[ -f "$HARNESS" && -f "$CASES" && -f "$INVARIANTS" ]] || {
+  echo "error: harness not found: $HARNESS / $CASES / $INVARIANTS" >&2; exit 2; }
 
 BFLAGS=()
 swift build --help 2>&1 | grep -q -- '--build-system' && BFLAGS=(--build-system swiftbuild)
@@ -80,10 +90,11 @@ echo "world" > "$TREE/b/y.txt"
 
 cp "$HARNESS" "$TMP/main.swift"
 cp "$CASES" "$TMP/cases.swift"
+cp "$INVARIANTS" "$TMP/invariants.swift"
 OBJS=$(ls "$TOBJ"/*.o | grep -v '/main\.o$' | tr '\n' ' ')
 
 say "==> compiling harness"
-if ! swiftc -o "$TMP/gate" "$TMP/main.swift" "$TMP/cases.swift" \
+if ! swiftc -o "$TMP/gate" "$TMP/main.swift" "$TMP/cases.swift" "$TMP/invariants.swift" \
     -I "$TOBJ" -I "$PRODUCTS" -I "$PRODUCTS/include" -L "$PRODUCTS" \
     $OBJS "$PRODUCTS/SwiftTerm.o" \
     -framework AppKit 2>"$TMP/compile.log"; then
