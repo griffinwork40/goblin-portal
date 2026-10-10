@@ -113,6 +113,7 @@ extension TerminalPane {
         noteForeground(kind, state)
 
         var shellDirectory: URL?, knownShellDirectory: URL?, tmuxDirectory: URL?
+        var tmuxAnswered = false
         var reported: Osc7Directory? = state.localReport.map { .local(path: $0) }
         switch kind {
         case .shell?, .command?:
@@ -125,6 +126,7 @@ extension TerminalPane {
             let key = TmuxClientKey(pid: pid, tty: tty)
             if let entry = state.tmuxCache, entry.key == key {
                 tmuxDirectory = entry.directory
+                tmuxAnswered = true
                 if ProcessInfo.processInfo.systemUptime - entry.sampledAt > tmuxCacheMaxAge {
                     scheduleTmuxQuery(key, state)
                 }
@@ -142,7 +144,8 @@ extension TerminalPane {
         }
         let context = ShellDirectoryPolicy.resolve(
             foreground: kind, reported: reported, shellDirectory: shellDirectory,
-            knownShellDirectory: knownShellDirectory, tmuxDirectory: tmuxDirectory)
+            knownShellDirectory: knownShellDirectory, tmuxDirectory: tmuxDirectory,
+            tmuxAnswered: tmuxAnswered)
         if context != state.lastContext {
             state.lastContext = context
             directoryDiag("fg=\(kind.map { "\($0)" } ?? "nil") dir=\(context.directory?.path ?? "nil") status=\(context.followStatus)")

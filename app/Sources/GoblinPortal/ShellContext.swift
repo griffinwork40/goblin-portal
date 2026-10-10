@@ -19,7 +19,8 @@
 //      non-integrated outer shell forever (review finding B2, 2026-10-09; this reverses
 //      the earlier "OSC 7 wins" rule). OSC 7 stays the only source of a remote host.
 //    - another local shell in front      → that shell's kernel cwd.
-//    - tmux client in front              → tmux's answer for the active pane (cached).
+//    - tmux client in front              → tmux's answer for the active pane (cached); when
+//      tmux has ANSWERED nil (server socket not found), `.paused(program: "tmux")`.
 //    - remote / screen / zellij / unknown → nil, so ⌘T and splits fall back to the Space
 //      root and nothing stale is persisted. The sidebar shows `followStatus` instead.
 //
@@ -76,12 +77,15 @@ enum ShellDirectoryPolicy {
     ///     `.command`.
     ///   - knownShellDirectory: the kernel cwd of a `.knownShell` foreground.
     ///   - tmuxDirectory: the cached tmux answer for the current client, if fresh.
+    ///   - tmuxAnswered: a tmux query for the current client has COMPLETED (so a nil
+    ///     `tmuxDirectory` means "tmux could not say", not "not asked yet").
     static func resolve(
         foreground: ForegroundKind?,
         reported: Osc7Directory?,
         shellDirectory: URL?,
         knownShellDirectory: URL?,
-        tmuxDirectory: URL?
+        tmuxDirectory: URL?,
+        tmuxAnswered: Bool
     ) -> ShellContext {
         // Lane C. Each branch reads ONLY the input that belongs to the program in front;
         // the order of the `switch` is the precedence, and no branch falls through to
@@ -113,9 +117,15 @@ enum ShellDirectoryPolicy {
             // own kernel cwd answers.
             return context(knownShellDirectory, .local)
         case .tmuxClient?:
-            // tmux's answer for the active pane, or nil while it is still cold. Never
-            // the outer shell's report: the integration script is silent inside tmux
-            // (`TERM_PROGRAM=tmux`, plan "Why"), so that report is from before tmux.
+            // tmux's answer for the active pane. Never the outer shell's report: the
+            // integration script is silent inside tmux (`TERM_PROGRAM=tmux`, plan "Why"),
+            // so that report is from before tmux. A COMPLETED nil answer means the app
+            // cannot find the server (`tmux -S /custom`, a TMUX_TMPDIR set only in the rc
+            // file): following is stuck, and a silent `.local` froze the sidebar with no
+            // note, so it is `.paused`. While the first query is still in flight it stays
+            // `.local` + nil: ~0.26 s measured, and both statuses hide the tree's root
+            // change anyway, so a pause note there would only flash.
+            if tmuxDirectory == nil && tmuxAnswered { return context(nil, .paused(program: "tmux")) }
             return context(tmuxDirectory, .local)
         case .remote?:
             // Another machine's filesystem: no directory, ever. The host is display-only

@@ -194,6 +194,15 @@ MainActor.assumeIsolated {
            "cache=\(state.tmuxCache.map { "\($0)" } ?? "nil")")
     expect("…and is never what a reader sees", pane.currentDirectory?.path != "/late/answer",
            "currentDirectory=\(pane.currentDirectory?.path ?? "nil")")
+    // SAME key as the live client, but scheduled before an invalidation (the generation
+    // was bumped since). Only `generation == state.tmuxGeneration` can drop this one: the
+    // key check passes. Same shape as leaving tmux and returning to the same client pid/tty.
+    pane.deliverTmuxDirectory(URL(fileURLWithPath: "/late/old-generation"),
+                              for: TmuxClientKey(pid: pid, tty: tty),
+                              generation: state.tmuxGeneration - 1)
+    expect("delivery for the live client under an older generation is dropped",
+           state.tmuxCache?.directory?.path != "/late/old-generation",
+           "cache=\(state.tmuxCache.map { "\($0)" } ?? "nil")")
 
     print("CASE 8 — detach returns to the shell, and the cache is invalidated")
     pane.send(text: "\u{02}d")
@@ -210,6 +219,23 @@ MainActor.assumeIsolated {
     expect("late answer after detach is dropped", pane.directoryState.tmuxCache == nil
            && pane.currentDirectory == dirB,
            "cache=\(pane.directoryState.tmuxCache.map { "\($0)" } ?? "nil")")
+
+    print("CASE 9 — tmux on a socket the app cannot find: following says it is paused")
+    // `tmux -S <path>` outside TMUX_TMPDIR/tmux-<uid> is what `tmux -S /custom` or a
+    // TMUX_TMPDIR set only in the rc file looks like to the app: the query completes with
+    // nil. Silence (`.local` + nil) would freeze the sidebar with no note.
+    let hidden = work.appendingPathComponent("hidden")
+    try? FileManager.default.createDirectory(at: hidden, withIntermediateDirectories: true)
+    pane.send(text: "\(q(URL(fileURLWithPath: tmuxBin))) -S \(q(hidden.appendingPathComponent("s")))"
+              + " -f /dev/null new-session\n")
+    (ctx, _) = poll(pane, 10) { isTmux($0.foreground) && $0.followStatus != .local }
+    expect("unfindable tmux server: .tmuxClient, dir nil, .paused(tmux)",
+           isTmux(ctx.foreground) && ctx.directory == nil
+           && ctx.followStatus == .paused(program: "tmux"), describe(ctx))
+    pane.send(text: "\u{02}d")
+    (ctx, _) = poll(pane, 6) { $0.foreground == .shell }
+    expect("after detach from the hidden server: .shell, .local", ctx.foreground == .shell
+           && ctx.followStatus == .local, describe(ctx))
 
     pane.documentWillClose()
     _ = pump(0.3)

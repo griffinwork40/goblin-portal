@@ -115,6 +115,17 @@ mutant guard-default-reader-always-shell TerminalActionGuard.swift \
 '        { host in host.shellContext.foreground }' \
 '        { _ in .shell }'
 
+# 10. The generation check is deleted: an answer scheduled before an invalidation is
+#     stored when the key happens to match again (CASE 7, older-generation delivery).
+mutant tmux-generation-unchecked TerminalPane+DirectoryState.swift \
+'        guard generation == state.tmuxGeneration, let process = view.process,' \
+'        guard let process = view.process,'
+# 11. A completed nil tmux answer is silent again (`.local`), freezing the sidebar with
+#     no note (CASE 9, server on an unsearched socket).
+mutant tmux-nil-answer-silent ShellContext.swift \
+'            if tmuxDirectory == nil && tmuxAnswered { return context(nil, .paused(program: "tmux")) }' \
+'            _ = tmuxAnswered'
+
 case "$RESULT" in
     0) echo "FALSIFY: every mutant was caught"; exit 0 ;;
     1) echo "FALSIFY: at least one mutant survived"; exit 1 ;;
