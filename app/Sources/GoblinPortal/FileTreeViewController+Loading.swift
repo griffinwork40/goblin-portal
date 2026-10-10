@@ -78,32 +78,66 @@ extension FileTreeViewController {
         issueListing(of: root.loadedDirectories(), site: "refresh", start: start)
     }
 
-    /// The pre-#158 `refresh()`, unchanged: list on the main thread, reload, restore.
-    /// Every file operation lands through this (`refreshAfterMutation`) because its
-    /// walk/expand/reveal need the new children this turn. Also invalidates any async
-    /// refresh in flight: that listing predates the mutation and must not land over it.
+    /// The pre-#158 `refresh()`: list on the main thread, reload, restore. Every file
+    /// operation lands through this (`refreshAfterMutation`) because its walk/expand/
+    /// reveal need the new children this turn. Also invalidates any async listing in
+    /// flight: that listing predates the mutation and must not land over it.
+    ///
+    /// A setRoot listing in flight (`displayedRoot !== root`) is ADOPTED here, not
+    /// dropped (I3, case SYNC-ADOPT): the new root is listed now, on main, and shown.
+    /// Invalidating it and re-reading only the displayed tree would strand the sidebar
+    /// on the old directory with nothing left to move it. Listing it synchronously is
+    /// the cheaper of the two honest options — one directory, on a path that already
+    /// lists every expanded directory on main — and the alternative (keep B's listing
+    /// valid and refresh A under it) would let a listing that predates this mutation
+    /// land afterwards, which is exactly what the invalidation exists to prevent.
     func refreshSynchronously() {
         guard !isEditingInline else {
             TreeRefreshTiming.note(site: "refreshSync", "deferred (inline edit active)")
             pendingReload = true; return
         }
         invalidatePendingLoads()
+        if displayedRoot !== root {
+            TreeRefreshTiming.measure(site: "refreshSync-adopt", expandedCount: 0) {
+                root.reloadChildren()
+                adoptRoot()
+            }
+            startGitFollow()
+            return
+        }
         let expanded = expandedNodes()
         let selectedURL = (outlineView.item(atRow: outlineView.selectedRow) as? FileNode)?.url
-        TreeRefreshTiming.measure(site: "refreshSync", expandedCount: expanded.count) { root.reloadChildren() }
-        outlineView.reloadData()
+        TreeRefreshTiming.measure(site: "refreshSync", expandedCount: expanded.count) {
+            root.reloadChildren()
+            outlineView.reloadData()
+            restore(expanded: expanded, selectedURL: selectedURL)
+        }
         startGitFollow()
-        restore(expanded: expanded, selectedURL: selectedURL)
     }
 
-    /// `setRoot(_:)`'s listing. The caller has already swapped in the new, empty root;
-    /// the outline reloads NOW so it never shows rows owned by the discarded root (an
-    /// `NSOutlineView` does not retain its items, and the old tree is what showed the
-    /// wrong project anyway), and again when the children land.
+    /// `setRoot(_:)`'s listing. The caller has already swapped in the new, childless
+    /// `root`; the outline is NOT reloaded here. It keeps drawing `displayedRoot` — the
+    /// previous tree, still retained, so its rows stay valid items — until the listing
+    /// lands and `adoptRoot()` swaps both in one `reloadData()` (I1, case
+    /// NO-EMPTY-FRAME). Reloading here drew at least one empty frame on every
+    /// cwd-follow re-root, and on an SMB/iCloud volume left the tree blank for seconds.
     func beginRootLoad() {
-        let start = ContinuousClock.now
+        issueListing(of: [root.url], site: "setRoot", start: ContinuousClock.now)
+    }
+
+    /// Make the outline show `root`: ONE `reloadData()` from the old tree's rows to the
+    /// new tree's, then the reveal that was queued while they differed (I2, case
+    /// REVEAL-IN-FLIGHT). No expansion or selection is carried across — a different
+    /// directory has none to carry (`setRoot(_:)`). An active filter belonged to the old
+    /// tree, so it is cleared the way `setRoot(_:)` clears one.
+    func adoptRoot() {
+        displayedRoot = root
+        if !filterQuery.isEmpty {
+            filterField.stringValue = ""
+            filterQuery = ""; visibleURLs = nil; preFilterExpansion = nil
+        }
         outlineView.reloadData()
-        issueListing(of: [root.url], site: "setRoot", start: start)
+        performPendingReveal()
     }
 
     // MARK: - Issue and land
@@ -138,6 +172,15 @@ extension FileTreeViewController {
             pendingReload = true; return
         }
         let start = ContinuousClock.now
+        // `root` was issued as the new root of a setRoot (or a refresh issued while one
+        // was in flight): it has no rows to preserve, so adopt it outright (I1).
+        guard displayedRoot === root else {
+            root.applyListings(listings)
+            adoptRoot()
+            TreeRefreshTiming.record(
+                site: site + "-adopt", expandedCount: 0, ms: issueMs + TreeRefreshTiming.ms(since: start))
+            return
+        }
         let expanded = expandedNodes()
         let selectedURL = (outlineView.item(atRow: outlineView.selectedRow) as? FileNode)?.url
         root.applyListings(listings)

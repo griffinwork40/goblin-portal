@@ -6,13 +6,14 @@
 //  Its own file because this is one concern with one reason to change — how a row
 //  is answered for and drawn. It holds the data source's four callbacks, the
 //  delegate's `viewFor`, and the cell machinery nothing else uses: `FileCellView`,
-//  the SF Symbol table, the glyph cache, and the row's Auto Layout. It reaches
-//  back into the controller for `root`, and — since the git sidebar landed — for
-//  the current status snapshot, which it asks about per row rather than caching
-//  anything on the node. What stays in `FileTreeViewController.swift` is the
-//  controller's own job: building the outline and scroll view, the
-//  identity-preserving `refresh()`, and double-click routing. The right-click menu
-//  and the git poller each have their own file.
+//  the SF Symbol table, the glyph cache, and the row's Auto Layout. It reaches back
+//  into the controller for `displayedRoot` (never `root`: while a setRoot listing is
+//  in flight they differ — `FileTreeViewController.displayedRoot`), and — since the
+//  git sidebar landed — for the current status snapshot, which it asks about per row
+//  rather than caching anything on the node. What stays in
+//  `FileTreeViewController.swift` is the controller's own job: building the outline
+//  and scroll view, `setRoot(_:)`, and double-click routing; the reloads are in
+//  `+Loading.swift`. The right-click menu and the git poller each have their own file.
 //
 
 import AppKit
@@ -29,7 +30,7 @@ extension FileTreeViewController: NSOutlineViewDataSource {
         // Same filter delegation as `numberOfChildrenOfItem` — the indices must be
         // consistent between the two callbacks or the outline view will crash.
         let children = filteredChildren(of: node(for: item))
-        guard children.indices.contains(index) else { return root }
+        guard children.indices.contains(index) else { return displayedRoot }
         return children[index]
     }
 
@@ -39,12 +40,18 @@ extension FileTreeViewController: NSOutlineViewDataSource {
 
     /// Populate on demand. `numberOfChildrenOfItem` is asked about collapsed
     /// directories too, so loading there instead would walk the entire tree.
+    /// Correct while `displayedRoot !== root` too: the item is a row the outline is
+    /// showing, so it belongs to (and is retained by) the displayed tree. A refresh in
+    /// flight keeps what this loads — `FileNode.applyListings` skips a directory its
+    /// snapshot never listed (EXPAND-IN-FLIGHT).
     func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
         if let node = item as? FileNode, node.children == nil { node.reloadChildren() }
         return true
     }
 
-    private func node(for item: Any?) -> FileNode { (item as? FileNode) ?? root }
+    /// A nil item is the root row — the DISPLAYED root, not `root`: while a setRoot
+    /// listing is in flight the outline still shows the previous tree (I1, `displayedRoot`).
+    private func node(for item: Any?) -> FileNode { (item as? FileNode) ?? displayedRoot }
 }
 
 /// A source-list row whose glyph and text track the row's own state.

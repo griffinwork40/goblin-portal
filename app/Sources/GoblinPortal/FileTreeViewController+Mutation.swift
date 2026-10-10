@@ -89,7 +89,8 @@ extension FileTreeViewController {
     func targetDirectory(_ sender: Any?) -> URL {
         let node = ((sender as? NSMenuItem)?.representedObject as? FileNode)
             ?? (outlineView.selectedRow >= 0 ? outlineView.item(atRow: outlineView.selectedRow) as? FileNode : nil)
-        guard let node else { return root.url }
+        // The DISPLAYED root: that is the tree the user aimed at (`displayedRoot`).
+        guard let node else { return displayedRoot.url }
         return node.isDirectory ? node.url : node.url.deletingLastPathComponent()
     }
 
@@ -158,7 +159,12 @@ extension FileTreeViewController {
     }
 
     /// The node for `url`, expanding each ancestor on the way so it is a visible row.
+    /// Walks `displayedRoot`, not `root`: it expands ROWS, so it must walk the tree the
+    /// outline is showing (they differ only while a setRoot listing is in flight). Its
+    /// callers are `refreshAfterMutation` — after `refreshSynchronously()`, which has
+    /// converged the two — and `insertPlaceholder`, which edits the tree on screen.
     private func walk(to url: URL) -> FileNode? {
+        let root = displayedRoot
         let rootCount = root.url.pathComponents.count
         guard url.pathComponents.count > rootCount,
               url.path.hasPrefix(root.url.path + "/") else { return nil }
@@ -169,8 +175,13 @@ extension FileTreeViewController {
         // in setRoot(_:) whenever the root moves to a different directory. Keeps exact
         // (case-sensitive) matching on genuine CS volumes, where two siblings can share
         // the same spelling under different cases and picking the wrong one is a bug.
-        if caseSensitiveFS == nil { caseSensitiveFS = FileOperationPolicy.caseSensitiveFSAtRoot(root.url) }
-        let caseSensitive = caseSensitiveFS ?? false
+        // The cache describes `self.root`'s volume; mid-setRoot the walked tree is the
+        // OLD root, which may sit elsewhere, so ask without caching in that window.
+        if caseSensitiveFS == nil, root === self.root {
+            caseSensitiveFS = FileOperationPolicy.caseSensitiveFSAtRoot(root.url)
+        }
+        let caseSensitive = root === self.root
+            ? (caseSensitiveFS ?? false) : FileOperationPolicy.caseSensitiveFSAtRoot(root.url)
         var current = root
         for component in url.pathComponents.dropFirst(rootCount) {
             if current.children == nil { current.reloadChildren() }
@@ -187,7 +198,11 @@ extension FileTreeViewController {
 
     /// Show a not-yet-on-disk row under its parent and open the editor on it. The
     /// placeholder disappears on the next refresh unless the commit created it.
+    /// Against `displayedRoot` for `walk(to:)`'s reason. Mid-setRoot, the invalidation
+    /// below drops the new root's listing; that cannot strand the sidebar, because the
+    /// edit always ends in `finishEditReplay` → `refreshSynchronously()`, which adopts it.
     func insertPlaceholder(url: URL, isDirectory: Bool) {
+        let root = displayedRoot
         let parentURL = url.deletingLastPathComponent()
         // The root has no row; anything else must be walked to (and expanded).
         let parent: FileNode? = parentURL.path == root.url.path ? root : walk(to: parentURL)
