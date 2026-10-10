@@ -65,7 +65,7 @@ if ! swift build "${BFLAGS[@]}" >/dev/null 2>&1; then
 fi
 
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/FileTreeViewController.o" ]] || {
   echo "error: GoblinPortal objects not found (expected FileTreeViewController.o)." >&2
   exit 2; }

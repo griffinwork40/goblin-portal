@@ -89,7 +89,7 @@ if ! swift build "${BFLAGS[@]}" >/dev/null 2>&1; then
 fi
 
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/TerminalActionGuard.o" ]] || {
   echo "error: GoblinPortal objects not found (expected TerminalActionGuard.o)." >&2; exit 2; }
 [[ -e "$PRODUCTS/SwiftTerm.o" ]] || {
@@ -190,7 +190,7 @@ PKGEOF
   # Locate the objects from the mutant build.
   local mobj
   mobj="$(find "$mdir/.build/out/Intermediates.noindex" -type d \
-    -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+    -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
   if [[ -z "$mobj" ]]; then
     say "  MUTANT $label: mutant objects not found (environmental)"; env_bad=1; return
   fi

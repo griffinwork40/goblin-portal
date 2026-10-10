@@ -89,7 +89,7 @@ fi
 # The Swift Build backend writes GoblinPortal-p.build/Objects-normal/<arch>/.
 # (Same lookup as check-sidebar-toggle.sh — see its comment for the full rationale.)
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/CommandPalette.o" ]] || {
   echo "error: GoblinPortal objects not found under .build/out (expected GoblinPortal-p.build)." >&2
   echo "  Run: swift build --build-system swiftbuild" >&2

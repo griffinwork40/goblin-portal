@@ -86,7 +86,7 @@ PRODUCTS="$(swift build "${FLAGS[@]}" --show-bin-path 2>/dev/null)"
 # The -p.build objects are the ones swift build just wrote. A -testable.build directory can
 # also exist and be STALE (the audit's P1 probe linked one and measured last week's code).
 OBJS="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*GoblinPortal.build/*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*GoblinPortal.build/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$OBJS" && -f "$OBJS/TerminalPane.o" ]] || {
   echo "error: no GoblinPortal-p.build objects under .build -- cannot link the real TerminalPane." >&2; exit 2; }
 

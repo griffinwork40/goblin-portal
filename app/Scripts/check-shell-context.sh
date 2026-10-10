@@ -110,7 +110,7 @@ if ! swift build "${BFLAGS[@]}" >"$WORK/swiftbuild.log" 2>&1; then
     exit 2
 fi
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-    -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+    -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/TerminalPane.o" && -e "$PRODUCTS/SwiftTerm.o" ]] || {
     echo "ENV: GoblinPortal objects not found under .build/out"; exit 2; }
 

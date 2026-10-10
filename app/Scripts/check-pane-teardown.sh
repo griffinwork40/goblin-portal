@@ -53,7 +53,7 @@ fi
 # unchanged source keeps its .o mtime from the original compilation while the
 # binary mtime updates on every link, making mtime comparison unreliable.
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/TerminalPane.o" ]] || {
   echo "error: GoblinPortal objects not found under .build/out — cannot @testable import." >&2
   echo "  Expected: .build/out/Intermediates.noindex/.../GoblinPortal-p.build/Objects-normal/<arch>/TerminalPane.o" >&2
