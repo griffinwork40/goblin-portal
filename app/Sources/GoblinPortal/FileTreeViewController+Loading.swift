@@ -59,7 +59,7 @@ nonisolated(unsafe) private var treeLoadGenerationKey: UInt8 = 0
 extension FileTreeViewController {
 
     /// Bumped by every load issue and every invalidation; an async landing applies only
-    /// if it still matches. Associated-object storage, like `pendingRoot` (+Mutation.swift:47),
+    /// if it still matches. Associated-object storage, like `pendingRoot` (+Mutation.swift),
     /// because Swift extensions cannot add stored properties.
     var treeLoadGeneration: Int {
         get { objc_getAssociatedObject(self, &treeLoadGenerationKey) as? Int ?? 0 }

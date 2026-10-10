@@ -3,7 +3,7 @@
 //  Pure-Foundation seam between the file-tree model and FileManager.
 //
 //  WHY THIS FILE EXISTS
-//  `FileNode.reloadChildren()` (FileNode.swift:63-102) called `FileManager` directly.
+//  `FileNode.reloadChildren()` called `FileManager` directly.
 //  Extracting that call behind a replaceable static lister lets the step-3 gate harness
 //  inject a controlled stub that blocks, stalls, or returns canned entries — without any
 //  changes to FileNode's identity-preservation or sorting logic.
@@ -13,7 +13,7 @@
 //  GoblinPortal`; the production path never touches it.  The var is read only on the
 //  main actor; the closure it holds may be *called* off main (see `lister` below).
 //
-//  WHAT IT PRESERVES (FileNode.swift:74-81, FileNode.swift:85-102)
+//  WHAT IT PRESERVES (from the pre-seam `FileNode.reloadChildren()`)
 //  1. Same FileManager keys: `.isDirectoryKey`, `.isHiddenKey`, no options mask.
 //  2. URL re-rooting: every returned URL is expressed as
 //     `parent.appendingPathComponent(child.lastPathComponent)` so the /private
@@ -66,11 +66,11 @@ enum DirectoryListing {
 
     /// Read `dir`'s contents and return one `DirectoryEntry` per visible child.
     ///
-    /// Mirrors `FileNode.reloadChildren()` exactly:
-    ///   - same FileManager keys (FileNode.swift:69-73)
-    ///   - URL re-rooted under `dir` to dodge the /private symlink (FileNode.swift:74-81)
-    ///   - `isHidden` dot-prefix fallback (FileNode.swift:91-94)
-    ///   - `isVisible` filter applied (FileNode.swift:85, FileNode.swift:130-133)
+    /// Does exactly what the pre-seam `FileNode.reloadChildren()` did inline:
+    ///   - same FileManager keys (`.isDirectoryKey`, `.isHiddenKey`, no options)
+    ///   - URL re-rooted under `dir` to dodge the /private symlink
+    ///   - `isHidden` dot-prefix fallback when the resource read fails
+    ///   - `isVisible(_:)` filter applied
     static func list(_ dir: URL) -> [DirectoryEntry] {
         let raw =
             (try? FileManager.default.contentsOfDirectory(
@@ -94,7 +94,8 @@ enum DirectoryListing {
 
     /// Drop the two entries nobody wants to browse in a developer tree.
     ///
-    /// Dotfiles are **kept** (see FileNode.swift:128-133 for the rationale).
+    /// Dotfiles are **kept** (rationale beside the `FileNode.reconcile` sort and the
+    /// note at the end of `FileNode`).
     static func isVisible(_ url: URL) -> Bool {
         let name = url.lastPathComponent
         return name != ".git" && name != ".DS_Store"

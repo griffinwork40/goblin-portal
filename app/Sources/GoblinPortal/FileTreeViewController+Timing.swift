@@ -7,10 +7,22 @@
 //  Putting the timing helper here avoids merge conflicts on both and keeps the
 //  call sites to one-liners. The 350-LOC ceiling applies to this file too.
 //
-//  What it measures: wall-clock time around `root.reloadChildren()` in the three
-//  instrumented reload paths — `refresh()` (window-became-key), `setRoot(_:)`
-//  (cwd-follow), and `refreshAfterMutation` (every file operation). The output
-//  line names the call site, the expanded-directory count, and the elapsed ms.
+//  What it measures — main-thread time unless the site name ends in `-list`:
+//    afterMutation        `refreshAfterMutation` (+Mutation.swift), the whole body:
+//                         rebase walk, `refreshSynchronously()`, expansion replay,
+//                         reveal. dirs= expanded rows before the mutation.
+//    refreshSync          `refreshSynchronously()`: re-list on main + reloadData +
+//                         restore. dirs= expanded rows. Nested inside afterMutation's span.
+//    refreshSync-adopt    `refreshSynchronously()` mid-setRoot: list the new root on
+//                         main and adopt it (+Loading.swift `adoptRoot()`). dirs=0.
+//    refresh              an async refresh landing (+Loading.swift `land`): issue half
+//                         + reconcile + reloadData + restore. dirs= expanded rows restored.
+//    setRoot-adopt /      a landing that adopts a new root while the old tree is still on
+//    refresh-adopt        screen: issue half + reconcile + one reloadData + queued reveal.
+//                         dirs=0. Every setRoot landing takes this form; refresh-adopt is
+//                         a refresh issued mid-setRoot. (No bare `setRoot` line any more.)
+//    refresh-list /       the OFF-MAIN listing of an async load; never a stall.
+//    setRoot-list         dirs= directories listed.
 //
 //  COST WHEN OFF: one `ProcessInfo.processInfo.environment` dictionary lookup,
 //  stored in `TreeRefreshTiming.enabled` at first access (static let is lazy).
@@ -18,10 +30,12 @@
 //  production traffic.
 //
 //  Format (stderr, GOBLIN_PORTAL_DIAG=1):
-//    [diag] tree-refresh: site=refresh dirs=12 elapsed=3.4ms
-//    [diag] tree-refresh: site=setRoot dirs=0 elapsed=1.1ms
+//    [diag] tree-refresh: site=refresh-list dirs=12 elapsed=3.1ms
+//    [diag] tree-refresh: site=refresh dirs=11 elapsed=1.4ms
+//    [diag] tree-refresh: site=setRoot-adopt dirs=0 elapsed=0.9ms
 //    [diag] tree-refresh: site=afterMutation dirs=5 elapsed=2.8ms
-//    [diag] tree-refresh: site=afterMutation deferred (inline edit active)
+//    [diag] tree-refresh: site=refresh dropped (stale)
+//    [diag] tree-refresh: site=refreshSync deferred (inline edit active)
 //
 
 import Foundation
@@ -29,7 +43,7 @@ import Foundation
 /// One-liner timing wrapper for `FileTreeViewController`'s reload paths.
 ///
 /// Usage:
-///     TreeRefreshTiming.measure(site: "refresh", expandedCount: N) { root.reloadChildren() }
+///     TreeRefreshTiming.measure(site: "refreshSync", expandedCount: N) { … }
 ///
 /// `expandedCount` is passed by the caller because each site already walks the
 /// outline's rows to collect expanded items — so the count is free at call time

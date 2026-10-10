@@ -133,8 +133,10 @@ extension FileTreeViewController {
         }
         // The span wraps the whole body — rebase walk, refresh, expansion replay, and
         // reveal — so the logged elapsed time matches the actual mutation-reload cost.
-        // `refreshSynchronously()` logs its own `refreshSync` line and its own `deferred` log
-        // when an inline edit is active, so callers never see two near-equal lines.
+        // `refreshSynchronously()` logs its own nested `refreshSync` span, so every file
+        // operation prints TWO lines and they can be near-equal: refreshSync is the
+        // reload alone, afterMutation adds the walk and reveal. Read the difference as
+        // their cost; do not sum them (TreeRefreshTiming's header lists every site).
         TreeRefreshTiming.measure(site: "afterMutation", expandedCount: expanded.count) {
             // SYNCHRONOUS on purpose: the walk/expand/reveal below need the new children
             // in place this turn. It also invalidates any async refresh in flight (#158).
