@@ -49,10 +49,13 @@ func spec(_ kind: ForegroundKind?, _ report: Osc7Directory?, _ present: Bool)
         // Unreadable foreground: we know nothing, so we claim nothing.
         return (nil, .unavailable)
     case .shell?, .command?:
-        // A LOCAL report from the pane wins; otherwise the SHELL's kernel cwd. A remote
-        // report here is stale by construction (the remote session is no longer in front).
+        // The SHELL's kernel cwd first; a LOCAL report only when the kernel read failed.
+        // OSC 7 is emitted at precmd, so it predates any `cd` the current command line
+        // made (review finding B2, 2026-10-09: the coordinator reversed "OSC 7 wins").
+        // A remote report here is stale by construction and never a directory.
+        if present { return (shellDir, .local) }
         if case .local? = report { return (reportedDir, .local) }
-        return (present ? shellDir : nil, .local)
+        return (nil, .local)
     case .knownShell?:
         // That shell's cwd only. A local report came from the OUTER shell: stale here.
         return (present ? knownDir : nil, .local)
@@ -123,7 +126,21 @@ let sshLocal = ShellDirectoryPolicy.resolve(
     shellDirectory: shellDir, knownShellDirectory: knownDir, tmuxDirectory: tmuxDir)
 check("ssh in front with a local report -> nil and host nil, never /tmp",
       sshLocal.directory == nil && sshLocal.followStatus == .remote(host: nil), "\(sshLocal)")
-// 4. A command in front: the shell's cwd, never anything else even if every input exists.
+// 4. B2: `cd ~/proj && afk` — the report is from the prompt BEFORE the cd. The shell's
+//    kernel cwd (where the shell is now) must win, for the shell and for the command.
+for kind in [ForegroundKind.shell, .command(name: "afk")] {
+    let stale = ShellDirectoryPolicy.resolve(
+        foreground: kind, reported: .local(path: reportedPath),
+        shellDirectory: shellDir, knownShellDirectory: nil, tmuxDirectory: nil)
+    check("B2 stale local report + different shell cwd under \(kind) -> the shell cwd",
+          stale.directory == shellDir && stale.followStatus == .local, "\(stale)")
+    let fallback = ShellDirectoryPolicy.resolve(
+        foreground: kind, reported: .local(path: reportedPath),
+        shellDirectory: nil, knownShellDirectory: nil, tmuxDirectory: nil)
+    check("B2 kernel cwd unreadable + local report under \(kind) -> the report",
+          fallback.directory == reportedDir && fallback.followStatus == .local, "\(fallback)")
+}
+// 5. A command in front: the shell's cwd, never anything else even if every input exists.
 let command = ShellDirectoryPolicy.resolve(
     foreground: .command(name: "agent-afk"), reported: nil,
     shellDirectory: shellDir, knownShellDirectory: knownDir, tmuxDirectory: tmuxDir)

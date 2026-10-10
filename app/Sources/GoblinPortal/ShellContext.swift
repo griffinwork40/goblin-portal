@@ -11,9 +11,13 @@
 //  never cleared, so tmux and ssh left all of them pointing at a stale or meaningless
 //  path. The rule now lives here, once, and every consumer reads its result:
 //
-//    - shell / ordinary command in front → OSC 7 if local, else the SHELL's kernel cwd.
-//      Never the foreground program's cwd: the sidebar must not follow agent-afk (or any
-//      command) into its own worktree, which the old kernel fallback did.
+//    - shell / ordinary command in front → the SHELL's kernel cwd; a local OSC 7 only when
+//      that read fails. Never the foreground program's cwd: the sidebar must not follow
+//      agent-afk (or any command) into its own worktree, which the old fallback did.
+//      Kernel first because OSC 7 is emitted at precmd: for `cd ~/proj && afk` the report
+//      predates the `cd`, and a report left by a nested integrated zsh would outrank a
+//      non-integrated outer shell forever (review finding B2, 2026-10-09; this reverses
+//      the earlier "OSC 7 wins" rule). OSC 7 stays the only source of a remote host.
 //    - another local shell in front      → that shell's kernel cwd.
 //    - tmux client in front              → tmux's answer for the active pane (cached).
 //    - remote / screen / zellij / unknown → nil, so ⌘T and splits fall back to the Space
@@ -65,8 +69,11 @@ enum TerminalInputPolicy {
 enum ShellDirectoryPolicy {
     /// - Parameters:
     ///   - foreground: the classified foreground, nil when unreadable.
-    ///   - reported: the last OSC 7 report from the pane's own shell.
-    ///   - shellDirectory: the pane's login shell's kernel cwd.
+    ///   - reported: the last OSC 7 report from the pane's own shell. A local one is a
+    ///     FALLBACK for `.shell` / `.command` when `shellDirectory` is nil; a remote one
+    ///     only labels `.remote`.
+    ///   - shellDirectory: the pane's login shell's kernel cwd — primary for `.shell` /
+    ///     `.command`.
     ///   - knownShellDirectory: the kernel cwd of a `.knownShell` foreground.
     ///   - tmuxDirectory: the cached tmux answer for the current client, if fresh.
     static func resolve(
@@ -91,12 +98,15 @@ enum ShellDirectoryPolicy {
         case .shell?, .command?:
             // The pane's own shell is in charge of the directory either way: a command
             // runs IN the shell's directory, and whatever it `chdir`s to itself (agent-afk
-            // into its worktree, a build into a subdir) is not where the user is. So a
-            // LOCAL report from this pane's shell wins, else the shell's kernel cwd. A
-            // `.remote` report reaching this branch is stale by construction — the remote
+            // into its worktree, a build into a subdir) is not where the user is. The
+            // shell's KERNEL cwd answers: it is live, while a report is from the last
+            // prompt and goes stale on `cd X && cmd` (header, B2). A LOCAL report is the
+            // fallback only when the kernel read fails (e.g. the shell is not ours to
+            // inspect). A `.remote` report here is stale by construction — the remote
             // session is no longer in front — so it is ignored, not treated as "no dir".
+            if let shellDirectory { return context(shellDirectory, .local) }
             if case .local(let path)? = reported { return context(URL(fileURLWithPath: path), .local) }
-            return context(shellDirectory, .local)
+            return context(nil, .local)
         case .knownShell?:
             // A nested local shell (`bash`, `nix-shell`). Any stored report came from
             // the OUTER shell, which is suspended behind it, so only the nested shell's

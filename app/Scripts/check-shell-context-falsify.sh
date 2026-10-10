@@ -100,6 +100,13 @@ mutant known-shell-reads-outer TerminalPane+DirectoryState.swift \
 '            knownShellDirectory = ShellDirectory.workingDirectory(of: pid)' \
 '            knownShellDirectory = ShellDirectory.workingDirectory(of: process.shellPid + 0 * pid)'
 
+# 8. B2 regression: a stored local OSC 7 outranks the shell's live kernel cwd again.
+mutant osc7-outranks-kernel-cwd ShellContext.swift \
+'            if let shellDirectory { return context(shellDirectory, .local) }
+            if case .local(let path)? = reported { return context(URL(fileURLWithPath: path), .local) }' \
+'            if case .local(let path)? = reported { return context(URL(fileURLWithPath: path), .local) }
+            if let shellDirectory { return context(shellDirectory, .local) }'
+
 case "$RESULT" in
     0) echo "FALSIFY: every mutant was caught"; exit 0 ;;
     1) echo "FALSIFY: at least one mutant survived"; exit 1 ;;

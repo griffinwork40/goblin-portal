@@ -10,8 +10,8 @@
 //  properties; everything that property *does* is here.
 //
 //  WHY A POLLER AND NOT A CALLBACK. Each tick reads ONE `ShellHosting.shellContext`, the
-//  single cwd rule (`ShellContext.swift`): a local OSC 7 report or the pane's own shell's
-//  kernel cwd, a nested shell's cwd, tmux's active pane (cached off-main, see
+//  single cwd rule (`ShellContext.swift`): the pane's own shell's kernel cwd (a local OSC 7
+//  report only when that read fails), a nested shell's cwd, tmux's active pane (cached off-main, see
 //  `TerminalPane+DirectoryState.swift`), or nil over ssh and other unfollowable programs.
 //  A poll is needed even with OSC 7, because two of those answers have no callback at all:
 //  tmux's directory and the kernel's. The tick is cheap when nothing moved (one context
