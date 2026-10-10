@@ -18,6 +18,9 @@
 # shell, `cd`, a command started from another directory, tmux on an isolated socket with a
 # `cd` inside it and a detach, and a compiled fake `ssh` that prints a remote OSC 7. Every
 # assertion reads the shipped `shellContext` / `currentDirectory` / delivery entry point.
+# It also runs the typing guard's DEFAULT foreground reader (a fresh
+# `TerminalActionGuard()`, reader untouched) against that pane: allowed at the shell,
+# refused under the fake ssh, allowed after — the line check-terminal-actions.sh replaces.
 #
 # WHY. Before this gate, `currentDirectory` preferred an OSC 7 value that was never
 # cleared and fell back to the FOREGROUND program's cwd, so tmux, ssh and agent REPLs

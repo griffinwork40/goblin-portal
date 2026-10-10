@@ -204,8 +204,10 @@ extension TerminalPane {
     ///
     /// The report is parsed WITH its host (`Osc7Directory.parse`) and stored in the pane's
     /// `PaneDirectoryState` (`TerminalPane+DirectoryState.swift`): a local path as the
-    /// shell's report, a remote host as display-only status scoped to the process group in
-    /// front when it arrived. A remote report never becomes a path — the old parser
+    /// shell's report — a FALLBACK, used only when the shell's kernel cwd cannot be read,
+    /// because a precmd-time report goes stale on `cd X && cmd` (review finding B2,
+    /// 2026-10-09) — and a remote host as display-only status scoped to the process group
+    /// in front when it arrived. A remote report never becomes a path — the old parser
     /// dropped the host, so an ssh session reporting `/tmp` re-rooted the local sidebar.
     /// `ShellHosting.shellContext` decides which stored input answers for what is in front.
     /// The 750 ms poller (`SpaceViewController+DirectoryFollow.swift`) remains the single

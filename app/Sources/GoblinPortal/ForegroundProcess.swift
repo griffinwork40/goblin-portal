@@ -55,8 +55,8 @@ enum ForegroundProcess {
     ///
     /// `tcgetpgrp(childfd)` gives the foreground process GROUP; the group leader's pid
     /// equals the group id on Darwin for a simple foreground job, so we treat it as the
-    /// pid. If it equals `integratedShellPid`, the shell itself is in front → `.shell`.
-    /// Unreadable foreground (fd closed, -1 or 0 returned) → nil, which is fail-closed.
+    /// pid. It is `.shell` only when it equals `integratedShellPid` AND is still a shell
+    /// binary (see `kind`). Unreadable foreground (-1 or 0) → nil, which is fail-closed.
     ///
     /// - Parameters:
     ///   - childfd: the pty primary fd (`LocalProcess.childfd`).
@@ -82,13 +82,21 @@ enum ForegroundProcess {
     /// - Parameters:
     ///   - executableName: basename of the kernel's executable path (`proc_pidpath`).
     ///   - pid: the foreground process.
-    ///   - integratedShellPid: the pane's own shell; `pid == integratedShellPid` is `.shell`.
+    ///   - integratedShellPid: the pane's own shell; that pid running a shell binary is `.shell`.
     ///   - clientTTY: the pane's pty slave path, needed for `.tmuxClient`.
     static func kind(
         executableName: String, pid: pid_t, integratedShellPid: pid_t, clientTTY: String?
     ) -> ForegroundKind {
-        // The integrated shell itself is in front — no foreground job.
-        if pid == integratedShellPid { return .shell }
+        // NAME FIRST, pid second. `exec` keeps the pid: a pane whose rc file ends in
+        // `exec tmux new -A`, or a user who typed `exec ssh host`, has the tmux client or
+        // ssh AT the shell's pid. Checking the pid first called those `.shell`, so the
+        // sidebar read the tmux client's launch dir and cd Here typed into the remote
+        // machine (review finding B1, 2026-10-09; real-pty exec cases in
+        // check-foreground-process.sh). The pid only decides between `.shell` and
+        // `.knownShell` once the name says "shell" — `exec bash` / `exec zsh -l` is still
+        // the pane's own shell. A non-shell exec'd in place (`exec vim`) falls through to
+        // `.command`: typing is refused, and the cwd rule reads the shell pid's cwd, which
+        // is now that program's own (the only process there is) — an honest answer.
 
         // Classification is strictly by the kernel's reported executable basename —
         // NOT by argv. A process whose argv[0] is "-zsh" or "zsh" but whose kernel
@@ -100,11 +108,13 @@ enum ForegroundProcess {
         switch executableName {
 
         // ── shells ───────────────────────────────────────────────────────────────
-        // Names sourced from the contract doc (plan §wave-0-K).
+        // Names sourced from the frozen contract (ForegroundProcess.swift header, plan).
         // Case-sensitive: proc_pidpath on macOS returns the actual binary name, which
         // is always lowercase for system shells and all shells in Homebrew.
         case "zsh", "bash", "sh", "dash", "fish", "ksh", "mksh",
              "tcsh", "csh", "nu", "elvish", "xonsh", "pwsh":
+            // The integrated shell itself is in front — no foreground job.
+            if pid == integratedShellPid { return .shell }
             return .knownShell(pid: pid, name: executableName)
 
         // ── tmux ─────────────────────────────────────────────────────────────────

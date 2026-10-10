@@ -46,11 +46,18 @@
 #   F4.  Invert one case of TerminalInputPolicy in ShellContext.swift
 #        (.shell → refused, .command → allowed).
 #         → T1 must exit 1 (truth table is wrong).
+#   A mutant counts as caught only when the harness exits 1 AND a FAIL line carries its
+#   declared case ID; exit 1 with only other cases red is reported as misattributed.
 #
 # COMPILE CONTRACT. Each mutant is built by copying app/Sources to a temp dir,
-# applying sed, then running `swift build` against that copy with the harness linked
-# in. A compile failure of a mutant is environmental (exit 2), not "caught". The gate
-# runs a clean build first so incremental compilation works; mutant builds are cold.
+# applying a python mutation, then running `swift build` against that copy with the
+# harness linked in. A mutant that cannot be judged (compile failure, harness exit 2,
+# stale pattern) makes falsify exit 2 — environmental, never "caught" and never a plain
+# red. Mutant builds are cold.
+#
+# THE DEFAULT READER IS NOT HERE. Every case replaces production.foregroundReader, so the
+# shipped default (`host.shellContext.foreground`) is gated by check-shell-context.sh
+# layer 2 against a real pane, with its own falsify mutant.
 #
 # EXIT CONTRACT:
 #   0 = all cases passed.
@@ -128,7 +135,8 @@ fi
 # itself is broken, not the guard. A compile failure is NOT "caught"; only exit 1 counts.
 #
 say "==> Falsification: four mutants must each produce exit 1"
-all_ok=1
+all_ok=1     # every judged mutant was caught by its expected case
+env_bad=0    # some mutant could not be judged (stale pattern, compile error, harness exit 2)
 
 VENDOR_PATH="$REPO_ROOT/vendor/SwiftTerm"
 [[ -d "$VENDOR_PATH" ]] || { echo "error: vendor/SwiftTerm not found at $VENDOR_PATH." >&2; exit 2; }
@@ -137,7 +145,7 @@ run_mutant() {
   local label="$1"       # short name for output
   local src_file="$2"    # path relative to Sources/GoblinPortal/
   local mutant_script="$3"  # path to a python3 script that mutates $1 (the target file)
-  local must_fail="$4"   # assertion label for diagnosability
+  local must_fail="$4"   # the case ID (A9, A2, V1, T1) this mutant was written to break
 
   local mdir="$TMP/mut-$label"
   mkdir -p "$mdir"
@@ -148,7 +156,7 @@ run_mutant() {
   local target_file="$mdir/Sources/GoblinPortal/$src_file"
   if ! python3 "$mutant_script" "$target_file" 2>&1; then
     say "  MUTANT $label: Python mutation failed or produced no change"
-    all_ok=0; return
+    env_bad=1; return
   fi
 
   # Package.swift with absolute vendor path (required — relative ../vendor breaks in /tmp).
@@ -176,7 +184,7 @@ PKGEOF
     say "  MUTANT $label: swift build failed — mutant is a compile error (environmental)"
     grep -E 'error' "$mdir/build.log" | head -5 | sed 's/^/    /' >&2
     # A compile failure is environmental — do NOT count as "detected".
-    all_ok=0; return
+    env_bad=1; return
   fi
 
   # Locate the objects from the mutant build.
@@ -184,7 +192,7 @@ PKGEOF
   mobj="$(find "$mdir/.build/out/Intermediates.noindex" -type d \
     -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
   if [[ -z "$mobj" ]]; then
-    say "  MUTANT $label: mutant objects not found (environmental)"; all_ok=0; return
+    say "  MUTANT $label: mutant objects not found (environmental)"; env_bad=1; return
   fi
 
   local mproducts="$mdir/.build/out/Products/Debug"
@@ -200,17 +208,24 @@ PKGEOF
       -framework AppKit 2>"$mdir/compile.log"; then
     say "  MUTANT $label: harness would not compile against mutant (environmental)"
     grep -E 'error' "$mdir/compile.log" | head -5 | sed 's/^/    /' >&2
-    all_ok=0; return
+    env_bad=1; return
   fi
 
   local mout ms
   mout="$("$mbin" 2>&1)"; ms=$?
-  if [[ $ms -eq 1 ]]; then
-    say "  MUTANT $label: exit 1 — guard breach detected (ok)"
+  # The harness's exit code is the verdict that it went red; the FAIL lines are read only
+  # to ATTRIBUTE the red run to this mutant. A mutant whose own case stayed green while
+  # something else failed proves nothing about the case written for it: not caught.
+  if [[ $ms -eq 1 ]] && grep -qE "^  FAIL $must_fail " <<<"$mout"; then
+    say "  MUTANT $label: exit 1, expected case $must_fail failed — caught"
+    say "    first $must_fail FAIL line: $(grep -E "^  FAIL $must_fail " <<<"$mout" | head -1)"
+  elif [[ $ms -eq 1 ]]; then
+    say "  MUTANT $label: exit 1 but expected case $must_fail did NOT fail — misattributed"
     say "    first FAIL line: $(grep 'FAIL' <<<"$mout" | head -1)"
+    all_ok=0
   elif [[ $ms -eq 2 ]]; then
     say "  MUTANT $label: exit 2 (environmental inside harness — not caught)"
-    all_ok=0
+    env_bad=1
   else
     say "  MUTANT $label: exit $ms — breach NOT detected (FAIL)"
     say "$mout"
@@ -319,7 +334,10 @@ run_mutant "F4-inverted-policy" \
   "$TMP/mut_f4.py" \
   "T1"
 
-if [[ $all_ok -eq 1 ]]; then
+if [[ $env_bad -eq 1 ]]; then
+  echo "error: at least one mutant could not be judged (environmental) — falsify exit 2." >&2
+  exit 2
+elif [[ $all_ok -eq 1 ]]; then
   say "==> all four falsification mutants detected — guard is non-trivially present"
   exit 0
 else

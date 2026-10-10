@@ -6,22 +6,18 @@
 // WHY THIS IS A SEPARATE FILE. Inline, the shell and Swift halves together
 // were over the 350-LOC ceiling that check-file-size.sh enforces (AFK.md,
 // "Conventions"). The shell half owns: C helper compile, pty pair setup,
-// temp dir lifecycle, falsification mutants. This file owns: all assertions.
-// Same split as check-git-status.sh / check-git-status-harness.swift.
+// temp dir lifecycle, falsification mutants. This file owns the real-pty assertions
+// (part b); the pure truth table (part a) is check-foreground-process-table.swift.
 //
 // ENVIRONMENT (set by the shell half):
-//   FP_WORK      — temp dir containing the compiled C helper binary ("helper")
-//                  and a fake "zsh" binary (a renamed /bin/sleep) at "zsh".
+//   FP_WORK      — temp dir containing the compiled C helper binary ("helper") and
+//                  compiled exec stand-ins at bin/ssh, bin/tmux, bin/vim.
 //
 
 import Darwin
 import Foundation
 
-var failures = 0
-func check(_ name: String, _ ok: Bool, _ detail: String = "") {
-    print((ok ? "  ✓ " : "  ✗ ") + name + (detail.isEmpty ? "" : "   [\(detail)]"))
-    if !ok { failures += 1 }
-}
+// `check` and `failures` live in check-foreground-process-table.swift (part a).
 
 let env = ProcessInfo.processInfo.environment
 guard let workDir = env["FP_WORK"], !workDir.isEmpty else {
@@ -74,102 +70,7 @@ func openPtyPair() -> (Int32, String) {
     return (prim, String(cString: gname))
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Part (a): truth table over kind(executableName:pid:integratedShellPid:clientTTY:)
-// ─────────────────────────────────────────────────────────────────────────────
-print("ForegroundProcess — kind() truth table")
-
-let shellPid:  pid_t = 1000   // the "integrated shell" in this table
-let otherPid:  pid_t = 2000   // any foreground pid that is NOT the shell's
-let tty = "/dev/ttys099"
-
-// Shells: every name from the contract (AFK.md wave-0 doc).
-for name in ["zsh","bash","sh","dash","fish","ksh","mksh","tcsh","csh",
-             "nu","elvish","xonsh","pwsh"] {
-    let k = ForegroundProcess.kind(executableName: name, pid: otherPid,
-                                   integratedShellPid: shellPid, clientTTY: tty)
-    if case .knownShell = k {
-        check("kind(\(name)) → .knownShell", true)
-    } else {
-        check("kind(\(name)) → .knownShell", false, "\(k)")
-    }
-}
-
-// pid equality: the integrated shell itself must map to .shell, not .knownShell.
-let shellItself = ForegroundProcess.kind(executableName: "zsh", pid: shellPid,
-                                         integratedShellPid: shellPid, clientTTY: tty)
-check("kind(zsh, pid==shellPid) → .shell (not .knownShell)", shellItself == .shell,
-      "\(shellItself)")
-
-// Case-sensitive: "Zsh" is not a shell name returned by the kernel.
-let upperK = ForegroundProcess.kind(executableName: "Zsh", pid: otherPid,
-                                    integratedShellPid: shellPid, clientTTY: tty)
-if case .command(let n) = upperK {
-    check("kind('Zsh') → .command (case-sensitive)", n == "Zsh", "\(upperK)")
-} else { check("kind('Zsh') → .command (case-sensitive)", false, "\(upperK)") }
-
-// tmux with tty → .tmuxClient(pid:tty:)
-let tmuxWith = ForegroundProcess.kind(executableName: "tmux", pid: otherPid,
-                                      integratedShellPid: shellPid, clientTTY: tty)
-if case .tmuxClient(let p, let t) = tmuxWith {
-    check("kind(tmux, tty=…) → .tmuxClient", p == otherPid && t == tty, "\(tmuxWith)")
-} else { check("kind(tmux, tty=…) → .tmuxClient", false, "\(tmuxWith)") }
-
-// tmux without tty → .command("tmux")  [fail-closed: no tty → can't pass to tmux]
-let tmuxNil = ForegroundProcess.kind(executableName: "tmux", pid: otherPid,
-                                     integratedShellPid: shellPid, clientTTY: nil)
-if case .command(let n) = tmuxNil {
-    check("kind(tmux, tty=nil) → .command (fail-closed)", n == "tmux", "\(tmuxNil)")
-} else { check("kind(tmux, tty=nil) → .command (fail-closed)", false, "\(tmuxNil)") }
-
-// Remote programs.
-for name in ["ssh","mosh-client","mosh","et","autossh"] {
-    let k = ForegroundProcess.kind(executableName: name, pid: otherPid,
-                                   integratedShellPid: shellPid, clientTTY: tty)
-    if case .remote(let n) = k {
-        check("kind(\(name)) → .remote", n == name, "\(k)")
-    } else { check("kind(\(name)) → .remote", false, "\(k)") }
-}
-
-// Other multiplexers.
-for name in ["screen","zellij","abduco","dtach"] {
-    let k = ForegroundProcess.kind(executableName: name, pid: otherPid,
-                                   integratedShellPid: shellPid, clientTTY: tty)
-    if case .otherMultiplexer(let n) = k {
-        check("kind(\(name)) → .otherMultiplexer", n == name, "\(k)")
-    } else { check("kind(\(name)) → .otherMultiplexer", false, "\(k)") }
-}
-
-// sudo/su/doas → .command (fail-closed: cwd is root-owned, unreadable to us).
-for name in ["sudo","su","doas"] {
-    let k = ForegroundProcess.kind(executableName: name, pid: otherPid,
-                                   integratedShellPid: shellPid, clientTTY: tty)
-    if case .command(let n) = k {
-        check("kind(\(name)) → .command (fail-closed)", n == name, "\(k)")
-    } else { check("kind(\(name)) → .command (fail-closed)", false, "\(k)") }
-}
-
-// Ordinary command.
-let vimK = ForegroundProcess.kind(executableName: "vim", pid: otherPid,
-                                   integratedShellPid: shellPid, clientTTY: tty)
-if case .command(let n) = vimK {
-    check("kind(vim) → .command", n == "vim", "\(vimK)")
-} else { check("kind(vim) → .command", false, "\(vimK)") }
-
-// Path-like name: a name with "/" must still resolve to .command (kernel gives basename,
-// but guard the table against a caller accidentally passing a full path).
-let pathLike = ForegroundProcess.kind(executableName: "/usr/bin/python3", pid: otherPid,
-                                       integratedShellPid: shellPid, clientTTY: tty)
-if case .command = pathLike {
-    check("kind('/usr/bin/python3') → .command (path-like, not a shell)", true, "\(pathLike)")
-} else { check("kind('/usr/bin/python3') → .command (path-like)", false, "\(pathLike)") }
-
-// Empty name → .command("") — must not crash.
-let emptyK = ForegroundProcess.kind(executableName: "", pid: otherPid,
-                                     integratedShellPid: shellPid, clientTTY: tty)
-if case .command(let n) = emptyK {
-    check("kind(\"\") → .command (empty name, no crash)", n == "", "\(emptyK)")
-} else { check("kind(\"\") → .command (empty, no crash)", false, "\(emptyK)") }
+runKindTruthTable()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Part (b): real processes on a real pty
@@ -216,9 +117,12 @@ let fgGroup = tcgetpgrp(primaryFd)
 check("tcgetpgrp(primaryFd) == childPid (foreground branch is live)",
       fgGroup == childPid, "tcgetpgrp=\(fgGroup) childPid=\(childPid)")
 
+// The pid alone no longer makes `.shell` (B1, 2026-10-09): a NON-shell binary at the
+// shell's pid is what `exec sleep` leaves behind, and is classified by its name. The real
+// `.shell` path is asserted by the exec cases below, with a real zsh at that pid.
 let shellCase = ForegroundProcess.current(childfd: primaryFd, integratedShellPid: childPid)
-check("foreground == integratedShellPid → .shell", shellCase == .shell,
-      "got=\(String(describing: shellCase))")
+check("non-shell binary at integratedShellPid → .command(sleep), not .shell",
+      shellCase == .command(name: "sleep"), "got=\(String(describing: shellCase))")
 
 // executableName uses kernel path, not argv.
 let exeName = ForegroundProcess.executableName(of: childPid)
@@ -309,6 +213,41 @@ if (try? FileManager.default.createSymbolicLink(
     try? FileManager.default.removeItem(atPath: fakeZshPath)
 } else { print("  – SKIP symlinked-zsh cases (symlink creation failed)") }
 close(pRename)
+
+// --- the shell EXECs another program: same pid, classified by its NEW name ---
+// Review finding B1 (2026-10-09): `exec tmux new -A` / `exec ssh host` keep the shell's
+// pid, so a pid-first `kind()` called them `.shell`. Here a real zsh is the "integrated
+// shell" (its pid IS integratedShellPid), spins until a flag file appears, then execs a
+// compiled stand-in. Before the exec it must read `.shell`; after it, the stand-in's
+// name decides. The stand-ins are compiled by the shell half (a copied /bin binary is
+// SIGKILLed by code signing from a temp dir — see the symlink case's history below).
+for (stand, want) in [("ssh", ForegroundKind.remote(name: "ssh")),
+                      ("tmux", nil), ("vim", ForegroundKind.command(name: "vim"))] {
+    let (pExec, execSlave) = openPtyPair()
+    let flag = workDir + "/exec-go-\(stand)"
+    let target = workDir + "/bin/\(stand)"
+    let script = "while [ ! -e '\(flag)' ]; do :; done; exec '\(target)'"
+    guard let execPid = spawnForeground(slave: execSlave, program: "/bin/zsh",
+                                        extraArgs: ["-f", "-c", script]) else {
+        print("  – SKIP exec \(stand) (helper spawn failed)"); close(pExec); continue
+    }
+    usleep(300_000)
+    let before = ForegroundProcess.current(childfd: pExec, integratedShellPid: execPid)
+    check("exec \(stand): before the exec, the shell itself → .shell", before == .shell,
+          "got=\(String(describing: before))")
+    FileManager.default.createFile(atPath: flag, contents: nil)
+    var after: ForegroundKind?
+    for _ in 0..<40 {   // up to 2 s for the exec to land
+        usleep(50_000)
+        after = ForegroundProcess.current(childfd: pExec, integratedShellPid: execPid)
+        if after != .shell { break }
+    }
+    let expected = want ?? .tmuxClient(pid: execPid, tty: execSlave)
+    check("exec \(stand): same pid, classified by the new name → \(expected)", after == expected,
+          "got=\(String(describing: after))")
+    kill(execPid, SIGKILL); var st: Int32 = 0; waitpid(execPid, &st, 0)
+    close(pExec)
+}
 
 // --- exited pid → nil ---
 kill(childPid, SIGKILL); var exitSt: Int32 = 0; waitpid(childPid, &exitSt, 0)

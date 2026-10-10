@@ -51,13 +51,10 @@ import SwiftTerm
 /// `currentDirectory` reads where the shell is, `send(text:)` moves it. cwd-follow needs
 /// both halves and nothing more.
 ///
-/// `FileViewerPane` must still never conform. That was true when this protocol had one
-/// member and the second makes it more true, not less: a file viewer asked for a working
-/// directory would have to invent one.
-///
-/// `FileViewerPane` must never conform. That is not enforceable by the compiler, so
-/// it is stated here and in the header above: the conformance list *is* the
-/// specification of "what counts as a shell".
+/// `FileViewerPane` must never conform — more true with two members than with one: a file
+/// viewer asked for a working directory would have to invent one. The compiler cannot
+/// enforce that, so it is stated here and in the header above: the conformance list *is*
+/// the specification of "what counts as a shell".
 @MainActor
 protocol ShellHosting: SpaceDocument {
     /// Write `text` to the shell's input as if the user had typed it.
@@ -82,17 +79,15 @@ protocol ShellHosting: SpaceDocument {
     /// nil — blanking the sidebar because a shell exited is worse than showing a
     /// directory that is one `exit` stale.
     ///
-    /// A *property*, not a `directoryDidChange` callback, because polling is the fallback
-    /// rather than the primary path. OSC 7 — the notification-shaped answer, which SwiftTerm
-    /// already parses into `hostCurrentDirectoryUpdate` — fires whenever the user sources
-    /// `shell-integration.zsh`, which emits `ESC ] 7 ; file://hostname/path BEL` in its
-    /// precmd hook. `TerminalPane.handleOsc7Directory` (in `TerminalPane+ShellIntegration.swift`)
-    /// fills that body and stores the parsed report (`TerminalPane+DirectoryState.swift`).
-    /// Without the script, a stock zsh under Goblin Portal emits no OSC 7 (macOS's emitter
-    /// is gated on `TERM_PROGRAM == Apple_Terminal`, which SwiftTerm does not set —
-    /// documented in `ShellDirectory.swift`'s header), so the kernel poll of the SHELL's
-    /// cwd remains the honest shape for unintegrated shells. Which input answers depends on
-    /// what is in front (`ShellContext.swift`): nil under ssh, screen or an unreadable
+    /// A *property*, not a `directoryDidChange` callback, because the primary input is a
+    /// poll: the SHELL's kernel cwd, read live. OSC 7 — which SwiftTerm parses into
+    /// `hostCurrentDirectoryUpdate` when the user sources `shell-integration.zsh` — is only
+    /// emitted at precmd, so it goes stale on `cd X && cmd` and is used for a local path
+    /// only when the kernel read fails (review finding B2, 2026-10-09; `ShellContext.swift`).
+    /// Its remote host is still the only source of the "remote: host" label.
+    /// `TerminalPane.handleOsc7Directory` (in `TerminalPane+ShellIntegration.swift`) stores
+    /// the parsed report (`TerminalPane+DirectoryState.swift`). Which input answers depends
+    /// on what is in front (`ShellContext.swift`): nil under ssh, screen or an unreadable
     /// foreground, tmux's answer under tmux. `SpaceViewController+DirectoryFollow.swift`
     /// owns the polling timer.
     var currentDirectory: URL? { get }

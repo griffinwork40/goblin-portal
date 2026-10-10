@@ -13,28 +13,22 @@
 //  machine or submits `cd` as a REPL prompt; ⌘⇧R submits `python3 '<path>'` as
 //  a prompt. The decision is frozen in `ShellContext.swift`:
 //  `TerminalInputPolicy.allowsTyping(into:)` is the one rule. This file wires it
-//  to every entry point through a single injectable seam so the gate
-//  `check-terminal-actions.sh` can drive the REAL action methods with a
-//  test-double foreground reader — without depending on lane C's
-//  `TerminalPane+DirectoryState.swift`, which replaces the wave-0 scaffold that
-//  currently returns `foreground: nil` and would make every guarded action refuse
-//  in the real app until C lands.
+//  to every entry point through a single injectable seam.
 //
 //  CONTRACT. This struct is the ONE allow-list; no other file adds its own copy.
-//  The seam is `foregroundReader`: production code calls `guard.check(host:)`;
-//  tests inject a reader that returns any `ForegroundKind?` they like.
+//  Production code calls `TerminalActionGuard.production.check(host:)`, whose
+//  default `foregroundReader` reads the pane's real `shellContext.foreground`
+//  (`TerminalPane+DirectoryState.swift`).
 //
-//  Lane-C dependency note. The wave-0 scaffold in ShellHosting.swift returns
-//  `foreground: nil` from `shellContext`, so every guarded action WILL be refused
-//  in production until lane C lands. That is expected and correct: nil is
-//  fail-closed. The gate drives through a test-double host that sets `foreground`
-//  to a controlled value, so the guard logic is fully covered independently of C.
-//
-//  Re-verification needed after lane C merges:
-//  · Run check-terminal-actions.sh against a real TerminalPane with a live shell.
-//    Expect `.shell` → allowed, no beep.
-//  · Open tmux in a pane and run the four actions: expect allowed.
-//  · Run ssh into another host and run the four actions: expect refused + beep.
+//  TWO GATES, because each sees half. `check-terminal-actions.sh` drives the four
+//  REAL entry points and menu validation, but replaces `production.foregroundReader`
+//  in every case so it can dictate the foreground. The DEFAULT reader is therefore
+//  exercised by `check-shell-context.sh` layer 2 instead: a fresh
+//  `TerminalActionGuard()` with only `beepSink` swapped, against a real pane running
+//  a real zsh — allowed at the idle shell, refused (one beep) with a fake `ssh` in
+//  front, allowed again after it exits. Its falsify mutant
+//  `guard-default-reader-always-shell` (reader → `{ _ in .shell }`) must turn it red
+//  (review finding B3, 2026-10-09).
 //
 
 import AppKit
@@ -58,18 +52,18 @@ struct TerminalActionGuard {
 
     /// Read the foreground kind from a shell host's context.
     ///
-    /// Injectable so the gate can supply a controlled `ForegroundKind?` via a
-    /// test-double host, independently of lane C's `TerminalPane+DirectoryState.swift`.
-    /// Production reads `host.shellContext.foreground`; the gate replaces this with
-    /// a closure that returns whatever kind the test case needs.
+    /// Production reads `host.shellContext.foreground` (gated against a real pane by
+    /// `check-shell-context.sh`). Injectable so `check-terminal-actions.sh` can dictate
+    /// the kind for each case while driving the real entry points.
     var foregroundReader: (any ShellHosting) -> ForegroundKind? =
         { host in host.shellContext.foreground }
 
     /// The shared instance used by all production action entry points.
     ///
-    /// Single instance so tests that replace `beepSink` or `foregroundReader` do not
-    /// reach into production callers — they construct their own `TerminalActionGuard`
-    /// with the injected values and call it directly.
+    /// A `var`, not a `let`: the shipped entry points read this instance, so
+    /// `check-terminal-actions.sh` swaps its seams in place to drive those entry points.
+    /// `check-shell-context.sh` builds a fresh `TerminalActionGuard()` instead, so the
+    /// default reader runs untouched.
     static var production = TerminalActionGuard()
 
     /// Returns true and emits no side-effects when `TerminalInputPolicy` allows

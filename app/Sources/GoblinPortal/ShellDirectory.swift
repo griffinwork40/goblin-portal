@@ -27,14 +27,12 @@
 //  nested local shell; this file reads a given pid and nothing else. The foreground
 //  reader was deleted rather than kept: with no caller, it was only a way back to the bug.
 //
-//  OSC 7 AND THE KERNEL POLL. The kernel read here is the FALLBACK for a shell that has
-//  not reported. `shell-integration.zsh` (Resources/) emits OSC 7 in its precmd hook;
-//  SwiftTerm parses it and `TerminalPane.handleOsc7Directory` stores it, and a LOCAL report
-//  outranks this read while the shell (or a command it runs) is in front. The historical
-//  reason OSC 7 could not work (stock zsh gates the emitter on
-//  `TERM_PROGRAM == Apple_Terminal`, which Goblin Portal does not set) is resolved by
-//  shipping the integration script; the kernel path remains because it works on any
-//  shell and requires no user action.
+//  OSC 7 AND THE KERNEL POLL. The kernel read here is PRIMARY while the shell (or a
+//  command it runs) is in front; a LOCAL OSC 7 report is the fallback when this read
+//  fails. `shell-integration.zsh` (Resources/) emits OSC 7 only in its precmd hook, so a
+//  report predates any `cd` on the current command line (`cd ~/proj && afk`) — the
+//  reason the order was reversed (review finding B2, 2026-10-09; `ShellContext.swift`).
+//  The kernel path also works on any shell and requires no user action.
 //
 
 import Darwin

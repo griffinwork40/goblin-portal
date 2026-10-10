@@ -1,8 +1,10 @@
 # shell-integration.zsh — Goblin Portal terminal shell integration for zsh.
 #
 # What this enables:
-#   OSC 7  — tells Goblin Portal where the shell is on every prompt, so the sidebar
-#            follows the shell without polling the kernel every 750ms.
+#   OSC 7  — tells Goblin Portal where the shell is on every prompt. The sidebar follows
+#            the shell's kernel cwd (live, so `cd X && cmd` is right mid-command); a
+#            local OSC 7 is the fallback when that cannot be read, and a REMOTE one
+#            names the host in the "remote: host" note.
 #   OSC 133 A/C/D — command lifecycle boundaries, so Goblin Portal can mark a tab
 #            when a command fails or a long-running build finishes while you
 #            were looking elsewhere.
@@ -74,8 +76,8 @@ _gp_precmd() {
     # OSC 133 A — prompt start. Tells Goblin Portal the shell is about to draw a prompt.
     _gp_osc "133;A"
 
-    # OSC 7 — current working directory. Emitted here (in precmd) so Goblin Portal knows
-    # where the shell is as soon as the prompt is visible. SwiftTerm accepts the
+    # OSC 7 — current working directory, emitted at precmd (so it predates any `cd` in the
+    # next command line — why the app prefers the kernel cwd locally). SwiftTerm accepts the
     # file://hostname/path format; the hostname is included per the spec so the
     # terminal can ignore OSC 7 from a remote shell in a local tab.
     local url_path

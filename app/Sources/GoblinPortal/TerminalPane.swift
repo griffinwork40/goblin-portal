@@ -261,8 +261,8 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
         // OSC 7 — forward to the shell-integration extension, which normalises and
-        // stores the path so `ShellHosting.currentDirectory` prefers it over the
-        // kernel poll. Full chain in `TerminalPane+ShellIntegration.swift`.
+        // stores it: a remote host labels ssh, a local path is the fallback when the
+        // shell's kernel cwd cannot be read. Chain: `TerminalPane+ShellIntegration.swift`.
         handleOsc7Directory(directory)
     }
 

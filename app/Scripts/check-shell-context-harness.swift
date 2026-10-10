@@ -6,7 +6,8 @@
 // ORDER IS PART OF THE TEST. The ssh case runs before the local OSC 7 case so a STALE
 // remote report is in storage when the shell comes back (it must be ignored), and the
 // local report is planted before tmux so a STALE local report is in storage while tmux is
-// in front (it must not outrank tmux, not even while tmux's answer is still cold).
+// in front (it must not outrank tmux, not even while tmux's answer is still cold), and
+// while a command runs after a prompt-less `cd` (it must not outrank the shell's cwd).
 //
 // Exit: 0 all passed, 1 a real assertion failed, 2 environmental (no shell spawned).
 //
@@ -21,6 +22,7 @@ MainActor.assumeIsolated {
     let home = work.appendingPathComponent("home")
     let dirA = makeDir("start"), dirB = makeDir("cd-target"), dirOther = makeDir("other")
     let dirR = makeDir("reported"), dirT = makeDir("tmux-pane"), dirT2 = makeDir("tmux-pane-2")
+    let dirY = makeDir("cd-no-prompt")
     let fakeSsh = work.appendingPathComponent("bin/ssh").path
     let q = { (u: URL) in ShellDirectory.singleQuoted(u.path) }
 
@@ -35,6 +37,10 @@ MainActor.assumeIsolated {
            && ctx.directory == dirA && ctx.followStatus == .local, describe(ctx))
     expect("currentDirectory is shellContext.directory", pane.currentDirectory == ctx.directory,
            "currentDirectory=\(pane.currentDirectory?.path ?? "nil")")
+    let typing = DefaultReaderGuard()
+    var verdict = typing.check(pane)
+    expect("B3 default-reader guard: idle shell → allowed, no beep",
+           verdict.allowed && verdict.beeped == 0, "\(verdict)")
 
     print("CASE 2 — cd follows (kernel cwd of the shell, no OSC 7 in this shell)")
     pane.send(text: "cd \(q(dirB))\n")
@@ -76,11 +82,17 @@ MainActor.assumeIsolated {
            && pane.currentDirectory == nil, describe(ctx))
     expect("remote: status names other-host", ctx.followStatus == .remote(host: "other-host"),
            describe(ctx))
+    verdict = typing.check(pane)
+    expect("B3 default-reader guard: fake ssh in front → refused, one beep",
+           !verdict.allowed && verdict.beeped == 1, "\(verdict)")
     pane.send(text: "\u{03}")
     (ctx, _) = poll(pane, 5) { $0.foreground == .shell }
     expect("after ssh exits: the shell's local directory returns (stale remote ignored)",
            ctx.foreground == .shell && ctx.directory == dirB && ctx.followStatus == .local,
            describe(ctx))
+    verdict = typing.check(pane)
+    expect("B3 default-reader guard: ssh exited → allowed again, no beep",
+           verdict.allowed && verdict.beeped == 0, "\(verdict)")
     // A SECOND remote session that reports nothing must not inherit the first one's host:
     // the host is scoped to the session that sent it, not to "the last remote report".
     pane.send(text: "GATE_SSH_SILENT=1 \(q(URL(fileURLWithPath: fakeSsh)))\n")
@@ -93,15 +105,32 @@ MainActor.assumeIsolated {
     pane.send(text: "\u{03}")
     (ctx, _) = poll(pane, 5) { $0.foreground == .shell }
 
-    print("CASE 5 — a local OSC 7 report wins for the shell")
+    print("CASE 5 — a local OSC 7 is stored, but the shell's kernel cwd outranks it")
     // Sent in the kernel's `/private/tmp` spelling: the stored report must be normalised
-    // to the short form the kernel path also reduces to, or the poller's unchanged-root
-    // guard sees two spellings of one directory (ShellDirectory.swift:78).
+    // to the short form the kernel path also reduces to (ShellDirectory.swift:78), since
+    // it is the fallback whenever the kernel read fails.
     let privateR = "/private" + dirR.path
     pane.send(text: "printf '\\033]7;file://localhost%s\\a' \(ShellDirectory.singleQuoted(privateR))\n")
-    (ctx, _) = poll(pane, 5) { $0.directory?.path.hasSuffix("/reported") == true }
-    expect("local OSC 7 outranks the kernel cwd under .shell, normalised", ctx.foreground == .shell
-           && ctx.directory == dirR, describe(ctx) + " want=\(dirR.path)")
+    _ = pump(5) { pane.directoryState.localReport != nil }
+    expect("the local report is stored, normalised",
+           pane.directoryState.localReport == dirR.path,
+           "stored=\(pane.directoryState.localReport ?? "nil") want=\(dirR.path)")
+    ctx = pane.shellContext
+    expect("the shell's kernel cwd outranks the stored report (B2)", ctx.foreground == .shell
+           && ctx.directory == dirB, describe(ctx))
+
+    print("CASE 5b — cd without a prompt: the stale report must not outrank where the shell is")
+    // `cd Y && sleep 30` moves the shell, then runs a command before any precmd can emit a
+    // fresh OSC 7: the `cd ~/proj && afk` shape from review finding B2. While sleep runs,
+    // every reader must say Y, not the report (R) nor the pre-cd directory (B).
+    pane.send(text: "cd \(q(dirY)) && sleep 30\n")
+    (ctx, _) = poll(pane, 5) { isCommand($0.foreground, "sleep") && $0.directory == dirY }
+    expect("sleep in front after a prompt-less cd: directory is Y",
+           isCommand(ctx.foreground, "sleep") && ctx.directory == dirY
+           && pane.currentDirectory == dirY, describe(ctx))
+    pane.send(text: "\u{03}cd \(q(dirB))\n")
+    (ctx, _) = poll(pane, 5) { $0.foreground == .shell && $0.directory == dirB }
+    expect("back at the prompt in cd-target", ctx.directory == dirB, describe(ctx))
 
     print("CASE 6 — tmux: the active pane's directory, asynchronously")
     pane.send(text: "export TMUX_TMPDIR=\(q(work)); \(q(URL(fileURLWithPath: tmuxBin))) "
@@ -165,13 +194,22 @@ MainActor.assumeIsolated {
            "cache=\(state.tmuxCache.map { "\($0)" } ?? "nil")")
     expect("…and is never what a reader sees", pane.currentDirectory?.path != "/late/answer",
            "currentDirectory=\(pane.currentDirectory?.path ?? "nil")")
+    // SAME key as the live client, but scheduled before an invalidation (the generation
+    // was bumped since). Only `generation == state.tmuxGeneration` can drop this one: the
+    // key check passes. Same shape as leaving tmux and returning to the same client pid/tty.
+    pane.deliverTmuxDirectory(URL(fileURLWithPath: "/late/old-generation"),
+                              for: TmuxClientKey(pid: pid, tty: tty),
+                              generation: state.tmuxGeneration - 1)
+    expect("delivery for the live client under an older generation is dropped",
+           state.tmuxCache?.directory?.path != "/late/old-generation",
+           "cache=\(state.tmuxCache.map { "\($0)" } ?? "nil")")
 
     print("CASE 8 — detach returns to the shell, and the cache is invalidated")
     pane.send(text: "\u{02}d")
     (ctx, _) = poll(pane, 6) { $0.foreground == .shell }
     expect("after detach: .shell again", ctx.foreground == .shell, describe(ctx))
-    expect("after detach: the shell's answer (its last local report)", ctx.directory == dirR,
-           describe(ctx))
+    expect("after detach: the shell's kernel cwd (cd-target), not the stale report",
+           ctx.directory == dirB, describe(ctx))
     expect("after detach: the tmux cache is gone", pane.directoryState.tmuxCache == nil,
            "cache=\(pane.directoryState.tmuxCache.map { "\($0)" } ?? "nil")")
     // A late answer for the detached client, delivered now, must not be stored either.
@@ -179,8 +217,25 @@ MainActor.assumeIsolated {
                               for: TmuxClientKey(pid: pid, tty: tty),
                               generation: pane.directoryState.tmuxGeneration)
     expect("late answer after detach is dropped", pane.directoryState.tmuxCache == nil
-           && pane.currentDirectory == dirR,
+           && pane.currentDirectory == dirB,
            "cache=\(pane.directoryState.tmuxCache.map { "\($0)" } ?? "nil")")
+
+    print("CASE 9 — tmux on a socket the app cannot find: following says it is paused")
+    // `tmux -S <path>` outside TMUX_TMPDIR/tmux-<uid> is what `tmux -S /custom` or a
+    // TMUX_TMPDIR set only in the rc file looks like to the app: the query completes with
+    // nil. Silence (`.local` + nil) would freeze the sidebar with no note.
+    let hidden = work.appendingPathComponent("hidden")
+    try? FileManager.default.createDirectory(at: hidden, withIntermediateDirectories: true)
+    pane.send(text: "\(q(URL(fileURLWithPath: tmuxBin))) -S \(q(hidden.appendingPathComponent("s")))"
+              + " -f /dev/null new-session\n")
+    (ctx, _) = poll(pane, 10) { isTmux($0.foreground) && $0.followStatus != .local }
+    expect("unfindable tmux server: .tmuxClient, dir nil, .paused(tmux)",
+           isTmux(ctx.foreground) && ctx.directory == nil
+           && ctx.followStatus == .paused(program: "tmux"), describe(ctx))
+    pane.send(text: "\u{02}d")
+    (ctx, _) = poll(pane, 6) { $0.foreground == .shell }
+    expect("after detach from the hidden server: .shell, .local", ctx.foreground == .shell
+           && ctx.followStatus == .local, describe(ctx))
 
     pane.documentWillClose()
     _ = pump(0.3)

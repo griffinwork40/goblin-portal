@@ -30,9 +30,10 @@ extension AppDelegate: NSMenuItemValidation {
     /// `TerminalActionGuard.validates` does NOT beep; beeping is reserved for the
     /// execution-time `check` call in the action body.
     ///
-    /// The palette routes through the same selectors so it also picks up this
-    /// validation automatically (AppKit's `NSMenuItem.isEnabled` is set from this
-    /// before the palette's item list is drawn).
+    /// The command palette does NOT come through here: it fires the selector with
+    /// `NSApp.sendAction` (`CommandPalette.swift`, the execute path) and never asks for
+    /// validation, so the execution-time `check` in each action body is the only guard
+    /// on that path, which is why that check exists at all.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let sel = menuItem.action
         if sel == #selector(saveDocument(_:)) {

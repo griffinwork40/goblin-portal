@@ -211,7 +211,8 @@ extension AppDelegate {
         // Terminal integration — send information from the editor to the shell.
         // ⌘⇧C sends the current file's path; ⌘⇧R runs it with a language-detected
         // command. Both grey out when no file viewer is active or no shell is
-        // available, via `validateMenuItem` in `AppDelegate.swift`.
+        // available, or when the program in front is not a shell, via `validateMenuItem`
+        // in `AppDelegate+Validation.swift`.
         let sendPathItem = NSMenuItem(
             title: "Send Path to Terminal",
             action: #selector(sendPathToTerminal(_:)), keyEquivalent: "c")
