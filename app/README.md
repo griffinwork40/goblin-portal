@@ -36,7 +36,7 @@ of pure logic would have caught. So the checks are the `check-*.sh` scripts, a v
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all thirteen patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all fifteen patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-afk-loc.sh      # every `| \`X.swift\` | N |` row in AFK.md equals wc -l — headless (#178)
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
@@ -334,7 +334,7 @@ working terminal.
 {
   "font": { "family": "SF Mono", "size": 16 },
   "cursor": "block",
-  "scrollback": 1000,
+  "scrollback": 5000,
   "optionAsMeta": true,
   "renderer": "metal",
   "theme": { "preset": "classic-repaired" }
@@ -364,6 +364,7 @@ tooling, and four documented wrong answers are in `.afk/research/theme-design-20
 | `fontThicken` | **No effect on macOS 15+.** `CGContextSetFontSmoothingStyle` is a no-op in both renderers — confirmed by an on-screen pixel probe (0 bytes differed between the baseline and thickened frames, captured via `screencapture -l <windowid>` from a real NSWindow on macOS 27). Setting `true` emits a config warning. The key is still parsed so existing configs stay valid and the warning is visible. See PR #152 for the probe methodology |
 | `renderer` | `metal` (default, since PR #134, 2026-09-27; was `coretext`) or `coretext`. `metal` selects SwiftTerm's GPU path — a CoreText glyph atlas plus GPU quads, whose `.perRowPersistent` buffering caches per-row vertex data and rebuilds only dirty rows. The Core Text path has no such cache on macOS: it rebuilds an attributed string and a `CTLine` for every visible row on every frame. It falls back to `coretext` on its own if it cannot initialise and prints one line to stderr saying so — run `./Scripts/check-metal-renderer.sh` if you suspect a silent fallback. Accepted spellings, case-insensitive with `_` read as `-`: `coretext`/`core-text`/`cpu`/`cg`/`coregraphics`/`core-graphics`, and `metal`/`gpu`. Anything else is rejected with a warning naming the valid values rather than silently ignored — `./Scripts/check-renderer-config.sh` is the gate for that mapping |
 | `smoothScrolling` | `true` (default) or `false`. When `true`, trackpad scroll gestures use pixel-smooth sub-cell offsets with OS-provided momentum — the terminal content drifts naturally after a flick. When `false`, every scroll event goes straight to SwiftTerm's line-by-line handler. Automatically off for alternate-buffer programs (tmux, vim) and when mouse reporting is active, since those programs own the pointer themselves. The state machine is gated by `./Scripts/check-smooth-scroll.sh` |
+| `closeOnShellExit` | `"clean"` (default), `"always"`, or `"never"`. **`"clean"`** (Terminal.app's default): close the pane when the shell exits cleanly (code 0), keep it on a nonzero exit or signal so the user can read what went wrong. **`"always"`**: always close immediately (pre-T2.2 behaviour). **`"never"`**: always keep the pane until the user explicitly closes it with ⌘W. When the pane is kept: an inline status line appears in the terminal showing the exit description (e.g. `[process exited with code 1 — press Return to restart, ⌘W to close]` or `[terminated by SIGKILL — ...]`); pressing Return restarts a fresh login shell in the same pane at the last known working directory (OSC 7 cwd or the Space root), with scrollback preserved; all other keystrokes are swallowed while in exited state. Unknown values produce a config warning and fall back to `"clean"`. The decision and text logic are gated by `./Scripts/check-shell-exit.sh` (T2.2). No Preferences UI control — set it in `config.json` |
 | `theme` | **Defaults to `classic-repaired`** (changed 2026-08-20, `Config.swift:265`; was `umber` since 2026-08-03; was previously "install nothing", which measured as the worst palette in the repo — its ANSI 4 blue sat at APCA Lc 16.9, 2.9 points from the `#0000EE` the gate exists to reject). Installing a palette is safe for the 256-colour cube: `TerminalPane.apply(config:)` pins `ansi256PaletteStrategy` to `.xterm` before any colour, so indices 16–255 keep the standard xterm values whatever you set. (Earlier docs here claimed the opposite — that installing a background regenerates 16–255 by interpolating your bg/fg. That describes SwiftTerm's *library default*, which this app has overridden for some time; corrected 2026-08-03.) |
 | `theme.preset` | `umber`, **`classic-repaired`**, `afk-dark`, **`afk-light`**, `tokyo-night`, or `classic`. `classic-repaired` keeps classic's true black, quiet body text and saturated ANSI colours while repairing its unreadable blue and collapsed blue/white bright steps; `classic` still means "install nothing". Its 11pt document chrome deliberately uses ANSI white rather than the quiet terminal foreground, and the contrast gate measures that actual seam. `afk-light` is the only light palette. Other fields override the preset; supplying colours without one bases them on `umber`. Unknown names warn and fall back to `umber`. The two theme gates pin the palette/name and light/dark chrome contracts |
 | `theme.ansi` | **Exactly 16** colours, 8 normal then 8 bright. SwiftTerm's `installColors` silently no-ops on any other length, so a wrong count is rejected with a warning instead |
@@ -420,7 +421,7 @@ existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **thirteen** local patches:
+Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **fifteen** local patches:
 
 1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
    shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
@@ -517,7 +518,7 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **thirteen** loca
     by removing the `kCTLigatureAttributeName` injection. Fixes #153.
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0014` (fourteen patches) in `../patches/swiftterm/`, all pinned by
+`0001` through `0015` (fifteen patches) in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -543,8 +544,8 @@ patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-ab
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
-for p in patches/swiftterm/00{06,07,08,09,10,11,12,13,14}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all fourteen patches)
+for p in patches/swiftterm/00{06,07,08,09,10,11,12,13,14,15}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all fifteen patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader

@@ -91,8 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// this, ⌘Q is a one-keystroke path past every unsaved-changes guard in the app.
     ///
     /// Known limitation, documented rather than fixed here (PR #2 review, finding
-    /// 2): `spaceShouldClose()` is evaluated per-Space in `SpaceWindowController
-    /// .open`'s order, and it is not a pure predicate — picking "Save" in a dirty
+    /// 2): non-terminal decisions run in `SpaceWindowController.open`'s order,
+    /// and are not pure predicates: picking "Save" in a dirty
     /// document's alert writes the file to disk right there, inline. So with 2+
     /// Spaces holding unsaved documents, Saving an earlier Space then Cancelling a
     /// later one leaves the earlier Space's write committed even though the
@@ -105,10 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// behaviour) that it belongs in its own change, not folded into a
     /// review-feedback pass.
     func applicationShouldTerminate(_ app: NSApplication) -> NSApplication.TerminateReply {
-        for controller in SpaceWindowController.open
-        where controller.space.hasEditedDocuments && !controller.space.spaceShouldClose() {
-            return .terminateCancel
-        }
+        guard confirmApplicationClose() else { return .terminateCancel }
         // Record the final order while every window is still open, then stop persisting.
         // Both halves matter and must happen in this order: the write closes a gap
         // (tab reorder changes no window's open/closed state, so `persistOpenRoots`'s

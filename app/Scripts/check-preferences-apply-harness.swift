@@ -111,8 +111,11 @@ if d2 != ["cursor"] {
     fail("D2 cursor-only change", "changedKeys = \(d2.sorted()), expected [\"cursor\"]")
 }
 
-// D3: changing only scrollback → {"scrollback"}
-let d3 = PreferencesDiff.changedKeys(from: [:], to: ["scrollback": 5_000])
+// D3: changing only scrollback to a non-default value → {"scrollback"}.
+// Uses 10_000 (not the 5_000 default) so that changedKeys reports a real change.
+// When the default was 1_000, this test used 5_000; updated when T2.4 raised
+// the default to 5_000 (Config.swift:284, PreferencesSeed.defaultScrollback).
+let d3 = PreferencesDiff.changedKeys(from: [:], to: ["scrollback": 10_000])
 if d3 != ["scrollback"] {
     fail("D3 scrollback-only change", "changedKeys = \(d3.sorted()), expected [\"scrollback\"]")
 }

@@ -69,6 +69,9 @@ struct ConfigFile: Decodable {
     var ligatures: Bool?
     /// Pixel-level smooth trackpad scrolling. Default true.
     var smoothScrolling: Bool?
+    /// When to close a pane after its shell exits.
+    /// Accepted values: `"clean"` (default), `"always"`, `"never"`.
+    var closeOnShellExit: String?
 
     struct EditorSpec: Decodable {
         var tabWidth: Int?
@@ -220,6 +223,12 @@ struct AppConfig {
     /// its file in the sidebar tree — without stealing keyboard focus from the editor.
     /// Default: true. Configured via `"sidebar": { "autoReveal": true }`.
     var sidebarAutoReveal: Bool
+    /// When to close a pane after its shell exits.
+    /// `"clean"` (default, Terminal.app's behaviour): close on exit 0, keep on nonzero
+    /// or signal. `"always"`: always close (pre-T2.2 behaviour). `"never"`: always keep.
+    /// Unknown values warn and fall back to `"clean"`. Wired in `Config+Load.swift`.
+    /// Gated by `app/Scripts/check-shell-exit.sh`.
+    var closeOnShellExit: CloseOnShellExit
 
     /// Non-nil when the user has configured `"preset": "auto"`. Holds the two resolved
     /// palettes so the appearance observer can switch between them without re-parsing the
@@ -270,18 +279,16 @@ struct AppConfig {
             font: preferredMonoFont(family: nil, size: defaultFontSize).font,
             theme: .classicRepaired,
             cursorStyle: .default,
-            // 1,000 (iTerm2's default), not 10,000. SwiftTerm sizes the scrollbar
-            // thumb as `max(rows / lines.count, 0.01)`
-            // (`AppleTerminalView.swift:2002`), so past ~3,500 lines the thumb
-            // hits the 1% floor and degenerates into a fixed hairline that no
-            // longer tracks position. `Buffer.resize` also walks every line TWICE
-            // per resize — reflow, then the narrowing trim (vendor patch 0003) — so
-            // a 10k buffer made window resizing far more expensive than it needed
-            // to be. It was THREE walks until 2026-07-31: vendor patch 0004 removed
-            // the third, an ungated upstream debug assertion that walked the whole
-            // scrollback and called abort() in release builds.
-            // Raise it if you want; know the cost.
-            scrollback: 1_000,
+            // 5,000 (T2.4, 2026-10-09). Measured on M4 Pro with RELEASE SwiftTerm
+            // (check-scrollback-cost.sh): resize p50 at 5k = 5,098 µs (~5.1 ms) — 31% of a
+            // 16.7 ms frame, leaving adequate margin for rendering during live drag.
+            // Memory: 80 cols → 8.5 MB phys_footprint per pane; 200 cols → 21 MB.
+            // Prior default was 1,000; prior measurements used DEBUG SwiftTerm (~25×
+            // slower, off by 25×). The scrollbar-thumb hairline past ~4,554 lines is
+            // fixed by vendor patch 0015 (`1/rows` floor, AppleTerminalView.swift).
+            // Buffer.resize walks every line TWICE per resize — reflow + narrowing
+            // trim (patch 0003). It was THREE walks until patch 0004 (2026-07-31).
+            scrollback: 5_000,
             shell: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
             optionAsMeta: true,
             mouseReporting: true,
@@ -317,7 +324,11 @@ struct AppConfig {
                     userOpacity: nil,
                     warnings: &w)
             }(),
-            sidebarAutoReveal: true
+            sidebarAutoReveal: true,
+            // Terminal.app's default: close on a clean exit (code 0), keep on anything
+            // else so the user can read what went wrong. `"always"` restores pre-T2.2
+            // behaviour; `"never"` keeps every pane regardless.
+            closeOnShellExit: .clean
         )
     }
 

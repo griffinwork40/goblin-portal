@@ -101,6 +101,7 @@ PATCHES=(
   "0012-rasterize-color-glyphs-at-logical-size.patch"
   "0013-fix-combining-mark-after-wide-char.patch"
   "0014-disable-ligatures-both-renderers.patch"
+  "0015-proportional-scrollbar-thumb.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then

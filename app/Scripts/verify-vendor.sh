@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its fourteen local patches applied.
+# WITH its fifteen local patches applied.
 #
 # Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
 # fine while silently corrupting scrollback (0002), bleeding stale cells across
@@ -11,7 +11,8 @@
 # about every blank cell on every Metal row rebuild (0011), drawing colour emoji ~20%
 # small and off-centre under Metal (0012), misplacing combining marks after wide
 # CJK characters over the next narrow cell (0013), and silently ignoring `ligatures: false`
-# (0014). This script makes that silent case loud. The view-file checks (0006-0014)
+# (0014), and rendering the scrollbar thumb as a fixed 1% hairline past ~4554 lines
+# (0015). This script makes that silent case loud. The view-file checks (0006-0015)
 # live in verify-vendor-views.sh. Called first by make-app-bundle.sh.
 #
 # Buffer.swift carries 0002/0003/0004 under ONE combined hash — half-patched
@@ -52,6 +53,7 @@ PATCH_PACE="$REPO_ROOT/patches/swiftterm/0010-pace-redraws-on-display-link.patch
 PATCH_GLYPHMISS="$REPO_ROOT/patches/swiftterm/0011-cache-empty-glyphs-and-font-names.patch"
 PATCH_COLORGLYPH="$REPO_ROOT/patches/swiftterm/0012-rasterize-color-glyphs-at-logical-size.patch"
 PATCH_COMBINING="$REPO_ROOT/patches/swiftterm/0013-fix-combining-mark-after-wide-char.patch"
+PATCH_THUMB="$REPO_ROOT/patches/swiftterm/0015-proportional-scrollbar-thumb.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -65,7 +67,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH" "$PATCH_COMBINING"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH" "$PATCH_COMBINING" "$PATCH_THUMB"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -93,21 +95,23 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it:"
   err "  ./Scripts/bootstrap-vendor.sh"
   err ""
-  err "That clones $UPSTREAM_TAG, applies all fourteen patches in order, and re-runs this"
+  err "That clones $UPSTREAM_TAG, applies all fifteen patches in order, and re-runs this"
   err "check for the verdict. app/README.md documents the manual equivalent if you"
   err "would rather see the steps than trust a script."
   err ""
-  err "ALL THIRTEEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
+  err "ALL FIFTEEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
   err "narrowing), 0003 fixes the alt-buffer resize defect (stale cells bleeding across tmux"
   err "panes on widening), 0004 stops an upstream release-build abort() on every resize, 0005"
   err "adds DCS Ptmux passthrough, 0006 keeps the selection alive during linefeed at a plain"
   err "prompt, 0007 keeps the selection alive during pty output (feedPrepare), 0010"
   err "paces redraws on the display link, 0011 caches blank-glyph rasterizer misses,"
   err "0012 draws colour emoji under Metal at Core Text's size, 0013 places combining"
-  err "marks over the correct base glyph (not the next narrow cell), and 0014 adds"
-  err "disableLigatures so 'ligatures: false' in config.json actually works;"
-  err "check-reflow.sh, check-altbuffer-resize.sh and check-render-parity.sh"
-  err "prove 0002, 0003, 0012, 0013, and 0014."
+  err "marks over the correct base glyph (not the next narrow cell), 0014 adds"
+  err "disableLigatures so 'ligatures: false' in config.json actually works, and 0015"
+  err "fixes the scrollbar thumb from a fixed 1% hairline to a proportional 1/rows floor"
+  err "so the thumb tracks position at any scrollback depth;"
+  err "check-reflow.sh, check-altbuffer-resize.sh, check-render-parity.sh, and"
+  err "check-scrollback-cost.sh prove 0002, 0003, 0012, 0013, 0014, and 0015."
   exit 1
 fi
 
@@ -278,4 +282,4 @@ fi
 # Sourced, not executed, so its exits are this script's.
 . "$APP_ROOT/Scripts/verify-vendor-views.sh"
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 14 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 15 local patches"

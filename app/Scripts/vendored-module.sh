@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# One question, asked by the two gates whose subject is the VENDORED emulator rather than
-# a file in Sources/GoblinPortal: **where is the compiled SwiftTerm module, and is it the tree on
-# disk rather than something left over?**
+# One question, asked by the gates whose subject is the VENDORED emulator rather than
+# a file in Sources/GoblinPortal: **where is the compiled SwiftTerm module, and is it the
+# tree on disk rather than something left over?**
 #
 # Sourced, never executed. `check-reflow.sh` and `check-altbuffer-resize.sh` both link a
 # merged `SwiftTerm.o`, and both had an identical copy of this logic until 2026-08-05,
@@ -14,6 +14,13 @@
 # Contract:
 #   resolve_vendored_module   sets PRODUCTS to the directory holding SwiftTerm.o,
 #                             or exits 2 (environmental — never an assertion failure).
+#
+#   BUILD_CONFIG (env var, optional): "release" to build with -c release; any other
+#     value or unset means "debug" (the default). check-reflow.sh and check-altbuffer-
+#     resize.sh do not set it, so they keep using the debug build unchanged.
+#     check-scrollback-cost.sh sets BUILD_CONFIG=release because its timing ceilings
+#     are calibrated to a release SwiftTerm — the shipped app is release, and debug
+#     is ~25x slower, making debug ceilings either uselessly loose or spuriously tight.
 #
 # Callers must have already cd'd to app/ and may define say(); a fallback is provided so
 # this file is testable on its own.
@@ -40,6 +47,16 @@ resolve_vendored_module() {
     flags=(--build-system swiftbuild)
   fi
 
+  # BUILD_CONFIG=release requests an optimised build; default is debug.
+  # check-reflow.sh and check-altbuffer-resize.sh leave BUILD_CONFIG unset so they stay
+  # on debug. check-scrollback-cost.sh sets BUILD_CONFIG=release so its timing ceilings
+  # are calibrated against the same optimised code the shipped app runs.
+  local cfg_flags=()
+  if [[ "${BUILD_CONFIG:-}" == "release" ]]; then
+    cfg_flags=(-c release)
+    say "build configuration: release (-c release)…"
+  fi
+
   # ALWAYS build — never skip on "the .o already exists". That guard was check-reflow.sh's
   # own first bug and the exact silent-failure shape the vendor pin exists to kill: .build
   # is warm in every real working copy, so the gate linked whatever was compiled LAST
@@ -47,12 +64,12 @@ resolve_vendored_module() {
   # passed 8/8 against a stale patched object. SwiftPM is incremental, so building
   # unconditionally costs seconds and is the only way the gate's subject is the tree on disk.
   say "building SwiftTerm first (the harness links the vendored module)…"
-  if ! swift build "${flags[@]}" >/dev/null 2>&1; then
+  if ! swift build "${flags[@]}" ${cfg_flags[@]+"${cfg_flags[@]}"} >/dev/null 2>&1; then
     echo "error: swift build failed — fix that before trusting this gate." >&2
     exit 2
   fi
 
-  PRODUCTS="$(swift build "${flags[@]}" --show-bin-path 2>/dev/null)"
+  PRODUCTS="$(swift build "${flags[@]}" ${cfg_flags[@]+"${cfg_flags[@]}"} --show-bin-path 2>/dev/null)"
   if [[ -z "$PRODUCTS" || ! -d "$PRODUCTS" ]]; then
     echo "error: could not resolve the SwiftPM bin path." >&2
     exit 2

@@ -129,6 +129,7 @@ extension SpaceViewController {
     /// In v2, ⌘W removes the focused leaf one level at a time -- sub-pane first,
     /// then the outer split on the next ⌘W.
     func closeSplitPane() {
+        defer { syncDockAttention() } // Sub-split collapse can remove an unread peer.
         guard let primary = activeDocument,
               var entry = splitPeers[ObjectIdentifier(primary)] else { return }
 
@@ -138,6 +139,7 @@ extension SpaceViewController {
         // that sub-split rather than the whole outer split.
         if let sub = entry.peerSubSplit,
            isDescendant(fr, of: sub.container) {
+            guard CloseConfirmation.confirm([sub.document]) else { return }
             collapseSubSplit(primary: primary, entry: &entry, side: .peer)
             splitPeers[ObjectIdentifier(primary)] = entry
             updateSplitDimming(for: primary)
@@ -146,6 +148,7 @@ extension SpaceViewController {
         }
         if let sub = entry.primarySubSplit,
            isDescendant(fr, of: sub.container) {
+            guard CloseConfirmation.confirm([sub.document]) else { return }
             collapseSubSplit(primary: primary, entry: &entry, side: .primary)
             splitPeers[ObjectIdentifier(primary)] = entry
             updateSplitDimming(for: primary)
@@ -153,6 +156,7 @@ extension SpaceViewController {
             return
         }
 
+        guard CloseConfirmation.confirm(entry.allPeerDocuments) else { return }
         // No sub-split focused -- collapse the outer split entirely.
         // First tear down any sub-splits.
         teardownSubSplits(entry: &entry)
@@ -231,6 +235,7 @@ extension SpaceViewController {
     // MARK: - Peer-initiated termination
 
     func terminateSplitPeer(_ document: SpaceDocument) {
+        defer { syncDockAttention() } // Recount after the peer dictionary has changed.
         for primary in documents {
             guard var entry = splitPeers[ObjectIdentifier(primary)] else { continue }
 

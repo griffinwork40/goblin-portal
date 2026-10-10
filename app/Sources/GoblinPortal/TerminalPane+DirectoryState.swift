@@ -102,6 +102,18 @@ extension TerminalPane {
     /// Live and cheap: `ForegroundProcess.current` (tcgetpgrp + TIOCPTYGNAME +
     /// proc_pidpath), at most one `proc_pidinfo` for a cwd, and a cache read. Never waits;
     /// a missing or old tmux answer schedules a refresh and is served as it stands.
+    /// The best record of where this pane's shell last was, for a shell that has
+    /// ALREADY EXITED (tranche 2's kept-tab restart and vetoed-close recovery). The live
+    /// rule cannot answer then: waitpid has reaped the pid, so `shellContext` reports an
+    /// unreadable foreground and a nil directory. A shell exits from a prompt, after
+    /// precmd re-reported, so the last local OSC 7 report is current at that moment;
+    /// a shell without the integration script falls back to the last directory the
+    /// live rule resolved for this pane.
+    var lastKnownDirectoryPath: String? {
+        let state = directoryState
+        return state.localReport ?? state.lastContext?.directory?.path
+    }
+
     var shellContext: ShellContext {
         // `view.process` is `LocalProcess!`, nil before `startProcess`.
         guard let process = view.process else {

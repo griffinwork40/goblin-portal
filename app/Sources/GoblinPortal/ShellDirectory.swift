@@ -111,6 +111,24 @@ enum ShellDirectory {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    /// Strict foreground observation for close confirmation (main's tranche 2). Unlike
+    /// the cwd rule, there is no fallback: a closed pty must not consult a stale shell
+    /// PID, so a failed `tcgetpgrp` (-1, or a non-positive group) is nil. It used to
+    /// share `foregroundPid(childfd:fallbackPid:)` with the cwd fallback; that helper was
+    /// retired with foreground-following (`ShellContext.swift` header), so the one
+    /// syscall it needs is inlined here (LocalProcess.swift:67,70 for `childfd`).
+    static func foregroundProcess(childfd: Int32) -> (group: pid_t, name: String?)? {
+        guard childfd >= 0 else { return nil }
+        let group = tcgetpgrp(childfd)
+        guard group > 0 else { return nil }
+        var bytes = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let count = proc_name(group, &bytes, UInt32(bytes.count))
+        let name = count > 0 ? bytes.withUnsafeBufferPointer {
+            $0.baseAddress.map { String(cString: $0) }
+        } : nil
+        return (group, name)
+    }
+
     // MARK: - The syscall
 
     /// A process's current directory, straight from the kernel.

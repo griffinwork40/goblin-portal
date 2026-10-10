@@ -278,12 +278,47 @@ MainActor.assumeIsolated {
     }
     }  // end else (window is key)
 
+    // T2.3: real parser -> registered handler -> pane state, without a notification
+    // center delegate (so this probe never posts a desktop notification).
+    for escape in ["\u{1b}]9;finished\u{7}", "\u{1b}]777;notify;title;body;tail\u{7}"] {
+        bgPane.clearAttention()
+        bgPane.view.feed(text: escape)
+        if bgPane.documentStatus == .attention { ok("OSC notification reaches pane") }
+        else { fail("OSC notification did not reach pane") }
+        if isKey {
+            fgPane.view.feed(text: escape)
+            if fgPane.documentStatus == .idle { ok("visible OSC stays idle") }
+            else { fail("visible OSC raised attention") }
+        }
+    }
+    bgPane.clearAttention()
+    for escape in ["\u{1b}]777;notify;title\u{7}", "\u{1b}]9;4;invalid\u{7}"] {
+        bgPane.view.feed(text: escape)
+        if bgPane.documentStatus == .idle { ok("malformed OSC ignored") }
+        else { fail("malformed OSC raised attention") }
+    }
+    // Observe the vendor's actual progress view, not a harness-local decoder.
+    // MacTerminalView.swift:615 installs this direct child, hidden until a report.
+    let bar = bgPane.view.subviews.first { String(describing: type(of: $0)) == "TerminalProgressBarView" }
+    if let bar {
+        bgPane.view.feed(text: "\u{1b}]9;4;1;50\u{7}")
+        if !bar.isHidden && bgPane.documentStatus == .idle { ok("9;4 reaches native progress bar, not attention") }
+        else { fail("9;4 progress swallowed or became a notification") }
+        bgPane.view.feed(text: "\u{1b}]9;4;0\u{7}")
+        if bar.isHidden { ok("9;4 remove clears native progress bar") }
+        else { fail("9;4 remove swallowed") }
+    } else { fail("vendor progress bar missing") }
+
     _ = (termWin, treeWin, fgWin)  // keep windows alive to end of run
 
-    if bad == 0 {
-        print("\nall runtime-path cases passed (cwd + context-menu wiring + BEL attention)")
-    } else {
+    if bad > 0 {
         print("\n\(bad) runtime-path case(s) FAILED")
+        exit(1)
     }
-    exit(bad == 0 ? 0 : 1)
+    if !isKey || outline.numberOfRows == 0 {
+        print("ENV-BLOCKED: executed cases passed, but key-window or context-menu coverage unavailable")
+        exit(2)
+    }
+    print("\nall runtime-path cases passed (cwd, context menu, BEL, OSC, native progress)")
+    exit(0)
 }

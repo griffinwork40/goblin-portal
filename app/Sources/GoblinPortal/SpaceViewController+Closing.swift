@@ -33,12 +33,11 @@ extension SpaceViewController {
         }
     }
 
-    /// Can this whole Space go away? Asks each document in turn and stops at the
-    /// first refusal, so closing a window with three dirty files prompts three times
-    /// rather than discarding the other two behind one answer.
+    /// One process warning for the whole Space, including nested peers. Dirty
+    /// editors retain their individual Save/Cancel decisions after that warning;
+    /// cancelling the process warning never starts a save (CloseConfirmation:23).
     func spaceShouldClose() -> Bool {
-        for document in documents where !document.documentShouldClose() { return false }
-        return true
+        CloseConfirmation.confirm(allClosingDocuments)
     }
 
     /// The Space is closing for real (⌘⇧W, or the window's own close button). Release every
@@ -67,5 +66,32 @@ extension SpaceViewController {
         for document in documents { document.documentWillClose() }
     }
 
-    var hasEditedDocuments: Bool { documents.contains { $0.documentIsEdited } }
+    /// Peers are not tabs (SplitEntry.swift:59); every bulk close must include them.
+    var allClosingDocuments: [SpaceDocument] {
+        documents.flatMap { [$0] + allSplitDocuments(for: $0) }
+    }
+
+    var hasEditedDocuments: Bool { allClosingDocuments.contains { $0.documentIsEdited } }
+
+    /// F1: when a close is vetoed by a busy split peer, but the primary shell is
+    /// already dead (its exit triggered the close), put it into the kept/exited state
+    /// so keystrokes are swallowed and Return can restart it.
+    ///
+    /// Without this, the pane has a dead pty but `isShellExited` is false, so
+    /// `LocalProcess.send`'s `guard running` (LocalProcess.swift:217) drops every
+    /// keystroke silently and the status line never appears. The user cannot tell the
+    /// pane is dead or restart it. `waitStatus: nil` is safe — the kept-state status dot
+    /// shows "failed" (non-nil clean exit was the only path to this branch) and the
+    /// restart path does not re-use the status word.
+    func recoverVetoedDeadShell(_ document: SpaceDocument) {
+        guard let pane = document as? TerminalPane,
+              !pane.isShellExited,
+              let process = pane.view.process,
+              !process.running else { return }
+        // Not `currentDirectory`: waitpid has already reaped the PID
+        // (LocalProcess.swift:368), so the live cwd rule sees an unreadable foreground
+        // and answers nil. `lastKnownDirectoryPath` is the record kept while the shell
+        // was live (TerminalPane+DirectoryState.swift).
+        pane.enterKeptState(waitStatus: nil, directory: pane.lastKnownDirectoryPath)
+    }
 }

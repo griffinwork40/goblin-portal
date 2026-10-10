@@ -111,7 +111,23 @@ extension TerminalPane: ShellHosting {
     /// Forwards to SwiftTerm's `send(txt:)` (`vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift:2259`),
     /// which writes the string to the pty as input — indistinguishable to the shell
     /// from typing, so it lands on the prompt and is subject to normal line editing.
+    ///
+    /// F3: programmatic sends (sidebar "cd Here", sendPathToTerminal, runInTerminal)
+    /// must not silently vanish into a dead pty. LocalProcess.send's `guard running`
+    /// (LocalProcess.swift:217) would drop the bytes; the user would see the action
+    /// appear to succeed with no effect. Instead, beep and log. Do NOT auto-restart:
+    /// the user has not asked to restart, and auto-restart on a programmatic send from
+    /// an unrelated editor tab would be surprising. The user can press Return in the
+    /// kept pane to restart, then re-issue the action.
     func send(text: String) {
+        guard !isShellExited else {
+            NSSound.beep()
+            if ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil {
+                FileHandle.standardError.write(
+                    Data("[diag] send-while-exited: dropped \(text.count) chars to dead pane\n".utf8))
+            }
+            return
+        }
         view.send(txt: text)
     }
 
