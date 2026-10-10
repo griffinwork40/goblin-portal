@@ -158,6 +158,24 @@ enum ForegroundProcess {
         }
     }
 
+    /// The pane's own login shell may be a binary the shell table does not list
+    /// (`ksh93`, a versioned or custom build), which `kind` alone would call `.command`,
+    /// refusing every typing action in every pane for that user. Name-first
+    /// classification (B1) is still right for everything ELSE at the shell's pid —
+    /// `exec tmux`/`exec ssh`/`exec vim`/`exec afk` must not read as the shell, which is
+    /// also main's close-confirmation rule (`CloseConfirmPolicy.swift`). So exactly one
+    /// upgrade: at the shell's own pid, a `.command` whose name is the name the pane
+    /// LAUNCHED (`TerminalPane.startedShellName`, symlinks resolved) is `.shell`. Never
+    /// overrides tmux/remote/multiplexer kinds. Residual: a script shell (xonsh runs as
+    /// `python3.x`) still reads `.command`. Found by a second-opinion review, 2026-10-09.
+    static func adoptingLaunchedShell(
+        _ kind: ForegroundKind?, foregroundIsShellPid: Bool, launchedShellName: String
+    ) -> ForegroundKind? {
+        guard foregroundIsShellPid, !launchedShellName.isEmpty,
+              case .command(let name)? = kind, name == launchedShellName else { return kind }
+        return .shell
+    }
+
     /// Basename of `pid`'s executable from the kernel, or nil if it has exited.
     ///
     /// We use `proc_pidpath` — the kernel's record of the file exec'd — and take its

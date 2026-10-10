@@ -40,6 +40,7 @@
 #   Mutant 2: the pid-equality guard removed (.shell becomes .knownShell always).
 #   Mutant 3: clientTTY returns ttyname(primaryFd) (primary, not slave).
 #   Mutant 4: the pid check moved ahead of the name switch (exec'd tmux/ssh → .shell).
+#   Mutant 5: the launched-shell upgrade ignores the name (exec vim/afk → .shell).
 #   Exits 0 only if every mutant is caught.
 #
 # ISOLATION. All work under mktemp -d removed by trap. No UserDefaults domain,
@@ -260,6 +261,21 @@ assert text.count(old) == 1, "mutant 4 pattern not found"
 open(sys.argv[2], 'w').write(text.replace(old, new, 1))
 PYEOF
 run_mutant "mutant 4: pid checked before the name (exec'd tmux/ssh read as .shell)" "$M4" \
+    || FAL_FAILURES=$((FAL_FAILURES+1))
+
+# Mutant 5: the launched-shell upgrade ignores the name (any .command at the shell's pid
+# becomes .shell), which would let `exec vim` / `exec afk` read as the shell and unlock
+# typing. The "exec vim/afk at the shell pid → still .command" table rows must catch it.
+M5="$WORK/mutant5.swift"
+python3 - "$SRC" "$M5" << 'PYEOF'
+import sys
+text = open(sys.argv[1]).read()
+old = 'case .command(let name)? = kind, name == launchedShellName else { return kind }'
+new = 'case .command? = kind else { return kind } // MUTANT 5: name ignored'
+assert text.count(old) == 1, "mutant 5 pattern not found"
+open(sys.argv[2], 'w').write(text.replace(old, new, 1))
+PYEOF
+run_mutant "mutant 5: launched-shell upgrade ignores the name (exec vim/afk read as .shell)" "$M5" \
     || FAL_FAILURES=$((FAL_FAILURES+1))
 
 echo ""

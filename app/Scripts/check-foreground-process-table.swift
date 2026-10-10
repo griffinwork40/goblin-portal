@@ -152,4 +152,25 @@ func runKindTruthTable() {
                                           integratedShellPid: shellPid, clientTTY: tty)
     check("exec: kind(sudo, pid==shellPid) → .command (fail-closed)",
           execSudo == .command(name: "sudo"), "\(execSudo)")
+
+    // An unlisted LOGIN shell at its own pid (adoptingLaunchedShell): `.shell`, so its
+    // user is not refused every typing action. Only `.command` with the launched name
+    // is upgraded; exec'd programs and other pids are not.
+    let ksh93 = ForegroundProcess.kind(executableName: "ksh93", pid: shellPid,
+                                       integratedShellPid: shellPid, clientTTY: tty)
+    let adopt = { (k: ForegroundKind?, atShell: Bool, launched: String) in
+        ForegroundProcess.adoptingLaunchedShell(k, foregroundIsShellPid: atShell,
+                                                launchedShellName: launched) }
+    check("launched ksh93 at its own pid → .shell", adopt(ksh93, true, "ksh93") == .shell,
+          "\(String(describing: adopt(ksh93, true, "ksh93")))")
+    check("ksh93 NOT at the shell pid → unchanged", adopt(ksh93, false, "ksh93") == ksh93)
+    check("exec vim at the shell pid (launched zsh) → still .command",
+          adopt(.command(name: "vim"), true, "zsh") == .command(name: "vim"))
+    check("exec afk at the shell pid (launched zsh) → still .command",
+          adopt(.command(name: "afk"), true, "zsh") == .command(name: "afk"))
+    let tmuxK = ForegroundKind.tmuxClient(pid: shellPid, tty: tty)
+    check("a tmux client is never upgraded, even if launched as the shell",
+          adopt(tmuxK, true, "tmux") == tmuxK)
+    check("empty launched name → unchanged", adopt(ksh93, true, "") == ksh93)
+    check("nil foreground → nil", adopt(nil, true, "ksh93") == nil)
 }

@@ -109,6 +109,16 @@ extension TerminalPane {
     /// precmd re-reported, so the last local OSC 7 report is current at that moment;
     /// a shell without the integration script falls back to the last directory the
     /// live rule resolved for this pane.
+    /// The one way this pane reads its foreground, shared by the getter and the refresh so
+    /// they never disagree. An unlisted login shell (`ksh93`) at its own pid is still the
+    /// shell (`ForegroundProcess.adoptingLaunchedShell`).
+    private func liveForeground(childfd: Int32, shellPid: pid_t) -> ForegroundKind? {
+        ForegroundProcess.adoptingLaunchedShell(
+            ForegroundProcess.current(childfd: childfd, integratedShellPid: shellPid),
+            foregroundIsShellPid: childfd >= 0 && tcgetpgrp(childfd) == shellPid,
+            launchedShellName: startedShellName)
+    }
+
     var lastKnownDirectoryPath: String? {
         let state = directoryState
         return state.localReport ?? state.lastContext?.directory?.path
@@ -119,8 +129,7 @@ extension TerminalPane {
         guard let process = view.process else {
             return ShellContext(foreground: nil, directory: nil, followStatus: .unavailable)
         }
-        let kind = ForegroundProcess.current(
-            childfd: process.childfd, integratedShellPid: process.shellPid)
+        let kind = liveForeground(childfd: process.childfd, shellPid: process.shellPid)
         let state = directoryState
         noteForeground(kind, state)
 
@@ -170,8 +179,7 @@ extension TerminalPane {
     /// self-refresh can never stack subprocesses.
     func refreshDirectoryState() {
         guard let process = view.process else { return }
-        let kind = ForegroundProcess.current(
-            childfd: process.childfd, integratedShellPid: process.shellPid)
+        let kind = liveForeground(childfd: process.childfd, shellPid: process.shellPid)
         let state = directoryState
         noteForeground(kind, state)
         if case .tmuxClient(let pid, let tty)? = kind {
