@@ -12,7 +12,8 @@
 //                               after B lands (last request wins), and B's own root
 //                               listing never ran on main.
 // 11. SYNC-ADOPT         (I3) — refreshSynchronously() while B is in flight shows B
-//                               immediately and is still on B after the late landing.
+//                               immediately and is still on B after the late landing;
+//                               a New File edit opened and cancelled mid-flight ends on B.
 // 12. NO-MAIN-LISTING    (I4) — after the stall is released, no lister call comes from
 //                               the main thread during a refresh or setRoot landing.
 // 13. SELECTION-SURVIVES (I5) — the selected row is reselected by URL after an async
@@ -135,8 +136,23 @@ func runInvariantCases(vc: FileTreeViewController, treeURL: URL) {
     let syncNames = rowURLs(ov).map(\.lastPathComponent)
     sem11.signal(); pump(0.3)
     let lateNames = rowURLs(ov).map(\.lastPathComponent)
-    check(syncNames.contains("x.txt") && lateNames.contains("x.txt") && vc.root.url.path == dirB.path,
-          case: "SYNC-ADOPT", msg: "afterSync=\(syncNames) afterLate=\(lateNames)")
+    // Second shape of the same hazard: New File while B lists. insertPlaceholder
+    // invalidates B's listing (it must not land under the editor), so the edit's end —
+    // finishEditReplay → refreshSynchronously — is the only thing left to show B.
+    freshRoot(vc, dirA, via: treeURL)
+    let sem11b = DispatchSemaphore(value: 0)
+    DirectoryListing.lister = stalledLister(sem11b)
+    vc.setRoot(dirB)
+    DirectoryListing.lister = live
+    vc.insertPlaceholder(url: dirA.appendingPathComponent("untitled"), isDirectory: false)
+    let editOpened = vc.isEditingInline
+    vc.cancelInlineEdit()
+    sem11b.signal(); pump(0.3)
+    let editNames = rowURLs(ov).map(\.lastPathComponent)
+    check(syncNames.contains("x.txt") && lateNames.contains("x.txt") && vc.root.url.path == dirB.path
+          && editOpened && editNames.contains("x.txt"),
+          case: "SYNC-ADOPT",
+          msg: "afterSync=\(syncNames) afterLate=\(lateNames) editOpened=\(editOpened) afterEdit=\(editNames)")
 
     // -----------------------------------------------------------------------
     // CASE 12: NO-MAIN-LISTING (I4) — a refresh landing with expanded folders, then a
