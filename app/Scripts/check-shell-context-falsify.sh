@@ -27,6 +27,8 @@ trap 'rm -rf "$FWORK"' EXIT
 RESULT=0
 mutant() {
     local name="$1" file="$2" old="$3" new="$4"
+    # FALSIFY_ONLY=<name> runs one mutant (red-then-green evidence without the full set).
+    if [ -n "${FALSIFY_ONLY:-}" ] && [ "$FALSIFY_ONLY" != "$name" ]; then return; fi
     local clone="$FWORK/$name"
     mkdir -p "$clone"
     cp -cR "$ROOT" "$clone/app" 2>/dev/null || cp -R "$ROOT" "$clone/app"
@@ -106,6 +108,12 @@ mutant osc7-outranks-kernel-cwd ShellContext.swift \
             if case .local(let path)? = reported { return context(URL(fileURLWithPath: path), .local) }' \
 '            if case .local(let path)? = reported { return context(URL(fileURLWithPath: path), .local) }
             if let shellDirectory { return context(shellDirectory, .local) }'
+
+# 9. B3: the production guard's DEFAULT reader stops reading the pane. Every case in
+#    check-terminal-actions replaces this reader, so only layer 2 here can see it.
+mutant guard-default-reader-always-shell TerminalActionGuard.swift \
+'        { host in host.shellContext.foreground }' \
+'        { _ in .shell }'
 
 case "$RESULT" in
     0) echo "FALSIFY: every mutant was caught"; exit 0 ;;

@@ -100,3 +100,21 @@ func startPane(home: URL, in directory: URL) -> (TerminalPane, NSWindow)? {
     let spawned = pump(10) { (pane.view.process?.shellPid ?? 0) > 0 }
     return spawned ? (pane, win) : nil
 }
+
+/// The typing guard as production builds it: a FRESH `TerminalActionGuard()` whose
+/// `foregroundReader` is left at its shipped default (`host.shellContext.foreground`),
+/// with only `beepSink` swapped for a counter. check-terminal-actions.sh replaces the
+/// reader in every case, so this is the one place the default line runs against a real
+/// pane (review finding B3, 2026-10-09).
+@MainActor
+final class DefaultReaderGuard {
+    var beeps = 0
+    private(set) var guardUnderTest = TerminalActionGuard()
+    init() { guardUnderTest.beepSink = { [unowned self] in self.beeps += 1 } }
+    /// `check(host:action:)` plus the beep delta it caused.
+    func check(_ pane: TerminalPane) -> (allowed: Bool, beeped: Int) {
+        let before = beeps
+        let allowed = guardUnderTest.check(host: pane, action: "gate")
+        return (allowed, beeps - before)
+    }
+}

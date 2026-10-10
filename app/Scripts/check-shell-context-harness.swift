@@ -37,6 +37,10 @@ MainActor.assumeIsolated {
            && ctx.directory == dirA && ctx.followStatus == .local, describe(ctx))
     expect("currentDirectory is shellContext.directory", pane.currentDirectory == ctx.directory,
            "currentDirectory=\(pane.currentDirectory?.path ?? "nil")")
+    let typing = DefaultReaderGuard()
+    var verdict = typing.check(pane)
+    expect("B3 default-reader guard: idle shell → allowed, no beep",
+           verdict.allowed && verdict.beeped == 0, "\(verdict)")
 
     print("CASE 2 — cd follows (kernel cwd of the shell, no OSC 7 in this shell)")
     pane.send(text: "cd \(q(dirB))\n")
@@ -78,11 +82,17 @@ MainActor.assumeIsolated {
            && pane.currentDirectory == nil, describe(ctx))
     expect("remote: status names other-host", ctx.followStatus == .remote(host: "other-host"),
            describe(ctx))
+    verdict = typing.check(pane)
+    expect("B3 default-reader guard: fake ssh in front → refused, one beep",
+           !verdict.allowed && verdict.beeped == 1, "\(verdict)")
     pane.send(text: "\u{03}")
     (ctx, _) = poll(pane, 5) { $0.foreground == .shell }
     expect("after ssh exits: the shell's local directory returns (stale remote ignored)",
            ctx.foreground == .shell && ctx.directory == dirB && ctx.followStatus == .local,
            describe(ctx))
+    verdict = typing.check(pane)
+    expect("B3 default-reader guard: ssh exited → allowed again, no beep",
+           verdict.allowed && verdict.beeped == 0, "\(verdict)")
     // A SECOND remote session that reports nothing must not inherit the first one's host:
     // the host is scoped to the session that sent it, not to "the last remote report".
     pane.send(text: "GATE_SSH_SILENT=1 \(q(URL(fileURLWithPath: fakeSsh)))\n")
