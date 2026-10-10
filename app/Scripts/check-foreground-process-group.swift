@@ -34,6 +34,7 @@ func runGroupTable() {
     let rows: [(String, [String?]?, ForegroundKind)] = [
         ("alone in its group → .knownShell", ["bash"], leader),
         ("bash + zsh (all shells) → .knownShell", ["bash", "zsh"], leader),
+        ("zsh alone → .knownShell", ["zsh"], leader),
         ("script + ssh → .remote(ssh)", ["bash", "ssh"], .remote(name: "ssh")),
         ("script + screen → .otherMultiplexer", ["bash", "screen"], .otherMultiplexer(name: "screen")),
         ("script + sleep → .command(sleep)", ["bash", "sleep"], .command(name: "sleep")),
@@ -57,7 +58,8 @@ func runGroupTable() {
 
 /// Type `line` into the pty and poll until `current` stops reading `.shell` and the
 /// foreground group is not the shell's (the command has started), up to ~3 s.
-private func typeAndWait(_ fd: Int32, _ line: String, shellPid: pid_t) -> ForegroundKind? {
+private func typeAndWait(_ fd: Int32, _ line: String, shellPid: pid_t,
+                         minMembers: Int) -> ForegroundKind? {
     _ = line.withCString { write(fd, $0, strlen($0)) }
     var got: ForegroundKind?
     for _ in 0..<60 {
@@ -66,9 +68,11 @@ private func typeAndWait(_ fd: Int32, _ line: String, shellPid: pid_t) -> Foregr
         let fg = tcgetpgrp(fd)
         got = ForegroundProcess.current(childfd: fd, integratedShellPid: shellPid)
         // Wait for the group to settle: a script that has not yet forked its child is
-        // momentarily alone (a documented residual), so require the expected size.
+        // momentarily alone (a documented residual), so require the expected size. The
+        // caller states the size from the case itself, never from the typed text (PR #206
+        // round-2 review: keying on a "script" substring made the wait depend on a comment).
         if fg > 0, fg != shellPid, let n = ForegroundProcess.groupMemberNames(pgid: fg)?.count,
-           n >= (line.contains("script") ? 2 : 1) { break }
+           n >= minMembers { break }
     }
     return got
 }
@@ -109,7 +113,7 @@ func runGroupPtyCases(workDir: String) {
         } else {
             line = "/bin/bash --norc --noprofile -i\r"
         }
-        let got = typeAndWait(fd, line, shellPid: zsh)
+        let got = typeAndWait(fd, line, shellPid: zsh, minMembers: c.script == nil ? 1 : 2)
         let fg = tcgetpgrp(fd)
         let members = ForegroundProcess.groupMemberNames(pgid: fg) ?? []
         let detail = "got=\(String(describing: got)) fg=\(fg) zsh=\(zsh) members=\(members)"
