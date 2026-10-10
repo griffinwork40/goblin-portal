@@ -108,7 +108,7 @@ enum ForegroundProcess {
         switch executableName {
 
         // ── shells ───────────────────────────────────────────────────────────────
-        // Names sourced from the contract doc (plan §wave-0-K).
+        // Names sourced from the frozen contract (ForegroundProcess.swift header, plan).
         // Case-sensitive: proc_pidpath on macOS returns the actual binary name, which
         // is always lowercase for system shells and all shells in Homebrew.
         case "zsh", "bash", "sh", "dash", "fish", "ksh", "mksh",

@@ -75,8 +75,9 @@ final class DirectoryFollow {
 
         // 0.75s: fast enough that the sidebar feels like it is following you rather than
         // catching up, slow enough to be invisible in Activity Monitor. The work per tick
-        // is `tcgetpgrp` + `proc_pidinfo` on one process — microseconds — so the interval
-        // is chosen for perceived latency, not for load.
+        // is one `shellContext` read (`tcgetpgrp`, `proc_pidpath` and `proc_pidinfo` on one
+        // process, plus a cache read; the tmux subprocess only runs off-main) —
+        // microseconds — so the interval is chosen for perceived latency, not for load.
         let interval: TimeInterval = 0.75
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
             // `Timer`'s block is `@Sendable` and this type is `@MainActor`, but a run-loop
@@ -130,7 +131,8 @@ final class DirectoryFollow {
         }
 
         // Kick off any slow async work (tmux active-pane query) before reading the result.
-        // Lane C replaces this stub; the wave-0 scaffold is a no-op (ShellHosting.swift:145).
+        // Never blocks: `TerminalPane+DirectoryState.swift` coalesces it onto a background
+        // queue and this tick reads whatever is cached.
         host.refreshDirectoryState()
 
         // Read shellContext ONCE. This is the plan's "obtain one ShellContext per tick" rule.

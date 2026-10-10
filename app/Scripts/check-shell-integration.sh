@@ -23,7 +23,8 @@
 #
 # FALSIFY MODE (--falsify). Copies the two Swift source files to isolated temp dirs,
 # applies three named mutations (one per copy), compiles each, runs each against the
-# harness, and asserts every mutant exits 1. Exits 0 only when ALL mutants fail.
+# harness, and asserts every mutant exits 1. Exits 0 only when ALL mutants fail; a mutant
+# that does not compile, or whose pattern no longer applies, makes falsify exit 2.
 # Mutation names: drop-host-check, double-decode, case-sensitive-compare.
 #
 # EXIT CODES: 0 = all cases pass. 1 = real failure. 2 = environmental (no toolchain,
@@ -94,6 +95,7 @@ fi
 echo "==> falsify: running 3 mutants"
 FTMP="$(mktemp -d)"; trap 'rm -rf "$FTMP"' EXIT
 all_caught=1
+env_bad=0
 
 run_mutant() {
     local mname="$1"
@@ -117,11 +119,21 @@ run_mutant() {
     fi
 
     local mlog="$mdir/compile.log"
+    # A mutant that does not compile was never RUN, so it says nothing about the gate:
+    # environmental (exit 2), never "caught". Counting it as caught let a stale sed
+    # pattern that produced garbage pass falsify green.
     if ! swiftc -o "$mdir/si_check" \
         "$mdir/ShellIntegration.swift" \
         "$mdir/Osc7Directory.swift" \
         "$mdir/main.swift" 2>"$mlog"; then
-        echo "  mutant $mname: caught (compile error — mutation broke compilation)"
+        echo "  mutant $mname: ENVIRONMENTAL — the mutant did not compile"
+        grep -E 'error:' "$mlog" | head -3 | sed 's/^/      /'
+        env_bad=1
+        return 0
+    fi
+    if cmp -s "$SRC_O7" "$mdir/Osc7Directory.swift"; then
+        echo "  mutant $mname: ENVIRONMENTAL — the sed pattern no longer applies"
+        env_bad=1
         return 0
     fi
     local mout mstatus
@@ -132,8 +144,8 @@ run_mutant() {
         echo "  mutant $mname: MISSED — gate exited 0; mutant should have been caught"
         all_caught=0
     else
-        echo "  mutant $mname: unexpected exit $mstatus"
-        all_caught=0
+        echo "  mutant $mname: unexpected exit $mstatus (environmental)"
+        env_bad=1
     fi
 }
 
@@ -141,7 +153,10 @@ run_mutant "drop-host-check"
 run_mutant "double-decode"
 run_mutant "case-sensitive-compare"
 
-if [[ $all_caught -eq 1 ]]; then
+if [[ $env_bad -eq 1 ]]; then
+    echo "==> falsify: ENVIRONMENTAL — at least one mutant could not be run (exit 2)"
+    exit 2
+elif [[ $all_caught -eq 1 ]]; then
     echo "==> falsify: all 3 mutants caught — gate is load-bearing"
     exit 0
 else

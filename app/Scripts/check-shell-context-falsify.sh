@@ -14,8 +14,12 @@
 #      or its expectations — and require the file's checksum to have changed (an
 #      unchanged file means the pattern went stale: environmental, exit 2);
 #   4. run the clone's own check-shell-context.sh in NORMAL mode.
-# Mutant exit 1 = caught. 0 = NOT caught: falsify fails (exit 1). 2 = environmental:
-# falsify exits 2. So a run in which nothing executed can never exit 0.
+# Mutant exit 1 AND its declared expected case reported ✗ = caught. Exit 1 with the
+# expected case green = MISATTRIBUTED: something else broke, so this mutant proves nothing
+# about the case written for it — counted as not caught. 0 = NOT caught: falsify fails
+# (exit 1). 2 = environmental: falsify exits 2. The cloned gate's own verdict is its exit
+# code; the ✗ lines are read only to attribute a red run to a mutant. So a run in which
+# nothing executed can never exit 0.
 #
 set -euo pipefail
 
@@ -26,9 +30,10 @@ trap 'rm -rf "$FWORK"' EXIT
 
 RESULT=0
 mutant() {
-    local name="$1" file="$2" old="$3" new="$4"
-    # FALSIFY_ONLY=<name> runs one mutant (red-then-green evidence without the full set).
-    if [ -n "${FALSIFY_ONLY:-}" ] && [ "$FALSIFY_ONLY" != "$name" ]; then return; fi
+    local name="$1" file="$2" expect="$3" old="$4" new="$5"
+    # FALSIFY_ONLY="<name> [<name>…]" runs a subset (red-then-green evidence, or splitting
+    # a run that would outlast a caller's timeout). Unset runs every mutant.
+    if [ -n "${FALSIFY_ONLY:-}" ] && ! [[ " $FALSIFY_ONLY " == *" $name "* ]]; then return; fi
     local clone="$FWORK/$name"
     mkdir -p "$clone"
     cp -cR "$ROOT" "$clone/app" 2>/dev/null || cp -R "$ROOT" "$clone/app"
@@ -55,7 +60,13 @@ PY
     local red; red="$(grep -c '✗' "$FWORK/$name.log" || true)"
     echo "  mutant $name ($file): gate exit $rc, $red case(s) red"
     case "$rc" in
-        1) grep '✗' "$FWORK/$name.log" | head -3 | sed 's/^/      /' ;;
+        1) grep '✗' "$FWORK/$name.log" | head -3 | sed 's/^/      /'
+           if grep -F "✗ $expect" "$FWORK/$name.log" >/dev/null; then
+               echo "    caught by its expected case: $expect"
+           else
+               echo "    MISATTRIBUTED: expected case '$expect' did not fail"
+               [ "$RESULT" -eq 2 ] || RESULT=1
+           fi ;;
         0) echo "    NOT CAUGHT"; [ "$RESULT" -eq 2 ] || RESULT=1 ;;
         *) echo "    ENVIRONMENTAL"; tail -5 "$FWORK/$name.log" | sed 's/^/      /'; RESULT=2 ;;
     esac
@@ -65,45 +76,45 @@ PY
 echo "FALSIFY — each mutant of a CLONE of the shipped app must turn the gate red"
 
 # 1. A stale local OSC 7 outranks the tmux branch (the original bug, in the pure rule).
-mutant stale-osc7-outranks-tmux ShellContext.swift \
+mutant stale-osc7-outranks-tmux ShellContext.swift "stale local report under tmux (cache cold)" \
 '            return context(tmuxDirectory, .local)' \
 '            if case .local(let path)? = reported { return context(URL(fileURLWithPath: path), .local) }
             return context(tmuxDirectory, .local)'
 
 # 2. A command in front answers with the FOREGROUND's cwd (the retired fallback).
-mutant command-uses-foreground-cwd TerminalPane+DirectoryState.swift \
+mutant command-uses-foreground-cwd TerminalPane+DirectoryState.swift "directory is the shell's (cd-target), not sleep's (other)" \
 '            shellDirectory = ShellDirectory.workingDirectory(of: process.shellPid)' \
 '            shellDirectory = ShellDirectory.workingDirectory(of: tcgetpgrp(process.childfd))'
 
 # 3. A late tmux answer is stored without checking it is still for the live client.
-mutant late-tmux-no-key-check TerminalPane+DirectoryState.swift \
+mutant late-tmux-no-key-check TerminalPane+DirectoryState.swift "delivery for another client does not enter the cache" \
 '              TmuxClientKey(pid: pid, tty: tty) == key' \
 '              TmuxClientKey(pid: pid, tty: tty) == key || pid != key.pid'
 
 # 4. A remote OSC 7 is parsed as local (the host stops deciding which filesystem).
-mutant remote-osc7-parsed-as-local Osc7Directory.swift \
+mutant remote-osc7-parsed-as-local Osc7Directory.swift "remote: status names other-host" \
 '            if localHostnames.contains(urlHost) {' \
 '            if !urlHost.isEmpty || localHostnames.contains(urlHost) {'
 
 # The two below break things the assertions were NOT written around.
 # 5. The getter stops scheduling its own refresh on a cold cache: only an external
 #    refresh (the poller) would ever ask tmux. The harness never calls refresh in polls.
-mutant getter-never-self-refreshes TerminalPane+DirectoryState.swift \
+mutant getter-never-self-refreshes TerminalPane+DirectoryState.swift "inside tmux: directory is the tmux pane's" \
 '            } else {
                 scheduleTmuxQuery(key, state)
             }' \
 '            }'
 # 6. The in-flight flag is never cleared: the first tmux query is also the last.
-mutant inflight-never-cleared TerminalPane+DirectoryState.swift \
+mutant inflight-never-cleared TerminalPane+DirectoryState.swift "a second cd inside tmux is followed" \
 '                    self.directoryState.tmuxInFlight = nil' \
 '                    _ = self.directoryState.tmuxInFlight'
 # 7. A nested shell answers with the OUTER shell's cwd.
-mutant known-shell-reads-outer TerminalPane+DirectoryState.swift \
+mutant known-shell-reads-outer TerminalPane+DirectoryState.swift "bash in front: .knownShell in bash's own directory" \
 '            knownShellDirectory = ShellDirectory.workingDirectory(of: pid)' \
 '            knownShellDirectory = ShellDirectory.workingDirectory(of: process.shellPid + 0 * pid)'
 
 # 8. B2 regression: a stored local OSC 7 outranks the shell's live kernel cwd again.
-mutant osc7-outranks-kernel-cwd ShellContext.swift \
+mutant osc7-outranks-kernel-cwd ShellContext.swift "B2 stale local report + different shell cwd" \
 '            if let shellDirectory { return context(shellDirectory, .local) }
             if case .local(let path)? = reported { return context(URL(fileURLWithPath: path), .local) }' \
 '            if case .local(let path)? = reported { return context(URL(fileURLWithPath: path), .local) }
@@ -111,18 +122,18 @@ mutant osc7-outranks-kernel-cwd ShellContext.swift \
 
 # 9. B3: the production guard's DEFAULT reader stops reading the pane. Every case in
 #    check-terminal-actions replaces this reader, so only layer 2 here can see it.
-mutant guard-default-reader-always-shell TerminalActionGuard.swift \
+mutant guard-default-reader-always-shell TerminalActionGuard.swift "B3 default-reader guard: fake ssh in front" \
 '        { host in host.shellContext.foreground }' \
 '        { _ in .shell }'
 
 # 10. The generation check is deleted: an answer scheduled before an invalidation is
 #     stored when the key happens to match again (CASE 7, older-generation delivery).
-mutant tmux-generation-unchecked TerminalPane+DirectoryState.swift \
+mutant tmux-generation-unchecked TerminalPane+DirectoryState.swift "delivery for the live client under an older generation" \
 '        guard generation == state.tmuxGeneration, let process = view.process,' \
 '        guard let process = view.process,'
 # 11. A completed nil tmux answer is silent again (`.local`), freezing the sidebar with
 #     no note (CASE 9, server on an unsearched socket).
-mutant tmux-nil-answer-silent ShellContext.swift \
+mutant tmux-nil-answer-silent ShellContext.swift "unfindable tmux server" \
 '            if tmuxDirectory == nil && tmuxAnswered { return context(nil, .paused(program: "tmux")) }' \
 '            _ = tmuxAnswered'
 
