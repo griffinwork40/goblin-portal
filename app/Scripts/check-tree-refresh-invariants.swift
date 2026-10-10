@@ -6,8 +6,8 @@
 // the 350-line ceiling would not hold all three.
 //
 //  9. NO-EMPTY-FRAME     (I1) — between setRoot(B) and B's landing the outline keeps
-//                               showing A's rows (A retained), never zero rows; B
-//                               replaces them when it lands.
+//                               showing A's rows (A retained), never zero rows, even
+//                               across a mid-flight reloadData; B replaces them on landing.
 // 10. REVEAL-IN-FLIGHT   (I2) — reveal(x), reveal(y) while B is in flight: y is selected
 //                               after B lands (last request wins), and B's own root
 //                               listing never ran on main.
@@ -86,22 +86,30 @@ func runInvariantCases(vc: FileTreeViewController, treeURL: URL) {
     DirectoryListing.lister = stalledLister(sem9)
     vc.setRoot(dirB)
     DirectoryListing.lister = live
+    // Retention is read FIRST: if A was released, its rows are dangling items, and
+    // reading them (rowURLs) would crash the gate instead of failing this case.
+    let aRetained = shownA != nil
     samples.append(ov.numberOfRows)                  // the frame right after setRoot
-    let rowsDuring = rowURLs(ov)
+    let rowsDuring = aRetained ? rowURLs(ov) : []
     let sampler = Timer(timeInterval: 0.01, repeats: true) { _ in
         MainActor.assumeIsolated { samples.append(ov.numberOfRows) }
     }
     RunLoop.main.add(sampler, forMode: .common)
     pump(0.15)
-    let aRetained = shownA != nil
+    // Any reload mid-flight (a filter keystroke, a placeholder, a git repaint) re-asks
+    // the data source from scratch; it must still answer with A's rows, not B's none.
+    ov.reloadData()
+    samples.append(ov.numberOfRows)
+    let reloadedIsA = rowURLs(ov).first?.path.hasPrefix(dirA.path + "/") ?? false
     sem9.signal(); pump(0.3)
     sampler.invalidate()
     let namesAfter = rowURLs(ov).map(\.lastPathComponent)
     let duringIsA = !rowsDuring.isEmpty && rowsDuring.allSatisfy { $0.path.hasPrefix(dirA.path + "/") }
     check(!rowsBefore.isEmpty && samples.allSatisfy { $0 > 0 } && duringIsA && aRetained
-          && namesAfter.contains("x.txt") && !namesAfter.contains("y.txt"),
+          && reloadedIsA && namesAfter.contains("x.txt") && !namesAfter.contains("y.txt"),
           case: "NO-EMPTY-FRAME",
-          msg: "minRows=\(samples.min() ?? -1) duringIsA=\(duringIsA) aRetained=\(aRetained) after=\(namesAfter)")
+          msg: "minRows=\(samples.min() ?? -1) duringIsA=\(duringIsA) aRetained=\(aRetained) "
+            + "afterMidFlightReload=\(reloadedIsA) after=\(namesAfter)")
 
     // -----------------------------------------------------------------------
     // CASE 10: REVEAL-IN-FLIGHT (I2). The real trigger is a file-viewer tab selected

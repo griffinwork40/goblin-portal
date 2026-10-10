@@ -13,7 +13,8 @@
 //  6. STALE-DROP            — setRoot(A), setRoot(B), A's listing released last:
 //                             root is B and none of A's children ever appear.
 //  7. EDIT-DEFER            — a refresh landing during an inline edit does not reload
-//                             the outline; it is replayed when the edit ends.
+//                             the outline and records `pendingReload` (deferred, not
+//                             dropped); the edit's end re-reads, so late.txt appears.
 //  8. MUTATION-INVALIDATES  — an async refresh in flight, then a file operation's
 //                             synchronous refresh: the late async result is dropped.
 
@@ -78,7 +79,11 @@ func runStalenessCases(vc: FileTreeViewController, treeURL: URL) {
     let appliedDuringEdit = childNames(vc.root).contains("late.txt")
     let stillEditing = vc.isEditingInline
     let deferred = vc.pendingReload
-    vc.cancelInlineEdit(); pump(0.3)       // finishEditReplay must re-read
+    // `replayed` is NOT evidence about `pendingReload`: finishEditReplay re-reads
+    // unconditionally (every edit end must), so it holds whatever the flag says. It
+    // proves the user is not left without late.txt. `deferred` is the flag's own check —
+    // it tells a deferred landing from a dropped one (falsify: drop-during-edit).
+    vc.cancelInlineEdit(); pump(0.3)
     let replayed = childNames(vc.root).contains("late.txt")
     check(stillEditing && deferred && !appliedDuringEdit && replayed,
           case: "EDIT-DEFER",

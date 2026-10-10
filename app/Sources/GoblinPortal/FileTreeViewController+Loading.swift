@@ -11,27 +11,44 @@
 //  (`DirectoryEntry`), so it moves to a background queue; everything that touches a
 //  `FileNode` or the outline stays on the main actor.
 //
-//  SHAPE (copied from +Git.swift:162-176): snapshot on main → `DispatchQueue.global()`
-//  lists into an immutable `[URL: [DirectoryEntry]]` → `Task { @MainActor in }` lands it.
-//  The lister closure is READ on main (`DirectoryListing.lister` is a `@MainActor` var)
-//  and passed into the background block as a value; its `@Sendable` type is what lets
-//  it cross (DirectoryListing.swift, `lister`).
+//  SHAPE (copied from +Git.swift's `GitStatusFollow.pollNow()`): snapshot on main →
+//  `DispatchQueue.global()` lists into an immutable `[URL: [DirectoryEntry]]` →
+//  `Task { @MainActor in }` lands it. The lister closure is READ on main
+//  (`DirectoryListing.lister` is a `@MainActor` var) and passed into the background
+//  block as a value; its `@Sendable` type is what lets it cross (DirectoryListing.swift,
+//  `lister`).
 //
 //  STALENESS. Every issue bumps `treeLoadGeneration`; a landing whose generation is no
 //  longer current is DROPPED. The token is bumped by: a newer `refresh()`, a newer
 //  `setRoot` listing, `refreshSynchronously()` (so every file mutation, and every edit
-//  ending — `finishEditReplay` goes through it), and placeholder insertion
-//  (+Mutation.swift `insertPlaceholder`). Teardown drops results through `[weak self]`.
-//  A CURRENT result that lands while an inline edit is open is not applied (it would
-//  reload the outline under the editor): it sets `pendingReload`, exactly as a blocked
-//  `refresh()` does, and `finishEditReplay` re-reads synchronously when the edit ends.
+//  ending — `finishEditReplay` goes through it), placeholder insertion
+//  (+Mutation.swift `insertPlaceholder`), and setRoot returning to the displayed root.
+//  Teardown drops results through `[weak self]`.
+//
+//  EDITS. A CURRENT result that lands while an inline edit is open is not applied (it
+//  would reload the outline under the editor). It sets `pendingReload` and returns.
+//  The flag is a RECORD, not a trigger: nothing branches on it. The replay is
+//  unconditional — every edit ends in `finishEditReplay` → `refreshAfterMutation` →
+//  `refreshSynchronously()`, because every edit end must re-read anyway (a placeholder
+//  to drop, a rename to show) — and `finishEditReplay` clears it. It exists so a gate
+//  can tell "deferred" from "dropped": check-tree-refresh EDIT-DEFER asserts it, and the
+//  `drop-during-edit` falsify mutant (which returns without setting it) fails there.
+//
+//  TWO ROOTS. `root` is the directory the tree is FOR; `displayedRoot` is the tree the
+//  outline is SHOWING. They differ only while a setRoot listing is in flight, when the
+//  old tree stays on screen (FileTreeViewController.swift `displayedRoot`). They
+//  converge in `adoptRoot()` — on that listing's landing, or synchronously in
+//  `refreshSynchronously()` — and a reveal asked for in between waits for it
+//  (`pendingReveal`, +Reveal.swift).
 //
 //  STILL SYNCHRONOUS, deliberately (each needs its children in the same turn):
 //  `loadView` (first frame, FileTreeViewController.swift `root.reloadChildren()`),
 //  `reveal(_:)` (+Reveal.swift), `walk(to:)` and `insertPlaceholder` (+Mutation.swift),
-//  disclosure expansion (`shouldExpandItem`, +OutlineView.swift:43), the filter's
+//  disclosure expansion (`shouldExpandItem`, +OutlineView.swift), the filter's
 //  `collectVisible` (+Filter.swift), and `refreshAfterMutation` via
-//  `refreshSynchronously()` below.
+//  `refreshSynchronously()` below — which, mid-setRoot, also lists the new root.
+//  A LANDING never lists: it only applies what the background listed
+//  (check-tree-refresh NO-MAIN-LISTING).
 //
 
 import AppKit
