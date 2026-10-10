@@ -68,7 +68,7 @@ fi
 # Same object lookup as check-sidebar-toggle.sh, for the same reason (N2: only the backend we
 # pin writes GoblinPortal-p.build, so nothing stale from another build system can be linked).
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/SpaceWindowController.o" ]] || {
   echo "error: GoblinPortal objects not found under .build/out (expected GoblinPortal-p.build)." >&2
   exit 2; }

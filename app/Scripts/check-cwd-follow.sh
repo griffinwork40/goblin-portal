@@ -9,6 +9,12 @@
 # check-keybindings.sh plays on KeyBindings.swift. Nothing here launches Goblin Portal, steals
 # focus, or needs a window server.
 #
+# SCOPE CHANGE (lane C, 2026-10-09). ShellDirectory no longer chooses WHICH process to ask:
+# `current(foregroundOf:fallbackPid:)` followed the pty's foreground program and was
+# deleted with that rationale (ShellDirectory.swift header). This gate now covers the
+# per-pid read `workingDirectory(of:)` and the cd command; the choice of pid (shell vs.
+# command vs. tmux vs. ssh) is gated by check-shell-context.sh against a real pane.
+#
 # WHY THIS EXISTS. The repo has no test target and no CI (AFK.md, "Checks"), so a
 # feature's gate script IS its evidence. cwd-follow reads another process's working
 # directory through two syscalls and writes a shell command built by string quoting —
@@ -94,26 +100,16 @@ guard posix_spawn(&pid, "/bin/zsh", &acts, &attr, &argv, environ) == 0 else {
 close(secondary)
 usleep(800_000)  // let zsh reach its sleep and settle as the foreground group
 
-// HONEST SCOPE NOTE, and it was found by asserting it rather than assuming it. The
-// child above is a session leader (POSIX_SPAWN_SETSID) that opens the pty itself, which
-// on Linux would make it acquire the terminal and become its foreground process group.
-// On Darwin it does not: BSD requires an explicit ioctl(TIOCSCTTY), which a spawned
-// process cannot be made to issue, and the fork()-then-ioctl route is closed because
-// Swift marks fork() unavailable ("Please use threads or posix_spawn*()"). So
-// tcgetpgrp(primary) fails here and these cases exercise the FALLBACK pid path. They are
-// named for what they actually test. The tcgetpgrp branch is covered separately below,
-// against this process's own controlling terminal, and in production by the app itself —
-// SwiftTerm reaches the pty through forkpty (LocalProcess.swift:513), which does the
-// TIOCSCTTY this script cannot.
-let foregroundWorks = tcgetpgrp(primary) > 0
+// The pty is kept because a real shell-in-a-pty is what production reads; which pid is
+// in FRONT of it no longer matters to this unit (ShellDirectory.swift header). Real
+// foreground selection is exercised by check-shell-context.sh through forkpty
+// (LocalProcess.swift:513), which does the TIOCSCTTY a spawned child here cannot.
 
 print("ShellDirectory — reading a live shell's directory")
 let expected = URL(fileURLWithPath: target).standardizedFileURL.resolvingSymlinksInPath()
-let got = ShellDirectory.current(foregroundOf: primary, fallbackPid: pid)
-check("reads a spawned child's cwd (fallback pid path)", got == expected,
+let got = ShellDirectory.workingDirectory(of: pid)
+check("reads a spawned shell's cwd by pid", got == expected,
       "got=\(got?.path ?? "nil") want=\(expected.path)")
-check("foreground-group probe behaved as documented on this OS", !foregroundWorks,
-      "tcgetpgrp(primary)=\(tcgetpgrp(primary)) — if this ever succeeds, retitle the cases above")
 check("answer carries no /private prefix", got?.path.hasPrefix("/private/") == false,
       "got=\(got?.path ?? "nil")")
 // The normalisation rule, measured rather than assumed, because two earlier guesses at
@@ -140,17 +136,20 @@ check("URL == is NOT safe for this comparison (why setRoot compares .path)",
 check("nonexistent dir: convergence does NOT hold (why the guard needs live paths)",
       URL(fileURLWithPath: "/private/tmp/doesnotexist").resolvingSymlinksInPath()
           != URL(fileURLWithPath: "/tmp/doesnotexist").resolvingSymlinksInPath())
-check("idempotent across two reads",
-      ShellDirectory.current(foregroundOf: primary, fallbackPid: pid) == got)
-check("falls back to shellPid when childfd is unusable",
-      ShellDirectory.current(foregroundOf: -1, fallbackPid: pid) == expected)
+check("idempotent across two reads", ShellDirectory.workingDirectory(of: pid) == got)
+// The pid asked is the pid answered: our own process sits in a different directory from
+// the child, so a reader that ignored its argument (e.g. read the caller) would fail.
+let mine = ShellDirectory.workingDirectory(of: getpid())
+let ourCwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    .standardizedFileURL.resolvingSymlinksInPath()
+check("reads THE pid given: our own cwd for getpid()", mine == ourCwd && mine != got,
+      "got=\(mine?.path ?? "nil") want=\(ourCwd.path)")
 
 print("ShellDirectory — inputs that must not trap")
-check("childfd -1 and pid 0 -> nil", ShellDirectory.current(foregroundOf: -1, fallbackPid: 0) == nil)
-check("negative pid -> nil", ShellDirectory.current(foregroundOf: -1, fallbackPid: -42) == nil)
+check("pid 0 -> nil (it would mean our own group)", ShellDirectory.workingDirectory(of: 0) == nil)
+check("negative pid -> nil", ShellDirectory.workingDirectory(of: -42) == nil)
 check("pid 1 (launchd, not ours) -> nil or a path, never a trap",
-      ShellDirectory.current(foregroundOf: -1, fallbackPid: 1) != nil
-          || ShellDirectory.current(foregroundOf: -1, fallbackPid: 1) == nil)
+      ShellDirectory.workingDirectory(of: 1) != nil || ShellDirectory.workingDirectory(of: 1) == nil)
 
 print("ShellDirectory — the cd command")
 // Executed, not string-matched: the only question that matters is whether a real zsh
@@ -175,29 +174,12 @@ check("embedded quote is closed-escaped-reopened",
       ShellDirectory.singleQuoted("a'b") == "'a'\\''b'",
       ShellDirectory.singleQuoted("a'b"))
 
-print("ShellDirectory — the tcgetpgrp branch, against our own terminal")
-// The one place this script can reach a real controlling terminal is its own, when run
-// from a terminal. That exercises the tcgetpgrp branch for real: fd 0 is a tty, its
-// foreground process group exists, and the answer must be an absolute existing path.
-// SKIPped rather than failed when stdin is not a tty, because a redirected run is an
-// environment fact, not a defect.
-if isatty(0) == 1 {
-    let mine = ShellDirectory.current(foregroundOf: 0, fallbackPid: 0)
-    check("tcgetpgrp path returns an absolute existing directory", mine.map {
-        $0.path.hasPrefix("/") && FileManager.default.fileExists(atPath: $0.path)
-    } ?? false, "got=\(mine?.path ?? "nil")")
-    check("tcgetpgrp path needs no fallback pid", mine != nil)
-} else {
-    print("  – SKIP tcgetpgrp branch (stdin is not a tty)")
-}
-
 print("ShellDirectory — a shell that has gone away")
 kill(pid, SIGKILL)
 var status: Int32 = 0
 waitpid(pid, &status, 0)
 usleep(400_000)
-check("exited child -> nil, no crash",
-      ShellDirectory.current(foregroundOf: primary, fallbackPid: pid) == nil)
+check("exited child -> nil, no crash", ShellDirectory.workingDirectory(of: pid) == nil)
 
 print("")
 if failures == 0 {

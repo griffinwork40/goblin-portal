@@ -1,31 +1,34 @@
 #!/bin/bash
 #
-# Does the OSC 133 parser correctly implement the A/C/D state machine?
-# Asserts ShellIntegration.swift's handler and parseExitCode function.
+# Does the OSC 133 parser correctly implement the A/C/D state machine, and does
+# Osc7Directory correctly identify remote vs local OSC 7 hosts?
 #
-# WHAT IS UNDER TEST. `Sources/GoblinPortal/ShellIntegration.swift` only. That file is
-# Foundation-only BY DESIGN — the OSC 133 parser and state machine are pure functions
-# of their inputs, and a pure function compiles headless with swiftc. Same trick
-# check-command-outcome.sh plays on CommandOutcome.swift, check-cwd-follow.sh on
-# ShellDirectory.swift, check-cursor-style.sh on CursorStyle.swift.
+# WHAT IS UNDER TEST:
+#   Sources/GoblinPortal/ShellIntegration.swift — OSC 133 parser + parseOsc7Directory wrapper
+#   Sources/GoblinPortal/Osc7Directory.swift    — parse(_:localHostnames:) + currentLocalHostnames()
+#   Scripts/check-shell-integration-harness.swift — all assertion cases
 #
-# Compiling the SHIPPED file, not a restatement of its logic, is the whole point: a
-# check that restates the parser proves only that the check agrees with itself.
+# Both Swift files are Foundation-only BY DESIGN: a pure-policy file compiles headless
+# with swiftc. Same trick check-command-outcome.sh, check-cwd-follow.sh, and
+# check-renderer-config.sh each use.
 #
-# WHY IT EXISTS. The A/C/D state machine has one load-bearing edge: a D before any C
-# (the first precmd after sourcing the script) must be silently ignored. Get that wrong
-# and every shell session opens by fabricating a zero-exit command of some duration —
-# which could mark the tab, depending on CommandOutcome's threshold. The machine also
-# has a second correctness invariant: D;0 must yield exit code 0, D must yield nil, and
-# D;127 must yield 127. Exit code parsing is load-bearing for the failed/succeeded split.
+# WHY THIS HAS A HARNESS FILE. Adding Osc7Directory.swift and its host-check cases
+# would push the inline Swift block past the 350-LOC ceiling. Same split-at-seam
+# pattern as check-git-status-harness.swift and check-theme-contrast-registry.swift.
 #
-# WHAT IT CANNOT REACH. Whether the OSC 133 sequence actually arrives from the zsh
-# script, whether `registerOscHandler` fires at the right moment, and whether the tab
-# strip repaint is triggered — all AppKit or live-shell territory. This owns the
-# parser and state machine.
+# WHY THE HOST CHECK MATTERS. OSC 7 carries file://<host>/<path>. The old parser
+# discarded the host, so a remote shell reporting /tmp would re-root the local
+# sidebar at /tmp. The host is the only signal that says which filesystem the path
+# belongs to; a remote report must give .remote(host:), and the wrapper returns nil.
 #
-# EXIT CODES: 0 = all cases passed. 1 = real failure (parser wrong, state machine wrong).
-# 2 = environmental (no toolchain, source file missing, harness compile failure).
+# FALSIFY MODE (--falsify). Copies the two Swift source files to isolated temp dirs,
+# applies three named mutations (one per copy), compiles each, runs each against the
+# harness, and asserts every mutant exits 1. Exits 0 only when ALL mutants fail; a mutant
+# that does not compile, or whose pattern no longer applies, makes falsify exit 2.
+# Mutation names: drop-host-check, double-decode, case-sensitive-compare.
+#
+# EXIT CODES: 0 = all cases pass. 1 = real failure. 2 = environmental (no toolchain,
+# source missing, harness compile failure).
 #
 set -uo pipefail
 
@@ -33,282 +36,130 @@ QUIET="${QUIET:-0}"
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 
 cd "$(dirname "$0")/.."
-SRC="Sources/GoblinPortal/ShellIntegration.swift"
+SRC_SI="Sources/GoblinPortal/ShellIntegration.swift"
+SRC_O7="Sources/GoblinPortal/Osc7Directory.swift"
+HARNESS="Scripts/check-shell-integration-harness.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
     echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }
-[[ -f "$SRC" ]] || {
-    echo "error: $SRC not found — did the file move? This gate names its subject explicitly." >&2
-    exit 2; }
+for f in "$SRC_SI" "$SRC_O7" "$HARNESS"; do
+    [[ -f "$f" ]] || {
+        echo "error: $f not found — did the file move?" >&2; exit 2; }
+done
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-cp "$SRC" "$TMP/ShellIntegration.swift"
-
-# The harness uses ShellIntegration.State directly (it is not `private`).
-# It exercises `handle(data:state:)` and `parseExitCode(from:)` — both are
-# `internal` rather than `private`, which is what makes them reachable here.
-# This mirrors how check-cwd-follow.sh exercises ShellDirectory.singleQuoted.
-cat > "$TMP/main.swift" <<'SWIFT'
-import Foundation
-
-var bad = 0
-func fail(_ label: String, _ msg: String) {
-    print("  FAIL \(label): \(msg)")
-    bad += 1
-}
-func ok(_ label: String) {
-    // Only printed when QUIET == 0; say() is a shell construct, not available here.
-    // The gate script mirrors check-command-outcome.sh: final summary only.
-}
-
-// ── parseExitCode ──────────────────────────────────────────────────────────────
-
-func asBytes(_ s: String) -> ArraySlice<UInt8> {
-    ArraySlice(s.utf8)
+# ── helper: compile_and_run <dir> ────────────────────────────────────────────
+# Compiles ShellIntegration.swift + Osc7Directory.swift + harness (as main.swift)
+# from the given dir. Exits 2 on compile failure, returns runner exit code otherwise.
+compile_and_run() {
+    local dir="$1"
+    local log="$dir/compile.log"
+    if ! swiftc -o "$dir/si_check" \
+        "$dir/ShellIntegration.swift" \
+        "$dir/Osc7Directory.swift" \
+        "$dir/main.swift" 2>"$log"; then
+        echo "error: harness compile failed — the gate cannot run." >&2
+        echo "  If this names AppKit or SwiftTerm, a source file has stopped being" >&2
+        echo "  Foundation-only and THAT is the regression." >&2
+        grep -E 'error:' "$log" | head -10 | sed 's/^/    /' >&2
+        return 2
+    fi
+    "$dir/si_check" 2>&1
+    return $?
 }
 
-// D with no semicolon → nil (no exit code)
-if ShellIntegration.parseExitCode(from: asBytes("D")) != nil {
-    fail("D-no-semi", "expected nil, got \(ShellIntegration.parseExitCode(from: asBytes("D"))!)")
-}
-
-// D; with nothing after → nil
-if ShellIntegration.parseExitCode(from: asBytes("D;")) != nil {
-    fail("D-empty-code", "expected nil for empty suffix")
-}
-
-// D;0 → 0
-if ShellIntegration.parseExitCode(from: asBytes("D;0")) != 0 {
-    fail("D;0", "expected 0, got \(String(describing: ShellIntegration.parseExitCode(from: asBytes("D;0"))))")
-}
-
-// D;1 → 1
-if ShellIntegration.parseExitCode(from: asBytes("D;1")) != 1 {
-    fail("D;1", "expected 1")
-}
-
-// D;127 → 127 (command not found)
-if ShellIntegration.parseExitCode(from: asBytes("D;127")) != 127 {
-    fail("D;127", "expected 127")
-}
-
-// D;-1 → -1 (signal-killed processes sometimes report -1)
-if ShellIntegration.parseExitCode(from: asBytes("D;-1")) != -1 {
-    fail("D;-1", "expected -1")
-}
-
-// D;130 → 130 (Ctrl+C, SIGINT+128)
-if ShellIntegration.parseExitCode(from: asBytes("D;130")) != 130 {
-    fail("D;130", "expected 130")
-}
-
-// D;0;extra → 0 (extra fields are trimmed)
-if ShellIntegration.parseExitCode(from: asBytes("D;0;extra")) != 0 {
-    fail("D;0;extra", "expected 0 (trimmed at non-digit)")
-}
-
-// D;abc → nil (non-numeric)
-if ShellIntegration.parseExitCode(from: asBytes("D;abc")) != nil {
-    fail("D;abc", "expected nil for non-numeric code")
-}
-
-// ── State machine ──────────────────────────────────────────────────────────────
-
-var received: [(Int?, UInt64)] = []
-var startCount = 0
-let state = ShellIntegration.State(
-    callback: { code, nanos in received.append((code, nanos)) }
-)
-state.onCommandStarted = { startCount += 1 }
-
-// 1. D before any C → ignored (first precmd after sourcing)
-ShellIntegration.handle(data: asBytes("D;0"), state: state)
-if !received.isEmpty {
-    fail("D-before-C", "D before any C must be ignored; got \(received.count) callback(s)")
-}
-
-// 2. A clears the start-time guard — falsification: set commandStartTime first so
-//    deleting the `commandStartTime = nil` line in handle(case "A") would expose the gap.
-//    Without priming commandStartTime, a fresh State already has it nil, so removing the
-//    nil-assignment in the A handler would still pass — the D would reach `guard let start`
-//    and bail, giving a false green. Priming forces a real clear.
-state.commandStartTime = Date()
-ShellIntegration.handle(data: asBytes("A"), state: state)
-if state.commandStartTime != nil {
-    fail("A-clears-start-time", "A must set commandStartTime to nil; got non-nil after A")
-}
-// D after A (still no C) → still ignored
-ShellIntegration.handle(data: asBytes("D;0"), state: state)
-if !received.isEmpty {
-    fail("D-after-A-no-C", "D after A without C must be ignored; got \(received.count) callback(s)")
-}
-
-// 3. C → D delivers a callback
-ShellIntegration.handle(data: asBytes("C"), state: state)
-Thread.sleep(forTimeInterval: 0.001)  // ensure elapsed > 0
-ShellIntegration.handle(data: asBytes("D;0"), state: state)
-if received.count != 1 {
-    fail("C-then-D", "expected 1 callback after C→D, got \(received.count)")
-} else if received[0].0 != 0 {
-    fail("C-then-D-exitCode", "expected exit code 0, got \(String(describing: received[0].0))")
-} else if received[0].1 == 0 {
-    fail("C-then-D-nanos", "expected nanos > 0 (measured duration), got 0")
-}
-received.removeAll()
-
-// 4. D without C after the previous D → ignored (state reset to idle)
-ShellIntegration.handle(data: asBytes("D;1"), state: state)
-if !received.isEmpty {
-    fail("D-after-D", "second consecutive D must be ignored (state was reset to idle)")
-}
-
-// 5. Non-zero exit code delivered correctly
-ShellIntegration.handle(data: asBytes("C"), state: state)
-ShellIntegration.handle(data: asBytes("D;127"), state: state)
-if received.count != 1 {
-    fail("exit-127-count", "expected 1 callback, got \(received.count)")
-} else if received[0].0 != 127 {
-    fail("exit-127-code", "expected 127, got \(String(describing: received[0].0))")
-}
-received.removeAll()
-
-// 6. D without exit code (nil) after a C
-ShellIntegration.handle(data: asBytes("C"), state: state)
-ShellIntegration.handle(data: asBytes("D"), state: state)
-if received.count != 1 {
-    fail("D-no-code-count", "expected 1 callback for D with no code, got \(received.count)")
-} else if received[0].0 != nil {
-    fail("D-no-code-exitCode", "expected nil exit code, got \(String(describing: received[0].0))")
-}
-received.removeAll()
-
-// 7. Unknown bytes (B, other) are silently ignored
-ShellIntegration.handle(data: asBytes("C"), state: state)
-ShellIntegration.handle(data: asBytes("B"), state: state)  // output start — ignore
-if !received.isEmpty {
-    fail("unknown-byte", "B should be silently ignored")
-}
-// The C is still pending — deliver D to clean up
-ShellIntegration.handle(data: asBytes("D;0"), state: state)
-received.removeAll()
-
-// ── onCommandStart (OSC 133 C → .running) ─────────────────────────────────────
-
-// 8. C fires onCommandStart
-let priorStartCount = startCount
-ShellIntegration.handle(data: asBytes("C"), state: state)
-if startCount != priorStartCount + 1 {
-    fail("C-fires-onCommandStart", "expected startCount to increment on C; was \(priorStartCount), now \(startCount)")
-}
-// Clean up: deliver D so state is idle for the next case
-ShellIntegration.handle(data: asBytes("D;0"), state: state)
-received.removeAll()
-
-// 9. A does NOT fire onCommandStart (prompt redraw is not a command)
-let preAStartCount = startCount
-ShellIntegration.handle(data: asBytes("A"), state: state)
-if startCount != preAStartCount {
-    fail("A-no-onCommandStart", "A must not fire onCommandStart; was \(preAStartCount), now \(startCount)")
-}
-
-// 10. D does NOT fire onCommandStart
-ShellIntegration.handle(data: asBytes("C"), state: state)  // prime with a C first
-let preDStartCount = startCount
-ShellIntegration.handle(data: asBytes("D;0"), state: state)
-if startCount != preDStartCount {
-    fail("D-no-onCommandStart", "D must not fire onCommandStart; was \(preDStartCount), now \(startCount)")
-}
-received.removeAll()
-
-// 11. onCommandStart defaults to no-op (backward compat)
-let legacyState = ShellIntegration.State { _, _ in }
-ShellIntegration.handle(data: asBytes("C"), state: legacyState)
-// If the default closure were missing, this would not compile — that is the structural
-// assertion. At runtime, confirm no crash and the callback still fires.
-ShellIntegration.handle(data: asBytes("D;0"), state: legacyState)
-
-// ── parseOsc7Directory ────────────────────────────────────────────────────────
-
-// Basic file://localhost path
-let basic = ShellIntegration.parseOsc7Directory("file://localhost/Users/test")
-if basic != "/Users/test" {
-    fail("osc7-basic", "expected /Users/test, got \(String(describing: basic))")
-}
-
-// Percent-encoded path (UTF-8 multibyte: é = %C3%A9)
-let encoded = ShellIntegration.parseOsc7Directory("file://localhost/Users/test/caf%C3%A9")
-if encoded != "/Users/test/café" {
-    fail("osc7-percent-encoded", "expected /Users/test/café, got \(String(describing: encoded))")
-}
-
-// Path with spaces (%20)
-let spaces = ShellIntegration.parseOsc7Directory("file://localhost/Users/test/my%20dir")
-if spaces != "/Users/test/my dir" {
-    fail("osc7-spaces", "expected /Users/test/my dir, got \(String(describing: spaces))")
-}
-
-// Bare absolute path (no scheme) — passthrough
-let bare = ShellIntegration.parseOsc7Directory("/Users/test")
-if bare != "/Users/test" {
-    fail("osc7-bare-path", "expected /Users/test, got \(String(describing: bare))")
-}
-
-// Relative path → nil (not a valid working directory)
-let relative = ShellIntegration.parseOsc7Directory("Users/test")
-if relative != nil {
-    fail("osc7-relative-path", "expected nil for relative path, got \(String(describing: relative))")
-}
-
-// Empty string → nil
-let empty = ShellIntegration.parseOsc7Directory("")
-if empty != nil {
-    fail("osc7-empty", "expected nil for empty input, got \(String(describing: empty))")
-}
-
-// Invalid URL → nil
-let invalid = ShellIntegration.parseOsc7Directory("file://\u{00}/bad")
-if invalid != nil {
-    fail("osc7-invalid", "expected nil for invalid URL, got \(String(describing: invalid))")
-}
-
-// ── FALSIFICATION PIN ─────────────────────────────────────────────────────────
-// Remove the `guard let start = state.commandStartTime` guard in handle() and
-// this pin must turn red: D before any C would then fire the callback.
-let falseState = ShellIntegration.State(callback: { _, _ in })
-// If the guard is missing, this D would reach the callback — measure by counting
-// calls: falseState has its own callback, so we cannot share `received`.
-var falseCalled = 0
-let falseState2 = ShellIntegration.State(callback: { _, _ in falseCalled += 1 })
-ShellIntegration.handle(data: asBytes("D;0"), state: falseState2)
-if falseCalled != 0 {
-    fail("falsification-pin", "guard removed? D before C fired the callback")
-}
-
-// ── Summary ──────────────────────────────────────────────────────────────────
-if bad == 0 {
-    print("  ok  parseExitCode: D/D;0/D;1/D;127/D;-1/D;130/D;0;extra/D;abc/D;")
-    print("  ok  state machine: D-before-C ignored, A resets (start-time cleared), C→D delivers")
-    print("  ok  state machine: nil exit code on bare D, non-zero exit codes")
-    print("  ok  state machine: second D without C ignored (idle reset)")
-    print("  ok  unknown bytes (B) silently ignored")
-    print("  ok  onCommandStart: C fires it, A and D do not, default no-op compiles")
-    print("  ok  parseOsc7Directory: basic file:// path, percent-encoded UTF-8, spaces, bare path, relative→nil, empty→nil, invalid→nil")
-    print("  ok  falsification pin: D-before-C guard confirmed load-bearing")
-    print("\nall shell-integration cases passed")
-} else {
-    print("\n\(bad) shell-integration case(s) FAILED")
-}
-exit(bad == 0 ? 0 : 1)
-SWIFT
-
-if ! swiftc -o "$TMP/si_check" "$TMP/ShellIntegration.swift" "$TMP/main.swift" 2>"$TMP/compile.log"; then
-    echo "error: the harness would not compile — the gate cannot run." >&2
-    echo "  If this names AppKit or SwiftTerm, ShellIntegration.swift has stopped being" >&2
-    echo "  Foundation-only and THAT is the regression: the parser must compile headless." >&2
-    grep -E 'error:' "$TMP/compile.log" | head -10 | sed 's/^/    /' >&2
-    exit 2
+# ── normal run ────────────────────────────────────────────────────────────────
+if [[ "${1:-}" != "--falsify" ]]; then
+    TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+    cp "$SRC_SI" "$TMP/ShellIntegration.swift"
+    cp "$SRC_O7" "$TMP/Osc7Directory.swift"
+    cp "$HARNESS" "$TMP/main.swift"
+    out="$(compile_and_run "$TMP")"; status=$?
+    say "$out"
+    exit $status
 fi
 
-out="$("$TMP/si_check" 2>&1)"; status=$?
-say "$out"
-exit $status
+# ── --falsify mode ────────────────────────────────────────────────────────────
+# Three mutants, each in its own isolated temp dir. Every mutant MUST exit 1 (a
+# real assertion failure) — if any exits 0, the gate is not catching what it
+# should and falsify itself exits 1.
+#
+# Mutant 1: drop-host-check — remove the localHostnames comparison so every
+#   file:// URL is treated as local regardless of host. The O5/osc7-remote-host
+#   cases must catch this.
+# Mutant 2: double-decode — apply removingPercentEncoding a second time after
+#   URL.path, which URL.path already decoded once. The O10-%2520 case must catch
+#   this (it expects /%20dir; double-decode gives /  dir with a space).
+# Mutant 3: case-sensitive-compare — compare URL host to localHostnames without
+#   lowercasing, so "MyMac" does not match "mymac". O2 must catch this.
+
+echo "==> falsify: running 3 mutants"
+FTMP="$(mktemp -d)"; trap 'rm -rf "$FTMP"' EXIT
+all_caught=1
+env_bad=0
+
+run_mutant() {
+    local mname="$1"
+    local mdir="$FTMP/$mname"
+    mkdir -p "$mdir"
+    cp "$SRC_SI" "$mdir/ShellIntegration.swift"
+    cp "$SRC_O7" "$mdir/Osc7Directory.swift"
+    cp "$HARNESS" "$mdir/main.swift"
+    # Apply mutation to Osc7Directory.swift (where parse logic lives)
+    if [[ "$mname" == "drop-host-check" ]]; then
+        # Replace the localHostnames.contains check with a hardcoded true so every
+        # file:// URL is accepted as local — the host check is completely absent.
+        sed -i '' 's/localHostnames.contains(urlHost)/true/' "$mdir/Osc7Directory.swift"
+    elif [[ "$mname" == "double-decode" ]]; then
+        # After URL.path (which already decodes once), add a second decode pass.
+        # The O10-%2520 case expects /%20dir; double-decode gives / dir (a space).
+        sed -i '' 's/let decoded = url\.path/let _raw = url.path; let decoded = _raw.removingPercentEncoding ?? _raw/' "$mdir/Osc7Directory.swift"
+    elif [[ "$mname" == "case-sensitive-compare" ]]; then
+        # Remove .lowercased() so comparison is case-sensitive; O2 (MyMac vs mymac) catches it.
+        sed -i '' 's/urlHost = (url\.host ?? "")\.lowercased()/urlHost = (url.host ?? "")/' "$mdir/Osc7Directory.swift"
+    fi
+
+    local mlog="$mdir/compile.log"
+    # A mutant that does not compile was never RUN, so it says nothing about the gate:
+    # environmental (exit 2), never "caught". Counting it as caught let a stale sed
+    # pattern that produced garbage pass falsify green.
+    if ! swiftc -o "$mdir/si_check" \
+        "$mdir/ShellIntegration.swift" \
+        "$mdir/Osc7Directory.swift" \
+        "$mdir/main.swift" 2>"$mlog"; then
+        echo "  mutant $mname: ENVIRONMENTAL — the mutant did not compile"
+        grep -E 'error:' "$mlog" | head -3 | sed 's/^/      /'
+        env_bad=1
+        return 0
+    fi
+    if cmp -s "$SRC_O7" "$mdir/Osc7Directory.swift"; then
+        echo "  mutant $mname: ENVIRONMENTAL — the sed pattern no longer applies"
+        env_bad=1
+        return 0
+    fi
+    local mout mstatus
+    mout="$("$mdir/si_check" 2>&1)"; mstatus=$?
+    if [[ $mstatus -eq 1 ]]; then
+        echo "  mutant $mname: caught (exit 1 — gate detected the mutation)"
+    elif [[ $mstatus -eq 0 ]]; then
+        echo "  mutant $mname: MISSED — gate exited 0; mutant should have been caught"
+        all_caught=0
+    else
+        echo "  mutant $mname: unexpected exit $mstatus (environmental)"
+        env_bad=1
+    fi
+}
+
+run_mutant "drop-host-check"
+run_mutant "double-decode"
+run_mutant "case-sensitive-compare"
+
+if [[ $env_bad -eq 1 ]]; then
+    echo "==> falsify: ENVIRONMENTAL — at least one mutant could not be run (exit 2)"
+    exit 2
+elif [[ $all_caught -eq 1 ]]; then
+    echo "==> falsify: all 3 mutants caught — gate is load-bearing"
+    exit 0
+else
+    echo "==> falsify: FAIL — at least one mutant was not caught"
+    exit 1
+fi

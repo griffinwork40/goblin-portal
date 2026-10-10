@@ -9,26 +9,30 @@
 //  test target and no CI (AFK.md, "Checks"), a concern that cannot be compiled alone
 //  cannot be gated alone, so the dependency-free boundary IS the testability.
 //
-//  Both directions of cwd-follow pass through here: `current(foregroundOf:...)` reads
-//  where a shell is (driving `FileTreeViewController.setRoot(_:)`), and
-//  `cdCommand(to:)` builds the line that moves it (written back through
+//  Both directions of cwd-follow pass through here: `workingDirectory(of:)` reads where a
+//  shell is (feeding `ShellDirectoryPolicy.resolve`, and from there the sidebar root, ⌘T
+//  and splits), and `cdCommand(to:)` builds the line that moves it (written back through
 //  `ShellHosting.send(text:)`). Keeping the read and the write together is deliberate
 //  — they are inverse halves of one contract, and the symlink normalisation the read
 //  applies is exactly what makes a write's echo compare equal and stop the loop.
 //
-//  OSC 7 AND THE KERNEL POLL. The kernel poll implemented here is now the FALLBACK.
-//  `shell-integration.zsh` (Resources/) emits OSC 7 in its precmd hook; SwiftTerm
-//  parses it and calls `TerminalPane.hostCurrentDirectoryUpdate`, which stores the
-//  path in `_reportedDirectory` (`TerminalPane+ShellIntegration.swift`). When that
-//  value is present, `ShellHosting.currentDirectory` answers from it directly — no
-//  syscall, instant, exact. The kernel poll (`current(foregroundOf:fallbackPid:)`)
-//  fires only when `_reportedDirectory` is nil: shells that have not sourced the
-//  integration script, or between OSC 7 reports while a command is running.
+//  WHICH PROCESS IS ASKED is no longer decided here. This file used to answer
+//  `current(foregroundOf:fallbackPid:)`: the cwd of the pty's FOREGROUND process, on the
+//  argument that the sidebar should show what a REPL or installer had `chdir`ed to. That
+//  rationale is RETIRED (plan `.afk/plans/tmux-ssh-cwd-and-158-parallel.md`, coordinator
+//  decision 1): following the foreground moved the sidebar into agent-afk's worktree,
+//  into a tmux client's launch directory, and into whatever `ssh` was started from. The
+//  choice of pid now belongs to `ShellContext.swift` and its caller
+//  (`TerminalPane+DirectoryState.swift`), which ask only for the pane's own shell or a
+//  nested local shell; this file reads a given pid and nothing else. The foreground
+//  reader was deleted rather than kept: with no caller, it was only a way back to the bug.
 //
-//  The historical reason OSC 7 could not work (stock zsh gates the emitter on
-//  `TERM_PROGRAM == Apple_Terminal`, which Goblin Portal does not set) is resolved by
-//  shipping the integration script. The kernel path remains because it works on
-//  any shell and requires no user action.
+//  OSC 7 AND THE KERNEL POLL. The kernel read here is PRIMARY while the shell (or a
+//  command it runs) is in front; a LOCAL OSC 7 report is the fallback when this read
+//  fails. `shell-integration.zsh` (Resources/) emits OSC 7 only in its precmd hook, so a
+//  report predates any `cd` on the current command line (`cd ~/proj && afk`) — the
+//  reason the order was reversed (review finding B2, 2026-10-09; `ShellContext.swift`).
+//  The kernel path also works on any shell and requires no user action.
 //
 
 import Darwin
@@ -41,21 +45,21 @@ import Foundation
 /// and a `URL`, safe to call from anywhere, and annotating them would force the
 /// isolation onto a future caller that has no reason to want it.
 enum ShellDirectory {
-    /// Where the shell driving `childfd` currently is, or nil if that cannot be
-    /// answered right now.
+    /// The working directory of one specific process, or nil if it cannot be answered.
+    /// The caller has already decided WHICH process answers (`ShellContext.swift`): the
+    /// pane's own shell (`LocalProcess.shellPid`,
+    /// `vendor/SwiftTerm/Sources/SwiftTerm/LocalProcess.swift:70`) or a nested local
+    /// shell, never an arbitrary foreground command.
     ///
     /// Nil is a normal, expected answer, not an error to report: it happens while a
     /// pane is still starting, and every time between a shell exiting and its pane
     /// closing. Callers hold their last good value rather than reacting to nil —
-    /// blanking the sidebar because a shell exited would be worse than stale.
-    ///
-    /// `childfd` is the primary side of the pty (`LocalProcess.childfd`,
-    /// `vendor/SwiftTerm/Sources/SwiftTerm/LocalProcess.swift:67`) and `fallbackPid`
-    /// the shell itself (`:70`).
-    static func current(foregroundOf childfd: Int32, fallbackPid: pid_t) -> URL? {
-        guard let pid = foregroundPid(childfd: childfd, fallbackPid: fallbackPid),
-              let path = workingDirectoryPath(of: pid)
-        else { return nil }
+    /// blanking the sidebar because a shell exited would be worse than stale. A
+    /// non-positive pid is "nothing to ask": pid 0 is the caller's own process group and
+    /// negative pids are not pids, so passing either to `proc_pidinfo` would ask about
+    /// the wrong process entirely.
+    static func workingDirectory(of pid: pid_t) -> URL? {
+        guard pid > 0, let path = workingDirectoryPath(of: pid) else { return nil }
 
         // `standardizedFileURL` first (collapse `.`/`..`, strip a trailing slash) and
         // then `resolvingSymlinksInPath()`, so `/tmp` and `/private/tmp` — or any
@@ -107,11 +111,16 @@ enum ShellDirectory {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    /// Strict foreground observation for close confirmation. Unlike cwd-follow,
-    /// there is no fallback: a closed pty must not consult a stale shell PID.
-    /// Reuses foregroundPid's tcgetpgrp validation (LocalProcess.swift:67,70).
+    /// Strict foreground observation for close confirmation (main's tranche 2). Unlike
+    /// the cwd rule, there is no fallback: a closed pty must not consult a stale shell
+    /// PID, so a failed `tcgetpgrp` (-1, or a non-positive group) is nil. It used to
+    /// share `foregroundPid(childfd:fallbackPid:)` with the cwd fallback; that helper was
+    /// retired with foreground-following (`ShellContext.swift` header), so the one
+    /// syscall it needs is inlined here (LocalProcess.swift:67,70 for `childfd`).
     static func foregroundProcess(childfd: Int32) -> (group: pid_t, name: String?)? {
-        guard let group = foregroundPid(childfd: childfd, fallbackPid: 0) else { return nil }
+        guard childfd >= 0 else { return nil }
+        let group = tcgetpgrp(childfd)
+        guard group > 0 else { return nil }
         var bytes = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         let count = proc_name(group, &bytes, UInt32(bytes.count))
         let name = count > 0 ? bytes.withUnsafeBufferPointer {
@@ -120,28 +129,7 @@ enum ShellDirectory {
         return (group, name)
     }
 
-    // MARK: - The two syscalls
-
-    /// The pid whose cwd actually answers "where is this terminal?".
-    ///
-    /// `tcgetpgrp` returns the pty's **foreground** process group — the job the user
-    /// is looking at. That is the better answer than the shell's own pid whenever a
-    /// program has changed directory itself (a REPL, an installer, `git rebase -i`'s
-    /// editor), because the sidebar should show what the visible process sees.
-    ///
-    /// It fails with -1 when the shell has exited or the fd is closed, in which case
-    /// the login shell's pid is still a useful answer right up until it dies too — so
-    /// this degrades one step rather than going straight to nil. Both a
-    /// non-positive pgid and a non-positive fallback mean "nothing to ask", because
-    /// pid 0 is the caller's own process group and negative pids are not pids;
-    /// passing either to `proc_pidinfo` would ask about the wrong process entirely.
-    private static func foregroundPid(childfd: Int32, fallbackPid: pid_t) -> pid_t? {
-        if childfd >= 0 {
-            let foreground = tcgetpgrp(childfd)
-            if foreground > 0 { return foreground }
-        }
-        return fallbackPid > 0 ? fallbackPid : nil
-    }
+    // MARK: - The syscall
 
     /// A process's current directory, straight from the kernel.
     ///
@@ -153,7 +141,7 @@ enum ShellDirectory {
     ///
     /// The `written == size` guard is not defensive noise: `proc_pidinfo` returns the
     /// number of bytes it filled and returns 0 (with `errno == ESRCH`) for a process
-    /// that has exited between the `tcgetpgrp` above and this call — a race that
+    /// that has exited between the caller choosing its pid and this call — a race that
     /// happens in normal use every time a user types `exit`. Anything short of a full
     /// struct means `pvi_cdir` was not populated, so reading it would produce a path
     /// built from uninitialised stack.

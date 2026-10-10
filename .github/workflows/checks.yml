@@ -80,6 +80,10 @@ jobs:
 
       # Everything below compiles a single shipped file standalone. No build required, no
       # window server, fast. Run as one step so a failure names the script in the log.
+      # check-tmux-directory.sh is headless but needs a tmux binary (it exits 2 without
+      # one, by design), and check-shell-context / check-terminal-actions /
+      # check-directory-indicator / check-tree-refresh are offscreen GUI harnesses, so
+      # those stay local alongside the six GUI gates named above.
       - name: Headless gates
         working-directory: app
         run: |
@@ -96,6 +100,7 @@ jobs:
             check-shell-integration.sh \
             check-dock-attention.sh \
             check-cwd-follow.sh \
+            check-foreground-process.sh \
             check-git-status.sh \
             check-theme-contrast.sh \
             check-light-theme.sh \

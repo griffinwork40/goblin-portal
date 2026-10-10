@@ -9,16 +9,15 @@
 //  stored property lives over there, because Swift extensions cannot add stored
 //  properties; everything that property *does* is here.
 //
-//  WHY A POLLER AND NOT A CALLBACK. The poller is now the FALLBACK for shells that
-//  have not sourced `shell-integration.zsh`. When OSC 7 IS emitted (i.e. the user
-//  sources the script), `TerminalPane._reportedDirectory` is populated on every
-//  precmd, and `ShellHosting.currentDirectory` returns it directly — the poller
-//  still fires but `tick()` compares against `lastPushed` and early-returns without
-//  touching the view (no-op cost: one comparison per 750ms). For shells without the
-//  script, asking the kernel on a timer still needs no shell cooperation, works on
-//  any shell, and cannot be broken by a user's dotfiles — the cost is a syscall pair
-//  every 750ms while a window is key, and nothing when it is not. Full argument in
-//  `ShellDirectory.swift`'s header.
+//  WHY A POLLER AND NOT A CALLBACK. Each tick reads ONE `ShellHosting.shellContext`, the
+//  single cwd rule (`ShellContext.swift`): the pane's own shell's kernel cwd (a local OSC 7
+//  report only when that read fails), a nested shell's cwd, tmux's active pane (cached off-main, see
+//  `TerminalPane+DirectoryState.swift`), or nil over ssh and other unfollowable programs.
+//  A poll is needed even with OSC 7, because two of those answers have no callback at all:
+//  tmux's directory and the kernel's. The tick is cheap when nothing moved (one context
+//  read, one path comparison against `lastPushed`), costs nothing while the window is not
+//  key, and also drives the follow-status note (`FileTreeViewController+FollowStatus.swift`)
+//  every tick, because the status can change while the directory stays nil.
 //
 //  DATA FLOWS ONE WAY, WHICH IS WHAT MAKES THIS SAFE. The UI never moves the tree
 //  itself. "cd Here" and every other navigate affordance write a `cd` to the shell
@@ -56,6 +55,13 @@ final class DirectoryFollow {
     /// the cheap pre-filter in front of it.
     private var lastPushed: URL?
 
+    /// Test seam — production never sets this.
+    ///
+    /// When non-nil, `tick()` reads this host instead of `space.focusedShellHost`.
+    /// Set only by `SpaceViewController.addDocumentForTesting(_:)` in
+    /// `@testable import GoblinPortal` harnesses (check-directory-indicator gate).
+    var testShellHostOverride: ShellHosting?
+
     init(space: SpaceViewController) {
         self.space = space
     }
@@ -69,8 +75,9 @@ final class DirectoryFollow {
 
         // 0.75s: fast enough that the sidebar feels like it is following you rather than
         // catching up, slow enough to be invisible in Activity Monitor. The work per tick
-        // is `tcgetpgrp` + `proc_pidinfo` on one process — microseconds — so the interval
-        // is chosen for perceived latency, not for load.
+        // is one `shellContext` read (`tcgetpgrp`, `proc_pidpath` and `proc_pidinfo` on one
+        // process, plus a cache read; the tmux subprocess only runs off-main) —
+        // microseconds — so the interval is chosen for perceived latency, not for load.
         let interval: TimeInterval = 0.75
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
             // `Timer`'s block is `@Sendable` and this type is `@MainActor`, but a run-loop
@@ -110,18 +117,43 @@ final class DirectoryFollow {
     private func tick() {
         guard let space else { return stop() }
 
+        // `testShellHostOverride` is non-nil only in harness sessions (case 9 of the
+        // check-directory-indicator gate). Production always uses `focusedShellHost`.
         // `focusedShellHost` — the active document if it hosts a shell, otherwise the most
-        // recent shell in the Space (`ShellHosting.swift`). Deliberately reusing that one
-        // rule rather than adding a second: with a file viewer in front, the sidebar keeps
-        // following the shell you last used, which is the same answer "insert path" and
-        // "cd Here" already give, so all three features agree about which shell is "the"
-        // shell.
-        guard let directory = space.focusedShellHost?.currentDirectory else { return }
+        // recent shell in the Space (`ShellHosting.swift`). With a file viewer in front, the
+        // sidebar keeps following the shell you last used — the same answer "insert path" and
+        // "cd Here" give, so all three features agree about which shell is "the" shell.
+        guard let host = testShellHostOverride ?? space.focusedShellHost else {
+            // No shell at all in this Space: hide any residual note. The indicator's own
+            // nil-host state is `.unavailable` — hide silently, no flicker.
+            space.fileTree.updateDirectoryFollowStatus(.unavailable)
+            return
+        }
 
-        // nil `currentDirectory` above is a deliberate no-op, not a reset: a pane whose
-        // shell is still starting, or has just exited, answers nil, and blanking the
-        // sidebar in either case would be worse than leaving it one `exit` stale.
-        guard directory != lastPushed else { return }
+        // Kick off any slow async work (tmux active-pane query) before reading the result.
+        // Never blocks: `TerminalPane+DirectoryState.swift` coalesces it onto a background
+        // queue and this tick reads whatever is cached.
+        host.refreshDirectoryState()
+
+        // Read shellContext ONCE. This is the plan's "obtain one ShellContext per tick" rule.
+        // (plan §4, lane E brief): status changes are independent of the directory, so the
+        // indicator must update EVERY tick, not only when the directory changes. A nil
+        // directory is normal — shell is starting, exiting, or remote — and the indicator
+        // must still show the remote/paused status while the tree stays on the last local root.
+        let context = host.shellContext
+        space.fileTree.updateDirectoryFollowStatus(context.followStatus)
+
+        // Only repoint the tree when there is an actual local directory. A nil directory is
+        // normal and expected: the shell is starting, exiting, or remote. In those cases we
+        // leave the tree on the last good root — blanking it would be worse than stale.
+        guard let directory = context.directory else { return }
+
+        // Normalised path comparison, not URL equality. URL equality includes the directory
+        // marker (trailing slash); resolvingSymlinksInPath() drops that for symlink-terminated
+        // paths — so a URL comparison would answer "changed" twice a second on such a path
+        // and rebuild the whole tree. See FileTreeViewController.setRoot(_:)'s comment.
+        let normPath = directory.resolvingSymlinksInPath().path
+        guard normPath != lastPushed?.resolvingSymlinksInPath().path else { return }
         lastPushed = directory
         space.followDirectory(directory)
     }
@@ -195,5 +227,21 @@ extension SpaceViewController {
     /// last launch") literally true. Net persisted-state delta of this whole feature: zero.
     func followDirectory(_ directory: URL) {
         fileTree.setRoot(directory)
+    }
+
+    // MARK: - Testing seam
+
+    /// Override the shell host read by `directoryFollowPollNow()` / `tick()`.
+    ///
+    /// ONLY for `@testable import GoblinPortal` harnesses (check-directory-indicator).
+    /// In production `focusedShellHost` is used; this override bypasses the real lookup
+    /// so the harness can inject a `FakeShellHost` without needing to mutate `documents`.
+    ///
+    /// Implemented via `DirectoryFollow.testShellHostOverride` (stored on the poller) so
+    /// `SpaceViewController.swift` acquires no new stored property — extensions cannot add
+    /// stored properties, and that file is already at the ceiling.
+    func addDocumentForTesting(_ host: ShellHosting) {
+        if directoryFollow == nil { directoryFollow = DirectoryFollow(space: self) }
+        directoryFollow?.testShellHostOverride = host
     }
 }

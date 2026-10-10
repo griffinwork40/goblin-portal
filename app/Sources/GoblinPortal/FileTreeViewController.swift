@@ -2,14 +2,14 @@
 //  FileTreeViewController.swift
 //  The sidebar file tree, rooted at the Space's project directory.
 //
-//  Four concerns live in files of their own: the tree's model in `FileNode.swift`; the
-//  `NSOutlineView` data source and delegate, plus the cell machinery they build, in
-//  `FileTreeViewController+OutlineView.swift`; the right-click menu in
-//  `FileTreeViewController+ContextMenu.swift`; and git status — the poller, the snapshot
-//  and the branch header — in `FileTreeViewController+Git.swift`. What stays here is the
-//  controller itself: the views it assembles, the identity-preserving `refresh()`,
-//  `setRoot(_:)` (repoint the tree at a new directory — cwd-follow), and double-click
-//  routing.
+//  Its concerns live in files of their own, among them: the tree's model in
+//  `FileNode.swift`; the `NSOutlineView` data source and delegate, plus the cell
+//  machinery they build, in `FileTreeViewController+OutlineView.swift`; the right-click
+//  menu in `+ContextMenu.swift`; git status — the poller, the snapshot and the branch
+//  header — in `+Git.swift`; the async reloads (`refresh()`, `refreshSynchronously()`,
+//  setRoot's listing) in `+Loading.swift`; and auto-reveal in `+Reveal.swift`. What stays
+//  here is the controller itself: the views it assembles, `setRoot(_:)` (repoint the tree
+//  at a new directory — cwd-follow), and double-click routing.
 //
 
 import AppKit
@@ -38,6 +38,18 @@ final class FileTreeViewController: NSViewController {
     /// wanders, so a `cd` moving the sidebar must never rename the Space, relabel
     /// its window tab, or rewrite its remembered frame/restore entry.
     private(set) var root: FileNode
+
+    /// The root the OUTLINE is showing, which is `root` except while a `setRoot(_:)`
+    /// listing is in flight: then it is still the previous tree (#158 review, I1).
+    /// Every data-source callback and every walk over visible rows reads THIS, so the
+    /// outline never shows an empty frame on a cwd-follow re-root and never holds items
+    /// nothing retains (`NSOutlineView` does not retain its items — this property is what
+    /// keeps the old tree alive while it is on screen). `root` moves first, so setRoot's
+    /// same-path guard, the git poller and cwd-follow see the new directory at once; the
+    /// two converge in ONE `reloadData()` when the listing lands (`adoptRoot()`,
+    /// `+Loading.swift`), or synchronously in `refreshSynchronously()`. Internal setter
+    /// because `+Loading.swift` is where they converge.
+    var displayedRoot: FileNode
 
     /// Internal for the same reason `root` is: two extensions in other files need it.
     /// `+ContextMenu` reads `clickedRow` to know which row was hit, and `+Git` reloads
@@ -89,7 +101,9 @@ final class FileTreeViewController: NSViewController {
     var caseSensitiveFS: Bool?
 
     init(root url: URL) {
-        self.root = FileNode(url: url, isDirectory: true)
+        let node = FileNode(url: url, isDirectory: true)
+        self.root = node
+        self.displayedRoot = node
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -168,42 +182,8 @@ final class FileTreeViewController: NSViewController {
         view = stack
     }
 
-    /// Re-read the tree, preserving expansion and selection.
-    ///
-    /// Called when the Space's window becomes key rather than driven by FSEvents.
-    /// That is a deliberate first cut, and it is well matched to this app's actual
-    /// job: the thing mutating these files is an agent running in the terminal
-    /// beside the tree, so "you came back to this window" is almost exactly the
-    /// moment the tree is stale. FSEvents is the obvious upgrade if it ever feels
-    /// behind.
-    func refresh() {
-        guard !isEditingInline else { TreeRefreshTiming.measure(site: "refresh", expandedCount: 0, deferred: true) {}; pendingReload = true; return }
-        let expanded = (0..<outlineView.numberOfRows)
-            .compactMap { outlineView.item(atRow: $0) as? FileNode }
-            .filter { outlineView.isItemExpanded($0) }
-        let selectedURL = (outlineView.item(atRow: outlineView.selectedRow) as? FileNode)?.url
-
-        TreeRefreshTiming.measure(site: "refresh", expandedCount: expanded.count) { root.reloadChildren() }
-        outlineView.reloadData()
-
-        // Git status is stale for exactly the same reason the tree is, at exactly the same
-        // moment: the agent in the terminal beside this sidebar has been editing and
-        // committing while the window was in the background. So the two refreshes share
-        // one trigger rather than inventing a second lifecycle hook. `start()` is
-        // idempotent and polls once immediately, so this both starts the poller the first
-        // time and re-reads on every later activation. The stop half is in
-        // `SpaceViewController.windowDidResignKey()`, next to cwd-follow's.
-        startGitFollow()
-
-        for node in expanded { outlineView.expandItem(node) }
-        if let selectedURL {
-            for row in 0..<outlineView.numberOfRows
-            where (outlineView.item(atRow: row) as? FileNode)?.url == selectedURL {
-                outlineView.selectRowIndexes([row], byExtendingSelection: false)
-                break
-            }
-        }
-    }
+    // `refresh()` (async, window-became-key) and `refreshSynchronously()` (every file
+    // operation) live in `FileTreeViewController+Loading.swift` (#158).
 
     /// Repoint the tree at a different directory — cwd-follow, the shell-to-tree
     /// half of it (the tree-to-shell half is "cd Here" below).
@@ -245,17 +225,35 @@ final class FileTreeViewController: NSViewController {
         // when the edit ends (`finishEditReplay()` in +Mutation.swift) (H4).
         guard !isEditingInline else { pendingRoot = url; return }
         filterField.stringValue = ""
-        preFilterExpansion = nil
-        applyFilter("")
+        // Only an ACTIVE filter is cleared here: `applyFilter("")` reloads the outline,
+        // and with no filter that reload only collapsed the tree that stays on screen
+        // while the new root lists (`displayedRoot`, I1) — a visible jolt for nothing.
+        if !filterQuery.isEmpty {
+            preFilterExpansion = nil
+            applyFilter("")
+        }
         guard url.resolvingSymlinksInPath().path != root.url.resolvingSymlinksInPath().path
         else { return }
+        // Back to the tree still on screen before its replacement landed (`cd x; cd -`
+        // inside one listing): keep the displayed tree and its expansion, drop the
+        // in-flight listing, and run any reveal that was waiting for the two to converge.
+        if displayedRoot !== root,
+            url.resolvingSymlinksInPath().path == displayedRoot.url.resolvingSymlinksInPath().path
+        {
+            root = displayedRoot
+            invalidatePendingLoads()
+            performPendingReveal()
+            gitFollowPollNow()
+            return
+        }
         root = FileNode(url: url, isDirectory: true)
-        TreeRefreshTiming.measure(site: "setRoot", expandedCount: 0) { root.reloadChildren() }
         // The new root may sit on a different volume with different case semantics, so
         // the cached query must be invalidated; it is re-populated lazily on the next
         // walk or reveal call (#176).
         caseSensitiveFS = nil
-        outlineView.reloadData()
+        // Lists the new root OFF the main thread (#158); the outline keeps showing the old
+        // tree (`displayedRoot`) until it lands — `FileTreeViewController+Loading.swift`.
+        beginRootLoad()
         // The tree now shows a different project, so the decorations on screen belong to
         // the old one. Waiting out the poller's 2s tick would leave them there — not merely
         // late but *wrong*, which is worse than showing none. The follower re-discovers the
@@ -278,73 +276,5 @@ final class FileTreeViewController: NSViewController {
         } else {
             delegate?.fileTree(self, didActivate: node.url)
         }
-    }
-
-    // MARK: - Auto-reveal
-
-    /// Scroll to and select the node for `url` without stealing keyboard focus.
-    ///
-    /// Called from `SpaceViewController+Delegates.swift` when the active document
-    /// changes (tab-switch). Only `FileViewerPane` documents carry a file URL that
-    /// maps to a tree node; terminal tabs are deliberately skipped at the call site
-    /// (`SpaceViewController+Delegates.swift`).
-    ///
-    /// The method walks the tree lazily — expanding and loading directories as it
-    /// descends — so it works even if the user has never opened the containing folder.
-    /// If the URL is outside the current root, the method silently returns without
-    /// moving the root: the sidebar only shows files under the Space's root, and
-    /// moving the root to follow an unrelated file would be disorienting.
-    ///
-    /// Focus is deliberately NOT taken: `view.window?.makeFirstResponder(outlineView)`
-    /// would yank the cursor out of the editor, which is the last thing a user wants
-    /// while typing. The sidebar updates its selection in the background.
-    func reveal(_ url: URL) {
-        // Guard: URL must be inside the current tree root.
-        let rootPath = root.url.resolvingSymlinksInPath().path
-        let targetPath = url.resolvingSymlinksInPath().path
-        guard targetPath.hasPrefix(rootPath + "/") || targetPath == rootPath else { return }
-
-        // Walk the path components between root and target, expanding each directory
-        // as we go so the child nodes are loaded before we try to show them.
-        let components = url.pathComponents
-        let rootComponents = root.url.pathComponents
-        guard components.count > rootComponents.count else { return }
-
-        // R1.2: default APFS volumes are case-insensitive; a URL whose component case
-        // differs from the on-disk name silently misses every node. Use the cached
-        // result (populated on first walk/reveal, cleared in setRoot when the root
-        // moves to a new directory). Genuine CS volumes keep exact matching so we
-        // never pick the wrong sibling when two names differ only by case.
-        if caseSensitiveFS == nil { caseSensitiveFS = FileOperationPolicy.caseSensitiveFSAtRoot(root.url) }
-        let caseSensitive = caseSensitiveFS ?? false
-        var current: FileNode = root
-        // Skip the root's own components; descend through the remainder.
-        let descendantComponents = components.dropFirst(rootComponents.count)
-        for (index, component) in descendantComponents.enumerated() {
-            // Ensure children are loaded at this level.
-            if current.children == nil { current.reloadChildren() }
-            let isLastComponent = index == descendantComponents.count - 1
-            guard let child = current.children?.first(where: {
-                caseSensitive
-                    ? $0.name == component
-                    : $0.name.caseInsensitiveCompare(component) == .orderedSame
-            }) else {
-                return  // File not found in tree — outside root or filtered out
-            }
-            if !isLastComponent {
-                // Expand intermediate directories so their children are visible.
-                outlineView.expandItem(child)
-            }
-            current = child
-        }
-
-        // `current` is now the target node. Select it and scroll it visible.
-        // `row(forItem:)` returns -1 when the item is not currently in the outline
-        // (e.g. its parent directory was never expanded). After the walk above it
-        // should be present, but guard defensively.
-        let row = outlineView.row(forItem: current)
-        guard row >= 0 else { return }
-        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        outlineView.scrollRowToVisible(row)
     }
 }

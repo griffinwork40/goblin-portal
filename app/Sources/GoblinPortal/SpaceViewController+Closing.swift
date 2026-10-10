@@ -88,10 +88,10 @@ extension SpaceViewController {
               !pane.isShellExited,
               let process = pane.view.process,
               !process.running else { return }
-        // Prefer the last OSC 7 cwd over the kernel poll: waitpid has already reaped
-        // the PID (LocalProcess.swift:368), so ShellDirectory would see a stale or
-        // reused PID. `currentDirectory` uses `_reportedDirectory` first
-        // (ShellHosting.swift:129), which was populated while the shell was live.
-        pane.enterKeptState(waitStatus: nil, directory: pane.currentDirectory?.path)
+        // Not `currentDirectory`: waitpid has already reaped the PID
+        // (LocalProcess.swift:368), so the live cwd rule sees an unreadable foreground
+        // and answers nil. `lastKnownDirectoryPath` is the record kept while the shell
+        // was live (TerminalPane+DirectoryState.swift).
+        pane.enterKeptState(waitStatus: nil, directory: pane.lastKnownDirectoryPath)
     }
 }

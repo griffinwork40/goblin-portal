@@ -43,9 +43,10 @@ extension TerminalPane {
         // proc_pidinfo) is NOT used here: waitpid has already reaped the PID
         // (LocalProcess.swift:368) and childfd may already be -1 (LocalProcess.swift:297),
         // so ShellDirectory would see a stale or reused PID. The OSC 7 value is exact
-        // and was recorded while the shell was live. If absent, nil is stored and the
+        // and was recorded while the shell was live (`lastKnownDirectoryPath`, which also
+        // covers shells without the integration script). If absent, nil is stored and the
         // restart falls back to resolvedWorkingDirectory() (TerminalPane+Launch.swift).
-        let lastDirectory = _reportedDirectory
+        let lastDirectory = lastKnownDirectoryPath
         enterKeptState(waitStatus: waitStatus, directory: lastDirectory)
     }
 

@@ -89,7 +89,8 @@ extension FileTreeViewController {
     func targetDirectory(_ sender: Any?) -> URL {
         let node = ((sender as? NSMenuItem)?.representedObject as? FileNode)
             ?? (outlineView.selectedRow >= 0 ? outlineView.item(atRow: outlineView.selectedRow) as? FileNode : nil)
-        guard let node else { return root.url }
+        // The DISPLAYED root: that is the tree the user aimed at (`displayedRoot`).
+        guard let node else { return displayedRoot.url }
         return node.isDirectory ? node.url : node.url.deletingLastPathComponent()
     }
 
@@ -114,7 +115,7 @@ extension FileTreeViewController {
 
     // MARK: Reload
 
-    /// Every post-operation reload goes through here (H5). `refresh()` keeps the
+    /// Every post-operation reload goes through here (H5). `refreshSynchronously()` keeps the
     /// expansion and selection of rows whose paths survived; `rebasing` carries the
     /// expansion of renamed or moved directories across to their new paths, which
     /// identity-based restoration cannot do because the node is new. Then the
@@ -132,10 +133,14 @@ extension FileTreeViewController {
         }
         // The span wraps the whole body — rebase walk, refresh, expansion replay, and
         // reveal — so the logged elapsed time matches the actual mutation-reload cost.
-        // `refresh()` is NOT separately timed here; it handles its own `deferred` log
-        // when an inline edit is active, so callers never see two near-equal lines.
+        // `refreshSynchronously()` logs its own nested `refreshSync` span, so every file
+        // operation prints TWO lines and they can be near-equal: refreshSync is the
+        // reload alone, afterMutation adds the walk and reveal. Read the difference as
+        // their cost; do not sum them (TreeRefreshTiming's header lists every site).
         TreeRefreshTiming.measure(site: "afterMutation", expandedCount: expanded.count) {
-            refresh()
+            // SYNCHRONOUS on purpose: the walk/expand/reveal below need the new children
+            // in place this turn. It also invalidates any async refresh in flight (#158).
+            refreshSynchronously()
             // Shallowest first, so each parent is expanded (and loaded) before its child.
             for dir in rebased.sorted(by: { $0.pathComponents.count < $1.pathComponents.count }) {
                 if let node = walk(to: dir) { outlineView.expandItem(node) }
@@ -156,7 +161,12 @@ extension FileTreeViewController {
     }
 
     /// The node for `url`, expanding each ancestor on the way so it is a visible row.
+    /// Walks `displayedRoot`, not `root`: it expands ROWS, so it must walk the tree the
+    /// outline is showing (they differ only while a setRoot listing is in flight). Its
+    /// callers are `refreshAfterMutation` — after `refreshSynchronously()`, which has
+    /// converged the two — and `insertPlaceholder`, which edits the tree on screen.
     private func walk(to url: URL) -> FileNode? {
+        let root = displayedRoot
         let rootCount = root.url.pathComponents.count
         guard url.pathComponents.count > rootCount,
               url.path.hasPrefix(root.url.path + "/") else { return nil }
@@ -167,8 +177,13 @@ extension FileTreeViewController {
         // in setRoot(_:) whenever the root moves to a different directory. Keeps exact
         // (case-sensitive) matching on genuine CS volumes, where two siblings can share
         // the same spelling under different cases and picking the wrong one is a bug.
-        if caseSensitiveFS == nil { caseSensitiveFS = FileOperationPolicy.caseSensitiveFSAtRoot(root.url) }
-        let caseSensitive = caseSensitiveFS ?? false
+        // The cache describes `self.root`'s volume; mid-setRoot the walked tree is the
+        // OLD root, which may sit elsewhere, so ask without caching in that window.
+        if caseSensitiveFS == nil, root === self.root {
+            caseSensitiveFS = FileOperationPolicy.caseSensitiveFSAtRoot(root.url)
+        }
+        let caseSensitive = root === self.root
+            ? (caseSensitiveFS ?? false) : FileOperationPolicy.caseSensitiveFSAtRoot(root.url)
         var current = root
         for component in url.pathComponents.dropFirst(rootCount) {
             if current.children == nil { current.reloadChildren() }
@@ -185,13 +200,20 @@ extension FileTreeViewController {
 
     /// Show a not-yet-on-disk row under its parent and open the editor on it. The
     /// placeholder disappears on the next refresh unless the commit created it.
+    /// Against `displayedRoot` for `walk(to:)`'s reason. Mid-setRoot, the invalidation
+    /// below drops the new root's listing; that cannot strand the sidebar, because the
+    /// edit always ends in `finishEditReplay` → `refreshSynchronously()`, which adopts it.
     func insertPlaceholder(url: URL, isDirectory: Bool) {
+        let root = displayedRoot
         let parentURL = url.deletingLastPathComponent()
         // The root has no row; anything else must be walked to (and expanded).
         let parent: FileNode? = parentURL.path == root.url.path ? root : walk(to: parentURL)
         guard let parent else { return }
         if parent !== root { outlineView.expandItem(parent) }
         parent.reloadChildren()
+        // An async listing issued before this would land without the placeholder and
+        // reload the outline under the editor about to open on it — invalidate it (#158).
+        invalidatePendingLoads()
         let placeholder = FileNode(url: url, isDirectory: isDirectory)
         parent.insertChild(placeholder)
         // `reloadItem(nil, …)` is how the root's children are reloaded.

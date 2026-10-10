@@ -51,13 +51,10 @@ import SwiftTerm
 /// `currentDirectory` reads where the shell is, `send(text:)` moves it. cwd-follow needs
 /// both halves and nothing more.
 ///
-/// `FileViewerPane` must still never conform. That was true when this protocol had one
-/// member and the second makes it more true, not less: a file viewer asked for a working
-/// directory would have to invent one.
-///
-/// `FileViewerPane` must never conform. That is not enforceable by the compiler, so
-/// it is stated here and in the header above: the conformance list *is* the
-/// specification of "what counts as a shell".
+/// `FileViewerPane` must never conform — more true with two members than with one: a file
+/// viewer asked for a working directory would have to invent one. The compiler cannot
+/// enforce that, so it is stated here and in the header above: the conformance list *is*
+/// the specification of "what counts as a shell".
 @MainActor
 protocol ShellHosting: SpaceDocument {
     /// Write `text` to the shell's input as if the user had typed it.
@@ -82,18 +79,30 @@ protocol ShellHosting: SpaceDocument {
     /// nil — blanking the sidebar because a shell exited is worse than showing a
     /// directory that is one `exit` stale.
     ///
-    /// A *property*, not a `directoryDidChange` callback, because polling is the fallback
-    /// rather than the primary path. OSC 7 — the notification-shaped answer, which SwiftTerm
-    /// already parses into `hostCurrentDirectoryUpdate` — fires whenever the user sources
-    /// `shell-integration.zsh`, which emits `ESC ] 7 ; file://hostname/path BEL` in its
-    /// precmd hook. `TerminalPane.handleOsc7Directory` (in `TerminalPane+ShellIntegration.swift`)
-    /// fills that body and stores the path in `_reportedDirectory`. Without the script, a stock
-    /// zsh under Goblin Portal emits no OSC 7 (macOS's emitter is gated on `TERM_PROGRAM == Apple_Terminal`,
-    /// which SwiftTerm does not set — documented at length in `ShellDirectory.swift`'s header),
-    /// so the kernel poll remains the honest shape for unintegrated shells. `currentDirectory`
-    /// prefers the OSC 7 value and falls back to the kernel poll, and
-    /// `SpaceViewController+DirectoryFollow.swift` owns that polling timer.
+    /// A *property*, not a `directoryDidChange` callback, because the primary input is a
+    /// poll: the SHELL's kernel cwd, read live. OSC 7 — which SwiftTerm parses into
+    /// `hostCurrentDirectoryUpdate` when the user sources `shell-integration.zsh` — is only
+    /// emitted at precmd, so it goes stale on `cd X && cmd` and is used for a local path
+    /// only when the kernel read fails (review finding B2, 2026-10-09; `ShellContext.swift`).
+    /// Its remote host is still the only source of the "remote: host" label.
+    /// `TerminalPane.handleOsc7Directory` (in `TerminalPane+ShellIntegration.swift`) stores
+    /// the parsed report (`TerminalPane+DirectoryState.swift`). Which input answers depends
+    /// on what is in front (`ShellContext.swift`): nil under ssh, screen or an unreadable
+    /// foreground, tmux's answer under tmux. `SpaceViewController+DirectoryFollow.swift`
+    /// owns the polling timer.
     var currentDirectory: URL? { get }
+
+    /// The full resolved state: foreground kind, local directory (or nil), and what the
+    /// sidebar should say about following. `currentDirectory` is `shellContext.directory`.
+    /// Computed live and cheaply (two syscalls); the only slow input, tmux's answer, is
+    /// read from a cache that `refreshDirectoryState()` fills off the main thread.
+    /// Contract: `ShellContext.swift`, plan `.afk/plans/tmux-ssh-cwd-and-158-parallel.md`.
+    var shellContext: ShellContext { get }
+
+    /// Ask for slow inputs (tmux's active-pane directory) to be refreshed in the
+    /// background. Never blocks; coalesces repeated calls. The directory poller calls it
+    /// every tick.
+    func refreshDirectoryState()
 }
 
 // MARK: - TerminalPane
@@ -122,34 +131,12 @@ extension TerminalPane: ShellHosting {
         view.send(txt: text)
     }
 
-    /// Where this pane's shell currently is.
-    ///
-    /// **Primary source: OSC 7** (when the user sources `shell-integration.zsh`).
-    /// `_reportedDirectory` is populated by `TerminalPane.handleOsc7Directory` every
-    /// time the shell emits `ESC ] 7 ; file://… BEL` in its precmd hook. That answer
-    /// is exact, instant, and requires no syscalls — it is the path the shell actually
-    /// has, not the path the kernel thinks the foreground process has.
-    ///
-    /// **Fallback: kernel poll** (when OSC 7 is absent — shells that have not sourced
-    /// the integration script, or between two consecutive OSC 7 reports while a
-    /// command is running). `ShellDirectory.current` asks `tcgetpgrp` + `proc_pidinfo`
-    /// for the foreground process group's cwd — the same mechanism that has always
-    /// driven `SpaceViewController+DirectoryFollow.swift`'s 750ms timer.
-    ///
-    /// `view.process` is SwiftTerm's `LocalProcess!`
-    /// (`MacLocalTerminalView.swift:69`), nil before `startProcess`, so it is bound
-    /// with `guard let` rather than force-unwrapped: a tab that has not started yet
-    /// must answer nil rather than trap.
-    var currentDirectory: URL? {
-        // OSC 7 is primary — prefer an already-normalised shell-reported path.
-        if let reported = _reportedDirectory {
-            return URL(fileURLWithPath: reported)
-        }
-        // Kernel fallback — works on any shell regardless of integration script.
-        guard let process = view.process else { return nil }
-        return ShellDirectory.current(
-            foregroundOf: process.childfd, fallbackPid: process.shellPid)
-    }
+    /// Where this pane's shell currently is: `shellContext.directory`.
+    var currentDirectory: URL? { shellContext.directory }
+
+    // `shellContext` and `refreshDirectoryState()` live in
+    // `TerminalPane+DirectoryState.swift`: they own an asynchronous tmux cache and the
+    // stored OSC 7 reports, a whole concern too large to sit beside `send(text:)`.
 }
 
 // MARK: - Window-level focus events (DECSET 1004)

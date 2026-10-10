@@ -98,7 +98,7 @@ fi
 # (N2, rendering-audit-2026-10-05).  The -p.build glob is unambiguous: that path
 # is only written by the backend we pin, so there is no wrong-session overlap.
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
 [[ -n "$TOBJ" && -f "$TOBJ/SidebarToggleAccessory.o" ]] || {
   echo "error: GoblinPortal objects not found under .build/out (expected GoblinPortal-p.build)." >&2
   echo "  Run: swift build --build-system swiftbuild" >&2

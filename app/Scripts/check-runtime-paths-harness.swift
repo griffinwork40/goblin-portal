@@ -68,8 +68,8 @@ MainActor.assumeIsolated {
     //     → SwiftTerm: LocalProcess.startProcess(executable:args:envAdditions:currentDirectory:)
     //     → Pty.fork(inDirectory:)        — chdir(cCurrentDirectory) in the child
     //
-    // ShellDirectory.current(foregroundOf:fallbackPid:) is what the production
-    // DirectoryFollow poller uses on every 750ms tick. Exercising it here proves the cwd
+    // `currentDirectory` (TerminalPane+DirectoryState.swift) is what the production
+    // DirectoryFollow poller reads on every 750ms tick. Exercising it here proves the cwd
     // is right at spawn, and on its first tick the poller will see the same path the
     // Space was opened on — so it will NOT update the tree root (since they match),
     // which is the correct quiet behaviour.
@@ -95,11 +95,10 @@ MainActor.assumeIsolated {
     // Give the shell one extra tick to finish its chdir before we read back.
     pump(0.5)
 
-    // Use the same API the production DirectoryFollow poller calls: process.childfd
-    // for tcgetpgrp (foreground pid), process.shellPid as fallback.
-    let proc = pane.view.process!
-    let shellCwd = ShellDirectory.current(
-        foregroundOf: proc.childfd, fallbackPid: proc.shellPid)
+    // Read through the shipped reader the DirectoryFollow poller and ⌘T use
+    // (`ShellHosting.currentDirectory`). `ShellDirectory.current(foregroundOf:)` was
+    // deleted with the foreground-following rule (lane C, ShellDirectory.swift header).
+    let shellCwd = pane.currentDirectory
     if let shellCwd {
         // Resolve symlinks on both sides — spaceRoot may be a symlink-terminated temp path
         // (macOS /var/folders is a symlink to /private/var/folders).
@@ -115,7 +114,7 @@ MainActor.assumeIsolated {
     } else {
         // nil means proc_pidinfo returned 0 bytes — plausible if the shell exited
         // immediately (unlikely at 0.5s) or the pid was recycled. Treat as environmental.
-        print("  ENV  ShellDirectory.current returned nil for pid \(shellPid)")
+        print("  ENV  currentDirectory returned nil for pid \(shellPid)")
         print(bad == 0 ? "ENV-BLOCKED" : "SOME-FAILED")
         pane.documentWillClose()
         exit(2)
