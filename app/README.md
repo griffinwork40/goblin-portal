@@ -38,6 +38,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ```sh
 ./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all fifteen patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
+./Scripts/check-info-plist.sh    # every privacy usage-description key (incl. Local Network) is in the shipped Info.plist — headless
 ./Scripts/check-afk-loc.sh      # every `| \`X.swift\` | N |` row in AFK.md equals wc -l — headless (#178)
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
