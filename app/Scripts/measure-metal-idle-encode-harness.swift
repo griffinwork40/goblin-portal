@@ -142,9 +142,10 @@ termView.feed(text: payload)
 pump(0.5)
 
 // --- Instrument: proxy MTKView delegate to bracket each draw with getrusage ---
-var cpuUserPerFrame: [Double] = []
-var cpuSysPerFrame:  [Double] = []
-var drawTimestamps:  [Double] = []
+var cpuUserPerFrame:  [Double] = []
+var cpuSysPerFrame:   [Double] = []
+var cpuTotalPerFrame: [Double] = []
+var drawTimestamps:   [Double] = []
 
 final class TimingProxy: NSObject, MTKViewDelegate {
     let inner: MTKViewDelegate
@@ -171,6 +172,7 @@ final class TimingProxy: NSObject, MTKViewDelegate {
                    + Double(after.ru_stime.tv_usec - before.ru_stime.tv_usec)
         cpuUserPerFrame.append(userUs)
         cpuSysPerFrame.append(sysUs)
+        cpuTotalPerFrame.append(userUs + sysUs)
     }
 }
 
@@ -195,6 +197,7 @@ for _ in 0..<20 {
 // Discard warm-up measurements
 cpuUserPerFrame.removeAll()
 cpuSysPerFrame.removeAll()
+cpuTotalPerFrame.removeAll()
 drawTimestamps.removeAll()
 
 // Signal to shell that we're in steady state — shell starts ps sampling now
@@ -248,7 +251,7 @@ NOMINAL_WALL_MS=%.0f CPU_FRACTION=%.4f
 """,
     draws, termView.terminal.cols, termView.terminal.rows,
     pct(cpuUserPerFrame, 0.5), pct(cpuSysPerFrame, 0.5),
-    pct(cpuUserPerFrame, 0.5) + pct(cpuSysPerFrame, 0.5),
+    pct(cpuTotalPerFrame, 0.5),
     avg(cpuUserPerFrame), avg(cpuSysPerFrame),
     totalUserUs, totalSysUs,
     nominalWallMs, cpuFraction))

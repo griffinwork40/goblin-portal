@@ -7,6 +7,11 @@
 **Uptime / load:** 13:02  up 2 days, 17:29, 1 user, load averages: 5.34 5.67 6.06
 **WindowServer PID:** 414
 
+**Build:** debug SwiftTerm (BUILD_CONFIG was unset; fixed to release in a later commit).
+Per-frame µs figures reflect debug overhead (~25× slower than release — see
+check-scrollback-cost.sh header). Process-level ps% and CPU_FRACTION are whole-process
+and include the same overhead.
+
 ---
 
 ## Measurement basis
@@ -71,11 +76,12 @@ idle: ok
 ### 1. Single-basis CPU table (was: mixed ps%/getrusage/harness figures)
 
 All numbers above are on one of two explicit bases:
-- **ps%%** = whole-process CPU as seen by the OS scheduler, 5-sample mean\n
+- **ps%** = whole-process CPU as seen by the OS scheduler, 5-sample mean
   during steady state. This is the "real-app" ground truth.
-- **getrusage CPU_FRACTION** = (user+sys µs over the measurement window)\n
+- **getrusage CPU_FRACTION** = (user+sys µs over the measurement window)
   divided by nominal wall µs. Directly comparable to ps%.
-- **p50 per-frame µs** = median per-draw(in:) cost, for decomposition only.\n\n
+- **p50 per-frame µs** = median per-draw(in:) cost, for decomposition only.
+
 These three bases measure different things and are labelled separately;
 they are not summed in the same table.
 
@@ -114,10 +120,11 @@ Verified by grep on vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminal
 Runner:  app/Scripts/measure-metal-idle-encode.sh
 Harness: app/Scripts/measure-metal-idle-encode-harness.swift
 
-- Linked against vendored SwiftTerm.o via vendored-module.sh\n
-- Drives draws via display-link path only (no explicit mtkView.draw())\n
-- Load guard (>0.70/CPU -> exits 0 with note)\n
-- Writes this markdown to .afk/research/\n\n
+- Linked against vendored SwiftTerm.o via vendored-module.sh
+- Drives draws via display-link path only (no explicit mtkView.draw())
+- Load guard (>0.70/CPU -> exits 0 with note)
+- Writes this markdown to .afk/research/
+
 ```sh
 cd app && ./Scripts/measure-metal-idle-encode.sh
 ```
@@ -151,8 +158,8 @@ buildDrawData, return without present when dirty==0) is non-trivial and
 would save at most ~0.1% at 12 Hz — below measurement noise. Not proposed.
 
 **Done criteria (issue #143):**
-- [x] Measurement at same pane size (46x137)\n
-- [x] WindowServer compositor share measured\n
-- [x] Conclusion documented: structural floor\n
-- [x] Review points 1-5 from #146 addressed with corrected citations\n
-- [x] No further patch warranted\n
+- [x] Measurement at same pane size (46x137)
+- [x] WindowServer compositor share measured
+- [x] Conclusion documented: structural floor
+- [x] Review points 1-5 from #146 addressed with corrected citations
+- [x] No further patch warranted

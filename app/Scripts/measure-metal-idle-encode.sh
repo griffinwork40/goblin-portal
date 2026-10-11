@@ -3,7 +3,7 @@
 # measure-metal-idle-encode.sh — reproducible measurement for issue #143.
 #
 # NOT a gate — exits 0 always (like check-tree-refresh-baseline.sh). Named
-# `measure-*` so the gate glob `check-*.sh | grep -v '\-baseline\.sh$'` never
+# `measure-*` so the gate glob `check-*.sh | grep -v '\-falsify\.sh$' | grep -v '\-baseline\.sh$'` never
 # counts it.
 #
 # WHAT IT MEASURES
@@ -33,6 +33,7 @@
 #   cd app && ./Scripts/measure-metal-idle-encode.sh
 #   QUIET=1 ./Scripts/measure-metal-idle-encode.sh
 
+# -e deliberately omitted: measurement tool, always exits 0.
 set -uo pipefail
 
 QUIET="${QUIET:-0}"
@@ -45,6 +46,7 @@ OUT_DIR="$APP_ROOT/../.afk/research"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+
 
 # --- environment checks -------------------------------------------------------
 command -v swiftc >/dev/null 2>&1 || { say "error: swiftc not found"; exit 0; }
@@ -71,8 +73,9 @@ fi
 # --- build + resolve PRODUCTS (binary compiled INTO $PRODUCTS so Bundle.main
 #     finds SwiftTerm_SwiftTerm.bundle as a sibling — same technique as
 #     check-metal-throughput.sh) -------------------------------------------
-. Scripts/vendored-module.sh
-resolve_vendored_module   # sets PRODUCTS, or exits 2 on failure
+BUILD_CONFIG=release . Scripts/vendored-module.sh
+BUILD_CONFIG=release resolve_vendored_module   # sets PRODUCTS, or exits 2 on failure
+trap 'rm -rf "$TMP" "$PRODUCTS/metal_idle_measure"' EXIT
 
 # --- compile harness into $PRODUCTS -------------------------------------------
 cp "$HARNESS" "$TMP/main.swift"
@@ -120,7 +123,7 @@ run_mode() {
   local proc_samples="" ws_samples=""
   for i in 1 2 3 4 5; do
     sleep 2
-    pcpu="$(ps -p $hpid -o pcpu= 2>/dev/null | tr -d ' ')"
+    pcpu="$(ps -p "$hpid" -o pcpu= 2>/dev/null | tr -d ' ')"
     [ -z "$pcpu" ] && pcpu="0"
     proc_sum=$(awk -v s="$proc_sum" -v v="$pcpu" 'BEGIN{printf "%.2f", s+v}')
     proc_samples="${proc_samples} ${pcpu}"
@@ -161,7 +164,7 @@ run_mode idle
 # --- parse harness getrusage output -------------------------------------------
 parse_val() {
   local key="$1" mode="$2"
-  grep -o "${key}=[^ ]*" "$TMP/out-${mode}.txt" 2>/dev/null | head -1 | cut -d= -f2
+  grep -F "${key}=" "$TMP/out-${mode}.txt" 2>/dev/null | head -1 | cut -d= -f2
 }
 
 SP_P50USER="$(parse_val P50_CPU_USER_US spinner)"
@@ -254,11 +257,12 @@ printf '## Addressing review points from #146\n\n'
 
 printf '### 1. Single-basis CPU table (was: mixed ps%%/getrusage/harness figures)\n\n'
 printf 'All numbers above are on one of two explicit bases:\n'
-printf '%s\n' '- **ps%%** = whole-process CPU as seen by the OS scheduler, 5-sample mean\n'
+printf '%s\n' '- **ps%** = whole-process CPU as seen by the OS scheduler, 5-sample mean'
 printf '  during steady state. This is the "real-app" ground truth.\n'
-printf '%s\n' '- **getrusage CPU_FRACTION** = (user+sys µs over the measurement window)\n'
+printf '%s\n' '- **getrusage CPU_FRACTION** = (user+sys µs over the measurement window)'
 printf '  divided by nominal wall µs. Directly comparable to ps%%.\n'
-printf '%s\n' '- **p50 per-frame µs** = median per-draw(in:) cost, for decomposition only.\n\n'
+printf '%s\n' '- **p50 per-frame µs** = median per-draw(in:) cost, for decomposition only.'
+printf '\n'
 printf 'These three bases measure different things and are labelled separately;\n'
 printf 'they are not summed in the same table.\n\n'
 
@@ -288,10 +292,11 @@ printf 'Verified by grep on vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/Metal
 printf '### 5. Harness is now reproducible\n\n'
 printf 'Runner:  app/Scripts/measure-metal-idle-encode.sh\n'
 printf 'Harness: app/Scripts/measure-metal-idle-encode-harness.swift\n\n'
-printf '%s\n' '- Linked against vendored SwiftTerm.o via vendored-module.sh\n'
-printf '%s\n' '- Drives draws via display-link path only (no explicit mtkView.draw())\n'
-printf '%s\n' '- Load guard (>0.70/CPU -> exits 0 with note)\n'
-printf '%s\n' '- Writes this markdown to .afk/research/\n\n'
+printf '%s\n' '- Linked against vendored SwiftTerm.o via vendored-module.sh'
+printf '%s\n' '- Drives draws via display-link path only (no explicit mtkView.draw())'
+printf '%s\n' '- Load guard (>0.70/CPU -> exits 0 with note)'
+printf '%s\n' '- Writes this markdown to .afk/research/'
+printf '\n'
 printf '```sh\ncd app && ./Scripts/measure-metal-idle-encode.sh\n```\n\n'
 
 printf '%s\n' '---'; printf '\n'
@@ -317,11 +322,11 @@ printf 'A "skip-if-nothing-changed" optimization (move drawable acquisition afte
 printf 'buildDrawData, return without present when dirty==0) is non-trivial and\n'
 printf 'would save at most ~0.1%% at 12 Hz — below measurement noise. Not proposed.\n\n'
 printf '**Done criteria (issue #143):**\n'
-printf '%s\n' '- [x] Measurement at same pane size (46x137)\n'
-printf '%s\n' '- [x] WindowServer compositor share measured\n'
-printf '%s\n' '- [x] Conclusion documented: structural floor\n'
-printf '%s\n' '- [x] Review points 1-5 from #146 addressed with corrected citations\n'
-printf '%s\n' '- [x] No further patch warranted\n'
+printf '%s\n' '- [x] Measurement at same pane size (46x137)'
+printf '%s\n' '- [x] WindowServer compositor share measured'
+printf '%s\n' '- [x] Conclusion documented: structural floor'
+printf '%s\n' '- [x] Review points 1-5 from #146 addressed with corrected citations'
+printf '%s\n' '- [x] No further patch warranted'
 } > "$OUT_MD"
 
 say "==> written: $OUT_MD"
