@@ -56,6 +56,11 @@ final class PaneDirectoryState {
     /// The last LOCAL OSC 7 path from this pane's shell, normalised. Kept apart from the
     /// remote report on purpose: an ssh session must not erase it, and it must not label one.
     var localReport: String?
+    /// The last directory the live `shellContext` rule resolved from the kernel (any
+    /// `.local` resolution with a non-nil directory). Preferred by `lastKnownDirectoryPath`
+    /// over `localReport` because the kernel cwd reflects `cd X && exec cmd` while the
+    /// OSC 7 report predates the `cd` (issue #208, review finding R1.2).
+    var lastLocalDirectory: String?
     var remoteReport: RemoteOsc7Report?
     var tmuxCache: TmuxCacheEntry?
     /// The tmux client last seen in front; a change bumps `tmuxGeneration`.
@@ -99,16 +104,27 @@ extension TerminalPane {
         return state
     }
 
-    /// Live and cheap: `ForegroundProcess.current` (tcgetpgrp + TIOCPTYGNAME +
-    /// proc_pidpath), at most one `proc_pidinfo` for a cwd, and a cache read. Never waits;
-    /// a missing or old tmux answer schedules a refresh and is served as it stands.
     /// The best record of where this pane's shell last was, for a shell that has
     /// ALREADY EXITED (tranche 2's kept-tab restart and vetoed-close recovery). The live
     /// rule cannot answer then: waitpid has reaped the pid, so `shellContext` reports an
-    /// unreadable foreground and a nil directory. A shell exits from a prompt, after
-    /// precmd re-reported, so the last local OSC 7 report is current at that moment;
-    /// a shell without the integration script falls back to the last directory the
-    /// live rule resolved for this pane.
+    /// unreadable foreground and a nil directory.
+    ///
+    /// Preference order (issue #208, R1.2):
+    ///   1. `lastLocalDirectory` — last non-nil directory the live `shellContext` rule
+    ///      resolved from the kernel. Current even after `cd X && exec cmd` because the
+    ///      kernel cwd reflects the `cd`; the OSC 7 report predates it.
+    ///   2. `localReport` — the last OSC 7 report. Covers a pane that was never polled
+    ///      while the shell was alive (so `lastLocalDirectory` was never set) but whose
+    ///      integrated shell fired precmd at least once.
+    ///   3. nil — no record at all; the restart falls back to `resolvedWorkingDirectory()`.
+    var lastKnownDirectoryPath: String? {
+        let state = directoryState
+        return state.lastLocalDirectory ?? state.localReport
+    }
+
+    /// Live and cheap: `ForegroundProcess.current` (tcgetpgrp + TIOCPTYGNAME +
+    /// proc_pidpath), at most one `proc_pidinfo` for a cwd, and a cache read. Never waits;
+    /// a missing or old tmux answer schedules a refresh and is served as it stands.
     /// The one way this pane reads its foreground, shared by the getter and the refresh so
     /// they never disagree. An unlisted login shell (`ksh93`) at its own pid is still the
     /// shell (`ForegroundProcess.adoptingLaunchedShell`).
@@ -117,11 +133,6 @@ extension TerminalPane {
             ForegroundProcess.current(childfd: childfd, integratedShellPid: shellPid),
             foregroundIsShellPid: childfd >= 0 && tcgetpgrp(childfd) == shellPid,
             launchedShellName: startedShellName)
-    }
-
-    var lastKnownDirectoryPath: String? {
-        let state = directoryState
-        return state.localReport ?? state.lastContext?.directory?.path
     }
 
     var shellContext: ShellContext {
@@ -167,6 +178,12 @@ extension TerminalPane {
             foreground: kind, reported: reported, shellDirectory: shellDirectory,
             knownShellDirectory: knownShellDirectory, tmuxDirectory: tmuxDirectory,
             tmuxAnswered: tmuxAnswered)
+        // Track the last kernel-resolved local directory for `lastKnownDirectoryPath`.
+        // Updated on every `.local` resolution with a non-nil path so that `cd X && exec
+        // cmd` is reflected: the OSC 7 report predates the `cd` (issue #208, R1.2).
+        if context.followStatus == .local, let path = context.directory?.path {
+            state.lastLocalDirectory = path
+        }
         if context != state.lastContext {
             state.lastContext = context
             directoryDiag("fg=\(kind.map { "\($0)" } ?? "nil") dir=\(context.directory?.path ?? "nil") status=\(context.followStatus)")
