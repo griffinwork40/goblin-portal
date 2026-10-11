@@ -109,10 +109,12 @@ extension AppConfig {
                         + " — using \(config.renderer.configName)")
             }
         }
-        // `fontThicken` is accepted so existing configs stay valid, but the field has no
-        // effect on macOS 15+: `CGContextSetFontSmoothingStyle` is a no-op in both the
-        // Core Text and Metal render paths (0 px changed under the window-server compositor,
-        // confirmed by an on-screen probe — see PR #152 and the issue body for methodology).
+        // `fontThicken` is accepted so existing configs stay valid, but the field may have
+        // no visible effect on current macOS: `CGContextSetFontSmoothingStyle` was observed
+        // to be a no-op in both render paths on macOS 15 (0 px changed under the
+        // window-server compositor, confirmed by an on-screen probe — see PR #152 and the
+        // issue body for methodology).  We cannot assert the same on macOS 14 here, so the
+        // warning names no version (review finding #200, finding 1).
         // The value is stored on `AppConfig` so downstream code can be removed incrementally
         // without a separate serialisation break; `GoblinPortalTerminalView.draw(_:)` still
         // calls it when the flag is true, which is harmless.
@@ -120,8 +122,9 @@ extension AppConfig {
             config.fontThicken = v
             if v {
                 config.warnings.append(
-                    "fontThicken: no effect on this macOS — CGContextSetFontSmoothingStyle" +
-                    " is a no-op in both renderers (macOS 15+); key accepted but ignored")
+                    "fontThicken: may have no visible effect on current macOS —" +
+                    " CGContextSetFontSmoothingStyle is a no-op in both renderers on macOS 15+" +
+                    "; key accepted but ignored")
             }
         }
         if let v = file.lineHeight {
