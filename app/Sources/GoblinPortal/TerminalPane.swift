@@ -53,6 +53,9 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
     /// `internal` (not `private`) so `TerminalPane+ShellExit.swift` can read it for
     /// restart CWD resolution. Swift `private` is file-scoped; the restart extension
     /// needs it to honour the brief's "fall back to the Space root" requirement.
+    /// **Not a public API surface.** Only sibling extensions in this module
+    /// (`TerminalPane+Launch.swift`, `TerminalPane+ShellExit.swift`) should read this;
+    /// no code outside `GoblinPortal` should depend on it directly.
     /// The directory this terminal's shell starts in — the Space's project root for
     /// ⌘T, a subdirectory of it for the tree's "New Terminal Here"
     /// (`SpaceViewController.addTerminalDocument(start:workingDirectory:)`).

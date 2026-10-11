@@ -23,6 +23,15 @@ extension AppDelegate {
     }
 
     func attentionDocumentCount() -> Int {
+        // Walks every open Space and its split peers on every call. O(windows × documents),
+        // but cheap in practice: open Space count is small (single digits typical) and
+        // document count per Space is bounded by the UI split limit (≤ 4). A cached counter
+        // invalidated on status change was considered and rejected — AFK.md's
+        // AppDelegate+DockAttention row carries the invariant "No second counter" because
+        // a counter duplicates the authoritative state already held by each document's
+        // `documentStatus`, adding a consistency hazard (missed invalidation on remove,
+        // split peer teardown, or restore) for a walk whose measured cost is negligible
+        // at realistic window counts. Re-evaluate if the split limit or window count rises.
         SpaceWindowController.open.flatMap { controller in
             controller.space.allDocuments + controller.space.splitPeers.values.flatMap(\.allPeerDocuments)
         }.filter { $0.documentStatus == .attention }.count
