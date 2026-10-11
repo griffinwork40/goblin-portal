@@ -70,9 +70,10 @@ extension TmuxDirectory {
         var errPipe: [Int32] = [-1, -1]
         guard pipe(&outPipe) == 0 else { return nil }
         guard pipe(&errPipe) == 0 else { close(outPipe[0]); close(outPipe[1]); return nil }
-        // CLOEXEC on all four ends at once, so a concurrent spawn elsewhere in the app
-        // (SwiftTerm's forkpty, a git poll) cannot inherit them and hold our pipes open.
-        // Our own child still gets its two ends: dup2 file actions clear the flag.
+        // Best-effort CLOEXEC: Darwin has no pipe2(O_CLOEXEC), so pipe + fcntl is NOT
+        // atomic. A concurrent SwiftTerm forkpty/exec can still inherit an end before
+        // these flags are set (#209 R1.3); the deadline bounds the resulting EOF wait,
+        // but cannot close the leaked fd in that shell. dup2 clears our child's flags.
         for fd in outPipe + errPipe { _ = fcntl(fd, F_SETFD, FD_CLOEXEC) }
         defer { close(outPipe[0]); close(errPipe[0]) }
 
