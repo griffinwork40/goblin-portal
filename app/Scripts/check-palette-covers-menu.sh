@@ -155,12 +155,17 @@ struct MenuKey: Hashable {
 
 // ---------------------------------------------------------------------------
 // Canonical key-hint form: sort modifiers as ⌃⌥⇧⌘, then append the key char.
-// Arrow-key unicode scalars → glyphs. Letters → uppercase. Other chars → as-is.
+// Function-key unicode scalars → standard glyphs. Letters → uppercase.
+// Other chars → as-is (uppercased).
 //
 // An uppercase menu keyEquivalent implies ⇧: AppKit stores "G" with .command
 // rather than "g" with [.command, .shift]. We promote .shift into the mask
 // whenever the stored keyEquivalent is a single uppercase ASCII letter and .shift
 // is absent, so the canonical form matches the palette hint "⌘⇧G".
+//
+// Scope: arrow keys, editing keys (⌫ ⌦ ⎋ ⇥ ↩), and F1–F12. Other
+// NSFunctionKey scalars (Home/End/PageUp/PageDown/F13–F35/etc.) are not used
+// by any palette command and fall through to uppercased() — visible in skip notes.
 // ---------------------------------------------------------------------------
 func canonical(equiv: String, mask: NSEvent.ModifierFlags) -> String {
     var effectiveMask = mask
@@ -176,18 +181,22 @@ func canonical(equiv: String, mask: NSEvent.ModifierFlags) -> String {
     if effectiveMask.contains(.option)  { mods += "⌥" }
     if effectiveMask.contains(.shift)   { mods += "⇧" }
     if effectiveMask.contains(.command) { mods += "⌘" }
-    let arrowMap: [Unicode.Scalar: String] = [
-        Unicode.Scalar(NSRightArrowFunctionKey)!: "→",
-        Unicode.Scalar(NSLeftArrowFunctionKey)!:  "←",
-        Unicode.Scalar(NSUpArrowFunctionKey)!:    "↑",
-        Unicode.Scalar(NSDownArrowFunctionKey)!:  "↓",
+    // Map NSFunctionKey private-use scalars to standard glyphs (arrows, editing
+    // keys, F1–F12). Unmapped scalars fall through to uppercased().
+    let fnKeyMap: [Unicode.Scalar: String] = [
+        Unicode.Scalar(NSRightArrowFunctionKey)!: "→", Unicode.Scalar(NSLeftArrowFunctionKey)!: "←",
+        Unicode.Scalar(NSUpArrowFunctionKey)!:    "↑", Unicode.Scalar(NSDownArrowFunctionKey)!: "↓",
+        Unicode.Scalar(NSDeleteCharacter)!:       "⌫", Unicode.Scalar(NSDeleteFunctionKey)!:   "⌦",
+        Unicode.Scalar(NSCarriageReturnCharacter)!:"↩", Unicode.Scalar(NSTabCharacter)!:       "⇥",
+        Unicode.Scalar(0x001B)!:                  "⎋",
+        Unicode.Scalar(NSF1FunctionKey)!:  "F1",  Unicode.Scalar(NSF2FunctionKey)!:  "F2",
+        Unicode.Scalar(NSF3FunctionKey)!:  "F3",  Unicode.Scalar(NSF4FunctionKey)!:  "F4",
+        Unicode.Scalar(NSF5FunctionKey)!:  "F5",  Unicode.Scalar(NSF6FunctionKey)!:  "F6",
+        Unicode.Scalar(NSF7FunctionKey)!:  "F7",  Unicode.Scalar(NSF8FunctionKey)!:  "F8",
+        Unicode.Scalar(NSF9FunctionKey)!:  "F9",  Unicode.Scalar(NSF10FunctionKey)!: "F10",
+        Unicode.Scalar(NSF11FunctionKey)!: "F11", Unicode.Scalar(NSF12FunctionKey)!: "F12",
     ]
-    let key: String
-    if let s = equiv.unicodeScalars.first, let arrow = arrowMap[s] {
-        key = arrow
-    } else {
-        key = equiv.uppercased()
-    }
+    let key = equiv.unicodeScalars.first.flatMap { fnKeyMap[$0] } ?? equiv.uppercased()
     return mods + key
 }
 
@@ -331,7 +340,6 @@ fi
 
 out="$("$TMP/palette_covers_menu" 2>&1)"; status=$?
 say "$out"
-
 # The exit code is the verdict; text is for humans. A harness that died before
 # printing a recognisable verdict is environmental (2), not a coverage gap (1).
 if [[ $status -eq 0 ]]; then exit 0; fi
