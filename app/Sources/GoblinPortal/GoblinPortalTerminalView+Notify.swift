@@ -17,6 +17,17 @@ extension GoblinPortalTerminalView {
         // dispatchOsc(:533) -> oscProgressReport(Terminal.swift:1854) -> progressReport
         // (MacTerminalView.swift:2908) preserves the native bar, including clamping.
         // Terminal.tdel is weak (Terminal.swift:420); this capture cannot retain the view.
+        //
+        // Cost note (N2 from #202 review): Terminal carries a full buffer and parser
+        // state (~two heap allocations per Terminal init). This is one instance per pane
+        // created once at registration time — not per event — so it is a fixed per-pane
+        // overhead, not an O(events) cost. A lightweight shim that forwards only the
+        // progress report would be cheaper but requires duplicating or exposing
+        // SwiftTerm's internal OSC dispatch path, which is private
+        // (EscapeSequenceParser.swift:593). Deferred: the current cost is acceptable
+        // at one instance per pane, and any shim would need to be re-validated against
+        // SwiftTerm vendor updates. Re-evaluate if Terminal's init cost becomes
+        // measurable (e.g. if pane count scales significantly).
         let progressDecoder = Terminal(delegate: self)
         getTerminal().registerOscHandler(code: 9) { data in
             MainActor.assumeIsolated {
