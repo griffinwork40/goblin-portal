@@ -105,7 +105,8 @@ jobs:
             check-theme-contrast.sh \
             check-light-theme.sh \
             check-afk-loc.sh \
-            check-shell-exit.sh
+            check-shell-exit.sh \
+            check-info-plist.sh
           do
             echo "::group::$s"
             "./Scripts/$s"

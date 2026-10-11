@@ -130,6 +130,10 @@ fi
 # NSDocumentsFolderUsageDescription simply returns "Operation not permitted" and
 # there is nowhere to go to fix it. (Microphone and AppleEvents are worse still: the
 # request is met with SIGABRT rather than an error — that is what #23 fixed.)
+# NSLocalNetworkUsageDescription: without it Local Network privacy silently denies LAN
+# connections from programs run inside (node/python get EHOSTUNREACH, no prompt; Apple's
+# ssh/nc/ping are exempt). No NSBonjourServices: the app itself browses no Bonjour.
+# Scripts/check-info-plist.sh gates these keys.
 # SDK metadata for provenance. The FUNCTIONAL mechanism for Liquid Glass is the
 # Mach-O LC_BUILD_VERSION sdk field (set by -platform_version above, verified by
 # otool -l). These Info.plist DT* keys are what Xcode writes for tooling and are
@@ -176,6 +180,8 @@ ${ICON_PLIST_ENTRY}	<key>CFBundlePackageType</key>
 	<string>A program running within Goblin Portal would like to access files on a removable volume.</string>
 	<key>NSNetworkVolumesUsageDescription</key>
 	<string>A program running within Goblin Portal would like to access files on a network volume.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>A program running within Goblin Portal would like to connect to devices and servers on your local network.</string>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>Goblin Portal notifies you when a long-running command finishes in a background tab.</string>
 	<key>NSHumanReadableCopyright</key>
