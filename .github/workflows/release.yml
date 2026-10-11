@@ -27,6 +27,8 @@ name: release
 # find it by exact title (its headBranch is main, not the tag). Without this every
 # dispatch run is titled plain "release". When the expression is empty (tag push),
 # GitHub falls back to its default event title, so push runs keep their titles (#199).
+# COUPLED: cut-release-preflight.sh _find_run constructs CUT_RELEASE_TITLE="release $TAG"
+# and matches against displayTitle. If this expression changes, update _find_run to match.
 run-name: ${{ github.event_name == 'workflow_dispatch' && format('release {0}', inputs.tag) || '' }}
 
 on:
