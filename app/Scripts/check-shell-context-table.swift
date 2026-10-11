@@ -171,6 +171,9 @@ check("command in front, no report -> the shell's cwd",
 //    strings — no AppKit, no pty. Modelling `PaneDirectoryState` fields directly.
 //    Case A: lastLocalDirectory set — must win over a different localReport.
 //    (Models: shell was polled after `cd X && exec cmd`; OSC 7 still names the old dir.)
+//    Structural coupling: falsification mutant 12 (last-known-dir-prefers-osc7) in
+//    check-shell-context-falsify.sh flips the ?? order and must fail cases A and D,
+//    proving FakeState's field ordering matches the real PaneDirectoryState contract.
 print("lastKnownDirectoryPath preference order")
 struct FakeState {
     var lastLocalDirectory: String?
