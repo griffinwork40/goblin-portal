@@ -146,10 +146,11 @@ SRC_CONFIG="Sources/GoblinPortal/Config.swift"
 
 # Strip // comments from each file, then extract the literal value after `= `.
 # Uses POSIX [[:space:]] rather than \s (BSD sed has no \s).
+# tr -d '\n' removes any trailing newline before awk BEGIN sees the value.
 extract_font_size() {
     sed 's|//.*||' "$1" \
       | grep -E '^[[:space:]]*static let defaultFontSize: Double[[:space:]]*=' \
-      | sed 's/.*=[[:space:]]*//' | tr -d ' \t'
+      | sed 's/.*=[[:space:]]*//' | tr -d ' \t' | tr -d '\n'
 }
 
 SIZE_CONFIG="$(extract_font_size "$SRC_CONFIG")"
