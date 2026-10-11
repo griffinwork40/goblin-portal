@@ -169,10 +169,15 @@ EOR
     fi
     # Second try: workflow_dispatch run — headBranch is main (or whatever branch),
     # but the displayTitle contains the tag input value.
+    # --arg tag passes TAG as a jq variable so no shell metacharacters can escape
+    # into the jq program (#199, finding 2).  The exact-equality test ". == $tag"
+    # prevents v1.9.0 from matching v11.9.0 or v21.9.0 (#199, finding 1);
+    # contains() is a substring match and semver prefixes collide.
     run="$(gh run list -R "$REPO" --workflow release.yml -L 20 \
       --json databaseId,headSha,url,displayTitle,event \
-      --jq ".[] | select(.event == \"workflow_dispatch\" and (.displayTitle | contains(\"$TAG\"))) \
-            | [(.databaseId | tostring), .headSha, .url] | join(\" \")" \
+      --jq --arg tag "$TAG" \
+      '.[] | select(.event == "workflow_dispatch" and .displayTitle == $tag)
+            | [(.databaseId | tostring), .headSha, .url] | join(" ")' \
       2>/dev/null || true)"
     if [ -n "$run" ]; then
       while IFS= read -r line; do
