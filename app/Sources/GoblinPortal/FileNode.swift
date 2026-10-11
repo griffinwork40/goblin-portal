@@ -71,7 +71,7 @@ final class FileNode {
         // test harness can replace `DirectoryListing.lister` with a controlled
         // stub (DirectoryListing.swift).  Production behaviour is identical:
         // same keys, same re-rooting, same isVisible filter.
-        reconcile(DirectoryListing.lister(url))
+        reconcile(DirectoryListing.sorted(DirectoryListing.lister(url)))
 
         // Recurse only into what the user already opened, so a refresh costs the
         // same as the disclosure state and not the size of the tree.
@@ -80,7 +80,7 @@ final class FileNode {
         }
     }
 
-    /// Land listings that were read off the main thread: reconcile this node from
+    /// Land listings already sorted off the main thread: reconcile this node from
     /// `listings[url]`, then recurse into loaded children the same way
     /// `reloadChildren()` does. A directory missing from `listings` (loaded on main
     /// after the snapshot was taken, e.g. by a disclosure) keeps its children as-is —
@@ -102,6 +102,8 @@ final class FileNode {
 
     /// The identity rule: an entry whose URL, `isDirectory` and `isHidden` all match an
     /// existing child gets that child object back; anything else is a new node.
+    /// Entries are already in display order: sorting here would put #207's localized
+    /// comparison back on main for every async landing (the #158 baseline's residual).
     private func reconcile(_ entries: [DirectoryEntry]) {
         let existing = Dictionary(
             (children ?? []).map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
@@ -118,20 +120,6 @@ final class FileNode {
                     return reused
                 }
                 return FileNode(url: entry.url, isDirectory: entry.isDirectory, isHidden: entry.isHidden)
-            }
-            .sorted { lhs, rhs in
-                // Directories first, then case-insensitive name — Finder's order,
-                // and the one every file tree a developer already uses follows.
-                if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
-                // Then hidden entries LAST within each group. They stay *shown* —
-                // see `isVisible`; hiding `.github` or `.env` in a terminal-first
-                // IDE would be obstructive — but `localizedStandardCompare` orders
-                // "." ahead of letters, so plain name order buries the real content
-                // behind them. Measured on this machine's $HOME: 53 dot-directories
-                // sorted above `Projects/`, 57% of the first screen, every one of
-                // them a tool cache nobody browses.
-                if lhs.isHidden != rhs.isHidden { return !lhs.isHidden }
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
     }
 
