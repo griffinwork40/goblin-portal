@@ -164,7 +164,9 @@ run_mode idle
 # --- parse harness getrusage output -------------------------------------------
 parse_val() {
   local key="$1" mode="$2"
-  grep -F "${key}=" "$TMP/out-${mode}.txt" 2>/dev/null | head -1 | cut -d= -f2
+  # -o, not -F: the harness packs several KEY=VALUE pairs on one line, so a
+  # whole-line match would hand cut the wrong field. Keys are literal identifiers.
+  grep -o "${key}=[^ ]*" "$TMP/out-${mode}.txt" 2>/dev/null | head -1 | cut -d= -f2
 }
 
 SP_P50USER="$(parse_val P50_CPU_USER_US spinner)"
