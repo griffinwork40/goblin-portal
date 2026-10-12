@@ -226,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ConfigWarningPresenter.shared.report(config.warnings)  // also Settings Apply's path
         for controller in SpaceWindowController.open {
             controller.space.apply(config: config)
+            controller.applyTitlebarStyle()  // after apply: reads space.config.titlebar
             controller.window?.backgroundColor = config.effectiveBackground
             // Re-derived on every reload, not just at init: editing the theme from
             // a dark background to a light one (or back) has to move the sidebar

@@ -10,29 +10,41 @@
 //  with `.fullSizeContentView`: it does (32pt, 68pt with the native Space tab bar),
 //  and this view's safe-area rect equals `window.contentLayoutRect` exactly. The bug
 //  was that `viewDidLayout` laid out against `view.bounds` and never asked
-//  (`.afk/plans/titlebar-reclaim-scope.md` §1a). Gated by `check-titlebar-layout.sh`.
+//  (`.afk/plans/titlebar-reclaim-scope.md` §1a). The `"compact"` titlebar's controls-aware
+//  rule (`TitlebarStyle.topInset`) is applied here too. Gated by `check-titlebar-layout.sh`.
 //
 
 import AppKit
 
 extension DocumentAreaViewController {
-    /// Points at the top of `view.bounds` that the titlebar (title row, native tab
-    /// bar, `.bottom` accessories such as `ConfigWarningBanner`) covers. Read from
-    /// `contentLayoutRect` rather than `view.safeAreaInsets` because that rect is what
-    /// the KVO below observes, so the value and its change signal cannot disagree; the
-    /// two were measured equal. 0 whenever the content view does not extend under the
-    /// titlebar — which is the shipped default style mask — so nothing moves today.
+    /// Points at the top of `view.bounds` the document area must leave empty. Starts from
+    /// what the titlebar covers (title row, native tab bar, `.bottom` accessories such as
+    /// `ConfigWarningBanner`), read from `contentLayoutRect` rather than
+    /// `view.safeAreaInsets` because that rect is what the KVO below observes, so the value
+    /// and its change signal cannot disagree; the two were measured equal. 0 whenever the
+    /// content view does not extend under the titlebar — the `"standard"` style.
+    ///
+    /// Under `"titlebar": "compact"` the title row itself is given back
+    /// (`TitlebarStyle.topInset`, scope §1c) — but only where no traffic light or `.left`
+    /// accessory sits above this view's left edge (sidebar collapsed ⇒ withheld), and only
+    /// when nothing sits below the title row (tab bar / banner ⇒ full inset).
     var layoutTopInset: CGFloat {
         guard let window = view.window else { return 0 }
         let layoutRect = view.convert(window.contentLayoutRect, from: nil)
-        return max(0, view.bounds.maxY - layoutRect.maxY)
+        let full = view.bounds.maxY - layoutRect.maxY
+        guard window.allowsContentInTitleRow else { return max(0, full) }
+        return TitlebarStyle.topInset(
+            full: full, titleRow: window.titleRowHeight,
+            viewMinX: view.convert(view.bounds, to: nil).minX,
+            controlsMaxX: window.titleRowControlsMaxX, allowBand: true)
     }
 
     /// Re-run layout when `contentLayoutRect` moves but our bounds do not. Under
     /// `.fullSizeContentView` this view is full height, so a second Space's tab bar or
     /// the config-warning banner appearing changes the inset with no resize, and
-    /// `viewDidLayout` never ran: row 0 stayed 64pt under the tab bar (measured, scope
-    /// §1b). Idempotent — installs once per window.
+    /// `viewDidLayout` never ran: row 0 stayed under the tab bar — +64pt in the scoping
+    /// prototype (scope §1b), +32pt in PR1's own m2 mutant run (the window had already laid
+    /// out once with the 32pt title-row inset; scope §6). Idempotent — installs once per window.
     func observeContentLayoutRect() {
         guard layoutRectObservation == nil, let window = view.window else { return }
         layoutRectObservation = window.observe(\.contentLayoutRect, options: [.new]) {

@@ -315,3 +315,32 @@ Artifacts (ephemeral scratch, not in the repo): harness `/tmp/gp-tb/h1/main.swif
   laid out once with the inset before the tab bar appeared), m3 (drop sidebar safe-area term →
   C7, field top 708). C8 deferred with the frame math. Scope §4's mutants 1, 2, 4 = m1, m2, m3.
 - Measured on macOS 27.0.1 only, as before.
+
+---
+
+## 7. PR2 as landed (2026-10-12) — `"titlebar": "compact"`, deviations from §3/§4
+
+- **Files.** Enum + fail-soft parse + the pure controls-aware rule in `TitlebarStyle.swift`
+  (Foundation-only; §3 called it `Config+Titlebar.swift`). Window application in
+  `SpaceWindowController+Titlebar.swift` (style, reload, `windowDidExitFullScreen` reapply,
+  `NSWindow` helpers `allowsContentInTitleRow` / `titleRowHeight` / `titleRowControlsMaxX`).
+  The rule replaced the body of `layoutTopInset` as §6 planned; no `+TitlebarInset` file.
+- **Rule** (§1c): band given back only when `full <= titleRow` (nothing below the title row)
+  AND `viewMinX >= controlsMaxX + 8`. Gated by `allowsContentInTitleRow` (FSC + transparent +
+  hidden title), so PR1's harness-forced FSC (C1) still gets the full inset.
+- **Reload**: `AppDelegate.reloadConfig` → `controller.applyTitlebarStyle()` after
+  `space.apply(config:)`; the frame is pinned across the mask toggle (C10 measured no move).
+  In full screen the style is not touched; FS exit re-applies it. FS itself UNMEASURED.
+- **Frame math**: `frameMathMask` = `styleMask − .fullSizeContentView` in `defaultFrame` and
+  `repairPoisonedSavedFrame` (C8: compact first window 1100x712, poisoned 500x532 repaired).
+- **Gate**: cases C2, C3 (+ re-expand), C6, C4c, C5c, C8, C10, C9 (headless), W (grep) and a
+  measurement table M, in `check-titlebar-compact-cases.swift` + the shell. Mutants m4 (raw
+  mask → C8), m5 (ignore controls → C3), m6 (drop `full <= titleRow` → C4c), m7 (unknown →
+  compact → C9); m1-m3 still caught. Scope §4 mutants 3/5/6 = m5/m4/m5+m6.
+- **Measured rows (macOS 27.0.1, 1100x712 frame)**: standard 39x91 / 39x119 (1 doc, sidebar
+  visible / collapsed), 37x91 / 37x119 (2 docs); compact 41x91 / 39x119, 39x91 / 37x119.
+  With 2 docs the strip moved into the band (y682-712, minX 183.5 — the sidebar measured
+  narrower in that window; controls maxX 106).
+- **Not done (PR3/PR4)**: drag/double-click on the band over the terminal/strip; strip
+  `leadingInset` for the collapsed sidebar; Settings control / menu toggle. Unmeasured:
+  macOS 14/15, full screen, pixels/glass look, `check-cell-snap` (exit 2: no 2x+1x displays).

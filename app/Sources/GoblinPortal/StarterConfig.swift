@@ -79,6 +79,8 @@ enum StarterConfig {
       "// closeOnShellExit": "clean (default) | always | never. clean = close the pane when the shell exits with code 0, keep it when the shell exits with a nonzero code or a signal — so you can read the last output. always = close unconditionally (pre-T2.2 behaviour). never = always keep the pane until you press CmdW. On keep: an inline status line shows the exit code or signal name; press Return to restart a fresh login shell in the same pane at the last known directory (scrollback is preserved). Unknown values warn and fall back to clean.",
       "// closeOnShellExit-note": "Does not add a Preferences UI control in this release — set it in config.json.",
 
+      "// titlebar": "standard (default) | compact. compact hides the window title and lets the terminal (or the document tab strip) use the titlebar row wherever no window button sits above it — about +2 rows with the sidebar showing; no change with the sidebar collapsed, 2+ Spaces (tab bar), or a config warning showing. The band over the terminal no longer drags the window; drag from the sidebar's top. Unknown values warn and fall back to standard. Applies on reload (CmdR).",
+
       "// editor": "editing behaviour for the file viewer (the tab you get when you double-click a file in the sidebar)",
       "// editor.tabWidth": "spaces per indent level, 1-16. Default 4.",
       "// editor.softTabs": "true inserts spaces when you press Tab; false inserts a literal tab character",
