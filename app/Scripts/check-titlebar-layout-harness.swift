@@ -5,6 +5,8 @@
 //
 //  Its own file because the shell half carries the build, link and falsification logic, and
 //  the two together would cross the 350-LOC ceiling (AFK.md, "Conventions": find the seam).
+//  The `"titlebar": "compact"` cases (C2, C3, C4c, C5c, C6, C8, C10, M) live in
+//  check-titlebar-compact-cases.swift, compiled alongside this file, for the same reason.
 //
 //  Every assertion measures the CONSUMER's real frames in window coordinates — the terminal
 //  view, the sidebar's filter field — never `layoutTopInset`'s own return value, so a policy
@@ -46,8 +48,8 @@ let realBefore = realSnapshot()
 /// One measured window: the terminal's top edge against the layout rect, and its grid.
 struct Probe { let termTop: CGFloat; let layoutMaxY: CGFloat; let rows: Int; let cols: Int }
 
-@MainActor func makeWindow(_ root: URL, fsc: Bool) -> SpaceWindowController {
-    let wc = SpaceWindowController(config: .defaults(), root: root)
+@MainActor func makeWindow(_ root: URL, fsc: Bool, config: AppConfig = .defaults()) -> SpaceWindowController {
+    let wc = SpaceWindowController(config: config, root: root)
     guard let w = wc.window else { env("SpaceWindowController produced no window") }
     // The harness, not shipped code, turns the flag on: PR1 ships no way to reach it, so this
     // is the only route to the configuration the layout fix exists for.
@@ -101,6 +103,7 @@ MainActor.assumeIsolated {
     else { fail("C0", "row 0 is under the titlebar on the DEFAULT window") }
     if p0.rows < 10 { env("control produced \(p0.rows) rows — the window did not lay out") }
     w0.orderOut(nil)
+    runCompactCases(root: root, r0: p0)  // check-titlebar-compact-cases.swift (PR2)
 
     // ---- C1: forced fullSizeContentView, same window size ------------------------------------
     print("\n  C1 — harness-forced .fullSizeContentView on a real SpaceWindowController")

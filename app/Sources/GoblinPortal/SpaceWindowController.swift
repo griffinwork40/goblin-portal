@@ -127,12 +127,9 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         let frame = NSRect(x: 0, y: 0, width: 1100, height: 680)
         self.space = SpaceViewController(config: config, root: root)
 
-        // NOT .fullSizeContentView (yet). It once hid the terminal's top ~1.7 rows
-        // under the opaque titlebar (contentView 600pt vs contentLayoutRect 572pt).
-        // AppKit DOES propagate the safe area (measured 32pt on macOS 27); the
-        // document area now lays out inside it and check-titlebar-layout.sh forces
-        // the flag to prove row 0 stays clear. Turning it on is a separate opt-in
-        // (.afk/plans/titlebar-reclaim-scope.md, PR2), not a default.
+        // .fullSizeContentView only under the opt-in `"titlebar": "compact"`, applied
+        // below (`SpaceWindowController+Titlebar.swift`); the document area lays out
+        // inside the safe area either way (check-titlebar-layout.sh).
         let window = NSWindow(
             contentRect: frame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -158,7 +155,7 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // System Settings instead of the theme, which is what put a Light-Mode grey
         // file tree against a black terminal. See `AppConfig.appearance`.
         window.appearance = config.appearance
-        window.titlebarAppearsTransparent = false
+        Self.applyTitlebarStyle(config.titlebar, to: window)  // standard: opaque, titled
         // macOS 26+: drops the titlebar separator only (`LiquidGlass.swift`).
         if #available(macOS 26, *) {
             LiquidGlass.configureWindow(window)

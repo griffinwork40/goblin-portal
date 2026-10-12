@@ -141,6 +141,8 @@ extension AppConfig {
                         + " — using \(config.closeOnShellExit.rawValue)")
             }
         }
+        // Opt-in compact titlebar; unknown spellings warn and keep the default.
+        config.titlebar = TitlebarStyle.parse(file.titlebar, fallback: config.titlebar, warnings: &config.warnings)
         // Ligature opt-out (#153). `true` = ligatures form (default); `false` = suppressed
         // via `TerminalView.disableLigatures` (vendor patch 0014). A non-Bool value in the
         // JSON would already have been caught by JSONDecoder (ConfigFile.ligatures is Bool?),
