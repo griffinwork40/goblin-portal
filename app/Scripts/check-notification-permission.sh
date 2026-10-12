@@ -79,9 +79,13 @@ done
 #     requestAuthorization call that could fire from applicationDidFinishLaunching.
 #     Strip comments before grepping so a doc comment about the old behaviour
 #     cannot mask a live call-site (same technique as check-theme-contrast.sh).
+# The check lives in a function so falsification mutant 3 (Part C) runs the
+# SAME assertion against a mutated copy, rather than a re-typed lookalike.
+launch_calls_permission() {
+    grep -v '^\s*//' "$1" | grep -q 'requestPermissionIfNeeded\|requestAuthorization'
+}
 say "A1: AppDelegate launch must not call requestAuthorization..."
-appdelegate_stripped=$(grep -v '^\s*//' "$SRC_APPDELEGATE")
-if echo "$appdelegate_stripped" | grep -q 'requestPermissionIfNeeded\|requestAuthorization'; then
+if launch_calls_permission "$SRC_APPDELEGATE"; then
     echo "FAIL A1: AppDelegate.swift contains a requestPermissionIfNeeded or" >&2
     echo "         requestAuthorization call — launch must not prompt for permission." >&2
     echo "         T2.5 removes this; its re-appearance is a regression." >&2
@@ -276,28 +280,26 @@ sed "${PENDING_LINE}s/authState = .pending/\/\/ authState transition removed/" \
     "$SRC_POLICY" > "$TMP/m_pending.swift"
 require_fail "no-pending-transition" "$TMP/m_pending.swift"
 
-# Mutant 3: wiring check — AppDelegate with the old requestPermissionIfNeeded call re-inserted.
-# A1 must FAIL on this synthetic AppDelegate, proving the grep catches regressions.
-LAUNCH_CALL_PRESENT=0
-if grep -v '^\s*//' "$SRC_APPDELEGATE" | grep -q 'requestPermissionIfNeeded\|requestAuthorization'; then
-    LAUNCH_CALL_PRESENT=1
+# Mutant 3: wiring. Re-insert the old launch-time call as LIVE code (not a
+# comment, which A1's own comment-stripping would remove) into a COPY of the
+# shipped AppDelegate, and require A1's function to fire on it. The first cut
+# of this mutant injected a comment and fell back to a hardcoded string, so it
+# could never fail (PR #227 land review, R1.1).
+LAUNCH_LINE=$(grep -n 'func applicationDidFinishLaunching(' "$SRC_APPDELEGATE" | head -1 | cut -d: -f1)
+[[ -n "$LAUNCH_LINE" ]] || {
+    echo "error: applicationDidFinishLaunching not found in $SRC_APPDELEGATE — mutant 3 cannot apply" >&2; exit 2; }
+sed "${LAUNCH_LINE}a\\
+        CommandNotification.requestPermissionIfNeeded()
+" "$SRC_APPDELEGATE" > "$TMP/m_launch_call.swift"
+if cmp -s "$SRC_APPDELEGATE" "$TMP/m_launch_call.swift"; then
+    echo "FAIL falsification(launch-call): injection did not apply — mutant never ran" >&2
+    exit 2
 fi
-# Inject a fake call into a temp AppDelegate copy and confirm A1 would fire.
-sed 's/func applicationDidFinishLaunching/func applicationDidFinishLaunching_NOOP()\n    \/\/ injected: requestPermissionIfNeeded()\n    func applicationDidFinishLaunching/' \
-    "$SRC_APPDELEGATE" > "$TMP/fake_delegate.swift" 2>/dev/null || true
-
-appdelegate_stripped_fake=$(grep -v '^\s*//' "$TMP/fake_delegate.swift" 2>/dev/null)
-if echo "$appdelegate_stripped_fake" | grep -q 'requestPermissionIfNeeded\|requestAuthorization'; then
-    say "  ok  wiring grep(launch-call) would catch a re-inserted requestPermissionIfNeeded"
+if launch_calls_permission "$TMP/m_launch_call.swift"; then
+    say "  ok  mutant(launch-call) A1 fires on a live call re-inserted into applicationDidFinishLaunching"
 else
-    # The sed injection didn't work (comment stripping removed it). Use a direct echo test.
-    fake_code=$'func applicationDidFinishLaunching() {\n    CommandNotification.requestPermissionIfNeeded()\n}'
-    if echo "$fake_code" | grep -v '^\s*//' | grep -q 'requestPermissionIfNeeded'; then
-        say "  ok  wiring grep(launch-call) would catch a re-inserted requestPermissionIfNeeded"
-    else
-        echo "FAIL falsification(launch-call): wiring grep is blind to re-inserted call" >&2
-        exit 1
-    fi
+    echo "FAIL falsification(launch-call): A1 is blind to a live re-inserted call" >&2
+    exit 1
 fi
 
 # ---------------------------------------------------------------------------
