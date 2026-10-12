@@ -20,14 +20,14 @@
 //  helpers are never called, and the app renders exactly as it did before.
 //
 //  fullSizeContentView is deliberately NOT enabled here. It was tried (2026-08-20,
-//  this file's first version) and caused the terminal's top rows to be clipped
-//  behind the glass titlebar — the exact same bug documented at
-//  SpaceWindowController.swift:132-141. The root cause: NSSplitViewController does
-//  not propagate safeAreaInsets.top to a child view controller that uses manual
-//  frame layout (DocumentAreaViewController.viewDidLayout), so the document area
-//  extends behind the titlebar with no offset. Glass does NOT require
-//  fullSizeContentView — the sidebar gets its floating glass pane automatically
-//  via NSSplitViewItem, and the titlebar gets glass from the SDK linkage alone.
+//  this file's first version) and clipped the terminal's top rows behind the glass
+//  titlebar. The cause first recorded here — NSSplitViewController not propagating
+//  safeAreaInsets.top — was refuted by measurement on macOS 27 (2026-10-12): the
+//  inset IS propagated (32pt); DocumentAreaViewController.viewDidLayout laid out
+//  against view.bounds and never read it. It now lays out inside contentLayoutRect
+//  (DocumentAreaViewController+SafeArea.swift, gated by check-titlebar-layout.sh),
+//  so enabling the flag is a separate, opt-in decision. Glass does NOT require it —
+//  the sidebar gets glass via NSSplitViewItem, the titlebar from the SDK linkage.
 //
 //  The terminal content area and the editor content area are NEVER touched by
 //  glass — the ANSI colour contract, the 345-assertion contrast gate

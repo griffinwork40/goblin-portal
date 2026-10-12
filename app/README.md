@@ -63,6 +63,8 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
                                  # needs a GUI session; window is offscreen, steals no focus
 ./Scripts/check-sidebar-toggle.sh # is the titlebar toggle installed, does its action resolve,
                                  # and does clicking it move the sidebar? offscreen, steals no focus
+./Scripts/check-titlebar-layout.sh # with .fullSizeContentView forced, does row 0 stay out of the
+                                 # titlebar (incl. tab bar / banner appearing)? offscreen; --falsify
 ./Scripts/check-keys-e2e.sh      # real NSEvents → real pty bytes; opens a window,
                                  # needs Accessibility permission for your terminal
 GOBLIN_PORTAL_DIAG=1 swift run GoblinPortal   # dumps resolved font/theme/scrollback state to stderr

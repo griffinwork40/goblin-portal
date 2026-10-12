@@ -14,8 +14,8 @@
 //  `NSTitlebarAccessoryViewController` rather than a custom titlebar view: it
 //  is the system affordance for adding a control beside the traffic lights.
 //  `SpaceWindowController` declines `.fullSizeContentView` (the `styleMask` at
-//  `SpaceWindowController.swift:144`, argued by the comment block at
-//  `:132-141`) precisely so the titlebar stays an opaque strip AppKit owns and
+//  `SpaceWindowController.swift:138`, argued by the comment block at
+//  `:130-135`) precisely so the titlebar stays an opaque strip AppKit owns and
 //  draws — this accessory attaches to that strip rather than requiring any
 //  change to it.
 //
