@@ -9,7 +9,7 @@
 #   A 10ms repeating timer measures whether the run loop kept turning.
 #
 # EXIT CONTRACT
-#   0  all 15 cases pass
+#   0  all 16 cases pass
 #   1  real assertion failure
 #   2  environmental (swiftc missing, build failed, objects missing, no window server)
 #
@@ -30,7 +30,8 @@
 #  13. SELECTION-SURVIVES — selection reselected by URL after an async landing
 #  14. SUBFOLDER-REFRESH  — a new file in an expanded subfolder appears on refresh
 #  15. EXPAND-IN-FLIGHT   — a folder expanded mid-refresh keeps its children
-#   (9-15 live in check-tree-refresh-invariants.swift)
+#  16. ASYNC-SORT-ORDER  — unsorted seam values ordered in setRoot/refresh (#207)
+#   (9-16 live in check-tree-refresh-invariants.swift)
 #
 # --falsify  runs check-tree-refresh-falsify.sh instead (mutation testing).
 #

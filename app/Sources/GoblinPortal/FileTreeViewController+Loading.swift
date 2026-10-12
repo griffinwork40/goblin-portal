@@ -8,7 +8,8 @@
 //  measured `refresh()` at p50 86 ms on a 42k-entry tree with 300 directories expanded
 //  — a dropped-frame stall on every window activation — and a single `setRoot` listing
 //  on an SMB/iCloud volume can take seconds. The listing is pure I/O over value types
-//  (`DirectoryEntry`), so it moves to a background queue; everything that touches a
+//  (`DirectoryEntry`), so listing AND localized child sorting move to a background
+//  queue (#207); everything that touches a
 //  `FileNode` or the outline stays on the main actor.
 //
 //  SHAPE (copied from +Git.swift's `GitStatusFollow.pollNow()`): snapshot on main →
@@ -168,7 +169,7 @@ extension FileTreeViewController {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let listStart = ContinuousClock.now
             var listings: [URL: [DirectoryEntry]] = [:]
-            for dir in dirs { listings[dir] = lister(dir) }
+            for dir in dirs { listings[dir] = DirectoryListing.sorted(lister(dir)) }
             let listMs = TreeRefreshTiming.ms(since: listStart)
             Task { @MainActor in
                 TreeRefreshTiming.record(site: site + "-list", expandedCount: dirs.count, ms: listMs)
