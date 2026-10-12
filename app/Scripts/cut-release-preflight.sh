@@ -167,15 +167,11 @@ EOR
         fi
       done <<< "$run"
     fi
-    # Second try: workflow_dispatch run — headBranch is main (or whatever branch),
-    # so the run is found by its title. release.yml's `run-name` titles a dispatch
-    # run exactly "release <tag>"; without that line every dispatch run is titled
-    # plain "release" (observed via `gh run list`), so this lookup never matched.
-    # Exact equality, not contains(): a substring test would also accept
-    # "release v1.9.0-rc1" when looking for v1.9.0 (#199, finding 1).
-    # The tag reaches jq through $ENV, never through the program text, so no
-    # quoting coupling with is_semver remains (#199, finding 2). gh's --jq is
-    # gojq and takes no --arg; $ENV is how it receives a variable.
+    # Second try: workflow_dispatch run — found by its exact title.
+    # COUPLED: .github/workflows/release.yml run-name must produce "release <tag>".
+    # Exact equality (not contains) prevents "release v1.9.0-rc1" matching v1.9.0
+    # (#199 finding 1). Tag passed via $ENV so no quoting coupling with is_semver
+    # (#199 finding 2); gh's --jq is gojq and takes no --arg.
     run="$(CUT_RELEASE_TITLE="release $TAG" gh run list -R "$REPO" --workflow release.yml -L 20 \
       --json databaseId,headSha,url,displayTitle,event \
       --jq '.[] | select(.event == "workflow_dispatch" and .displayTitle == $ENV.CUT_RELEASE_TITLE)

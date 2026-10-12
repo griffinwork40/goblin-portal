@@ -42,12 +42,12 @@
 # verified against a menu item that does not exist.
 # Selectors with a tag (find-panel variants) are matched by (selector, tag) pair.
 #
-# FALSIFICATION. The gate was validated by temporarily commenting out one palette
-# command and confirming exit 1 with the missing selector listed; restoring it
-# gives exit 0. A control case (building a menu with a sentinel selector nobody
-# implements) is not exercised here because the gate's logic is a set-membership
-# check, not a responder-chain query — it cannot suffer the "resolves everything"
-# failure class that `check-sidebar-toggle.sh` CASE 5 guards against.
+# FALSIFICATION. Validated by commenting out one palette command → exit 1 (missing
+# selector listed); restoring → exit 0. No sentinel-selector control: the gate is
+# a set-membership check, not a responder-chain query (no "resolves everything" risk).
+# PART 2 function-key mutant: corrupt one fnKeyMap glyph in a COPY of this script
+# (e.g. NSRightArrowFunctionKey "→" → "X") → must exit 1 for any palette command
+# whose hint uses that key. Exit 0 means that key is unexercised; use another.
 #
 # EXIT CODES (same three-valued contract as every gate in this repo):
 #   0 = all menu selectors are covered by the palette or the allowlist,

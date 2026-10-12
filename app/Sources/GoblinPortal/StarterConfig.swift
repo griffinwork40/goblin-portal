@@ -70,7 +70,7 @@ enum StarterConfig {
 
       "// unfocusedPaneOpacity": "0.0-1.0. Palette-aware by default (PaneDimming.swift): dims to about 0.7 where body text stays at APCA Lc >= 45; does not dim under classic-repaired (body text is already below the floor). An explicit 0.0-1.0 value overrides the default and prints a warning if the result drops body text below Lc 45. Out-of-range values are ignored with a warning.",
 
-      "// fontThicken": "No effect on macOS 15+ — CGContextSetFontSmoothingStyle is a no-op in both renderers. Setting true emits a config warning. Key accepted to keep existing configs valid.",
+      "// fontThicken": "May have no visible effect on current macOS — CGContextSetFontSmoothingStyle is a no-op in both renderers on recent releases. Setting true emits a config warning. Key accepted to keep existing configs valid.",
       "fontThicken": false,
 
       "// lineHeight": "Multiplier on the font's natural line height (default 1.0). 1.2 = 20% extra leading. Range 0.8–2.0. Uses SwiftTerm's public lineSpacing property, which correctly resizes the terminal grid after changing.",

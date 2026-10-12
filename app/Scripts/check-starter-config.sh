@@ -46,15 +46,15 @@
 # or type mismatch). 2 = environmental (no toolchain, source file missing, harness
 # would not compile). A broken environment must never read as a green gate.
 #
-# FALSIFICATION. Validate this gate is not vacuous:
-#   cp Sources/GoblinPortal/StarterConfig.swift /tmp/sc_backup.swift
-#   # Reintroduce the bug: change #""" to """ and """# to """
-#   # Then:  ./Scripts/check-starter-config.sh   → must exit 1
-#   cp /tmp/sc_backup.swift Sources/GoblinPortal/StarterConfig.swift
+# FALSIFICATION. Two mutants:
+#   A: change #""" to """ / """# to """ in StarterConfig.swift → exit 1 (bad JSON).
+#   B (combined anchor+stripper): indent `struct ConfigFile` in Config.swift AND
+#     insert `/* var bogus } */` in its body → exit 0. The `^` anchor prevents a
+#     match inside a string literal; the stripper keeps the `}` from corrupting the
+#     brace counter. Both defences must hold simultaneously.
 #
 # Usage: ./Scripts/check-starter-config.sh
 #
-
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -322,7 +322,7 @@ LIVE="$(awk '
         else { out=out substr(line,i,1); i++ }
       }
     }
-    if (!found && out~/[[:space:]]*struct ConfigFile[^{]*\{/) { found=1; depth=1; next }
+    if (!found && out~/^[[:space:]]*struct ConfigFile[^{]*\{/) { found=1; depth=1; next }
     if (!found) next
     n2=split(out,chars,"")
     for (i=1;i<=n2;i++) {
@@ -334,7 +334,7 @@ LIVE="$(awk '
   }
 ' "$SRC_CONFIG" | sort | tr '\n' ' ' | sed 's/[[:space:]]$//')"
 if [ -z "$LIVE" ]; then
-    echo "error: drift guard: struct ConfigFile not found in $SRC_CONFIG." >&2
+    echo "error: drift guard: struct ConfigFile not found in $SRC_CONFIG (or comment stripping failed)." >&2
     echo "  If the struct was renamed, update this script to match." >&2
     exit 2
 fi
