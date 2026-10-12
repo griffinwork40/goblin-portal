@@ -127,16 +127,12 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         let frame = NSRect(x: 0, y: 0, width: 1100, height: 680)
         self.space = SpaceViewController(config: config, root: root)
 
-        // NOT .fullSizeContentView. That flag makes the content view span the
-        // whole window frame, including the 28pt the titlebar occupies — and
-        // since the titlebar here is opaque, it hid the terminal's top ~1.7
-        // rows. Row 0 is where a fresh prompt, the caret, and typed echo all
-        // live, so the pane looked empty and dead while working perfectly:
-        // measured contentView 600pt vs contentLayoutRect 572pt at 37 rows.
-        // A sidebar item is the textbook reason to reach for the flag, and it is
-        // still declined: AppKit would probably propagate the safe area correctly
-        // now that the terminal sits two levels deeper, but "probably" is not worth
-        // re-opening a bug that cost real debugging (plan §12.4 item 6).
+        // NOT .fullSizeContentView (yet). It once hid the terminal's top ~1.7 rows
+        // under the opaque titlebar (contentView 600pt vs contentLayoutRect 572pt).
+        // AppKit DOES propagate the safe area (measured 32pt on macOS 27); the
+        // document area now lays out inside it and check-titlebar-layout.sh forces
+        // the flag to prove row 0 stays clear. Turning it on is a separate opt-in
+        // (.afk/plans/titlebar-reclaim-scope.md, PR2), not a default.
         let window = NSWindow(
             contentRect: frame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -163,10 +159,7 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // file tree against a black terminal. See `AppConfig.appearance`.
         window.appearance = config.appearance
         window.titlebarAppearsTransparent = false
-        // macOS 26+: Liquid Glass chrome — fullSizeContentView + transparent
-        // titlebar so the sidebar and titlebar form one continuous glass surface.
-        // Safe area insets prevent the terminal clipping that caused
-        // fullSizeContentView to be declined on pre-26 (see comment at :132).
+        // macOS 26+: drops the titlebar separator only (`LiquidGlass.swift`).
         if #available(macOS 26, *) {
             LiquidGlass.configureWindow(window)
         }
