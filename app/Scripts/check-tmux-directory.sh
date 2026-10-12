@@ -65,7 +65,7 @@ if [ "${1:-}" = "--falsify" ]; then
     trap 'rm -rf "$FWORK"' EXIT
     # name|python replacement on the copy: "old" -> "new" pairs, all must apply.
     mutant() {
-        local name="$1" file="$2" old="$3" new="$4"
+        local name="$1" file="$2" old="$3" new="$4" expected="${5:-}"
         rm -rf "$FWORK/src" && mkdir -p "$FWORK/src"
         cp "$UNIT" "$SUBPROCESS" "$FWORK/src/"
         if ! python3 - "$FWORK/src/$file" "$old" "$new" <<'PY'
@@ -81,13 +81,17 @@ PY
         local rc=$?
         set -e
         echo "  mutant $name: gate exit $rc ($(grep -c '✗' "$FWORK/$name.log" || true) cases red)"
+        [ "$rc" -ne 2 ] || { echo "ENV: mutant '$name' could not be judged"; tail -5 "$FWORK/$name.log"; exit 2; }
         [ "$rc" -eq 1 ] || { echo "    BLIND: expected exit 1"; tail -5 "$FWORK/$name.log"; BLIND=1; }
+        if [ -n "$expected" ] && ! grep -F "✗ $expected" "$FWORK/$name.log" >/dev/null; then
+            echo "    WRONG-CASE: expected '$expected' to fail"; BLIND=1
+        fi
     }
     BLIND=0
     echo "FALSIFY — each mutant of a COPY of the shipped source must turn the gate red"
     mutant no-ownership TmuxDirectory.swift \
-        'guard tty == clientTTY, path.hasPrefix("/") else { return nil }' \
-        '_ = tty; guard path.hasPrefix("/") else { return nil }'
+        'guard tty == clientTTY else { return nil }' \
+        '_ = tty'
     mutant first-answer-wins TmuxDirectory.swift \
         '            guard owner == nil else {' \
         '            return URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
@@ -105,6 +109,11 @@ PY
 ' ''
     mutant stderr-undrained TmuxDirectory+Subprocess.swift \
         'pollfd(fd: err, events: Int16(POLLIN), revents: 0)]' 'pollfd(fd: -1, events: 0, revents: 0)]'
+    mutant no-socket-uid TmuxDirectory.swift \
+        'info.st_uid == uid' 'true' 'socket uid: foreign-owned sockets rejected'
+    mutant silent-nil TmuxDirectory.swift \
+        'defer { if !nilReason.isEmpty { diag("\(nilReason); sockets=\(socketCount)") } }' \
+        '_ = socketCount' 'diag: no tmux binary'
     [ "$BLIND" -eq 0 ] || { echo "FALSIFY: at least one mutant survived"; exit 1; }
     echo "FALSIFY: every mutant was caught"; exit 0
 fi

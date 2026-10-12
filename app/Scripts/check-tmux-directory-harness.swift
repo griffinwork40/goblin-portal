@@ -131,6 +131,11 @@ let notExec = Fixture.directory("plain").appendingPathComponent("tmux")
 FileManager.default.createFile(atPath: notExec.path, contents: Data("x".utf8))
 check("non-executable file as tmux → nil", resolve(main.tty, all, tmux: notExec.path).0 == nil)
 
+print("SOCKET UID — real sockets, simulated caller uid (no privileged chown)")
+check("socket uid: our uid accepts real sockets", TmuxDirectory.socketFiles(in: all).count == 4)
+check("socket uid: foreign-owned sockets rejected",
+      TmuxDirectory.socketFiles(in: all, uid: getuid() == 0 ? 1 : 0).isEmpty)
+
 print("MALFORMED / HOSTILE tmux OUTPUT (fake binaries; $7 is the client tty)")
 let one = [staleOnly]   // one socket file; the fakes ignore it
 check("relative path → nil",
@@ -167,6 +172,43 @@ let (overall, overallTime) = resolve(main.tty, three, tmux: sleeper, timeout: 0.
 check("3 sleeping sockets share ONE 0.3 s deadline", overall == nil && overallTime < 0.45, "\(overallTime)s")
 let (zero, zeroTime) = resolve(main.tty, all, timeout: 0)
 check("timeout 0 → nil immediately", zero == nil && zeroTime < 0.05, "\(zeroTime)s")
+
+print("DIAG — exactly one reason and socket count per nil query, nothing on success")
+// Capture the shipped stderr writer, not a test-only sink: #209 R1.7's symptom is
+// a paused indicator with no log. dup2 also verifies the GOBLIN_PORTAL_DIAG gate.
+func diagnostic(_ reason: String?, sockets count: Int, enabled: Bool = true,
+                _ query: () -> URL?) {
+    let oldDiag = getenv("GOBLIN_PORTAL_DIAG").map { String(cString: $0) }
+    if enabled { setenv("GOBLIN_PORTAL_DIAG", "1", 1) } else { unsetenv("GOBLIN_PORTAL_DIAG") }
+    let log = Fixture.work + "/diag.log"
+    let fd = open(log, O_CREAT | O_TRUNC | O_RDWR, 0o600)
+    let saved = dup(STDERR_FILENO)
+    guard fd >= 0, saved >= 0, dup2(fd, STDERR_FILENO) >= 0 else { Fixture.fail("capture stderr") }
+    let answer = query()
+    guard dup2(saved, STDERR_FILENO) >= 0 else { Fixture.fail("restore stderr") }
+    close(saved); close(fd)
+    if let oldDiag { setenv("GOBLIN_PORTAL_DIAG", oldDiag, 1) } else { unsetenv("GOBLIN_PORTAL_DIAG") }
+    let text = (try? String(contentsOfFile: log, encoding: .utf8)) ?? "unreadable"
+    let expected = reason.map { "[diag] tmux-directory: \($0); sockets=\(count)\n" } ?? ""
+    check("diag: \(reason ?? "silent")", text == expected && (reason == nil || answer == nil), text)
+}
+diagnostic("no tmux binary", sockets: 0) { resolve(main.tty, all, tmux: Fixture.work + "/missing").0 }
+diagnostic("invalid client tty", sockets: 0) { resolve("relative", all).0 }
+diagnostic("no socket directory", sockets: 0) {
+    resolve(main.tty, [URL(fileURLWithPath: Fixture.work + "/missing-dir")]).0
+}
+diagnostic("no sockets", sockets: 0) { resolve(main.tty, [Fixture.directory("diag-empty")]).0 }
+diagnostic("deadline exceeded", sockets: 1) { resolve(main.tty, one, tmux: sleeper, timeout: 0.05).0 }
+diagnostic("no server owning the tty", sockets: 4) { resolve(unowned, all).0 }
+diagnostic("unparseable output", sockets: 1) { resolve(main.tty, one, tmux: Fixture.fake("diag-empty", "exit 0")).0 }
+diagnostic("unparseable output", sockets: 1) {
+    resolve(main.tty, one, tmux: Fixture.fake("diag-relative", "printf '%s\\nrelative\\n' \"$7\"")).0
+}
+diagnostic("tty \(main.tty) claimed by more than one server; refusing", sockets: 2) {
+    resolve(main.tty, twoSockets, tmux: claim).0
+}
+diagnostic(nil, sockets: 1) { resolve(main.tty, one, tmux: claim).0 }
+diagnostic(nil, sockets: 0, enabled: false) { resolve(main.tty, [Fixture.directory("diag-off")]).0 }
 
 print("defaultSocketDirectories")
 check("TMUX_TMPDIR set", TmuxDirectory.defaultSocketDirectories(environment: ["TMUX_TMPDIR": "/x/y"], uid: 501)
