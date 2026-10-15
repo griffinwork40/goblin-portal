@@ -47,7 +47,7 @@ extension SpaceViewController {
 
     // MARK: - Dimming
 
-    /// Resolve which leaf pane currently holds focus and update opacity accordingly.
+    /// Resolve which leaf pane currently holds focus and update opacity and focus cue accordingly.
     ///
     /// Called after any event that might change focus: split creation, keyboard
     /// navigation (⌘⇧H/J/K/L), config reload (⌘R), tab switches, and clicks.
@@ -78,6 +78,11 @@ extension SpaceViewController {
                 }
             }
         }
+
+        // Accent border: drawn after the opacity pass so both effects share one
+        // focus-resolution path. See SpaceViewController+FocusCue.swift.
+        updateFocusCue(leaves: leaves, focusedView: focusedView,
+                       accentColor: config.effectiveAccent)
     }
 
     /// Install the divider-drag-end callback on the outer container so the split
