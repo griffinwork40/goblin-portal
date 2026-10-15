@@ -46,7 +46,10 @@ extension DocumentAreaViewController {
     /// prototype (scope §1b), +32pt in PR1's own m2 mutant run (the window had already laid
     /// out once with the 32pt title-row inset; scope §6). Idempotent — installs once per window.
     func observeContentLayoutRect() {
-        guard layoutRectObservation == nil, let window = view.window else { return }
+        // Reset first so reparenting into a new window installs a fresh observation
+        // rather than keeping the old window's KVO alive until dealloc.
+        layoutRectObservation = nil
+        guard let window = view.window else { return }
         layoutRectObservation = window.observe(\.contentLayoutRect, options: [.new]) {
             [weak self] _, _ in
             // AppKit changes window geometry on the main thread; the hop exists only so a
