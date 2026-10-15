@@ -35,13 +35,19 @@ enum CloseConfirmation {
         alert.messageText = quitting ? "Quit Goblin Portal?" : "Close running processes?"
         alert.informativeText = CloseConfirmPolicy.message(names: names)
             + "\nClosing will interrupt these processes and may lose their work."
+        // ⌘W then Return must finish what ⌘W started: Return answers Close/Quit
+        // (Terminal.app's "Terminate" and iTerm2's "OK" are default the same
+        // way), Escape answers Cancel. Cancel-as-default made Return dismiss the
+        // alert the user had just asked for, so the window never closed.
+        // NOT `hasDestructiveAction`: measured on macOS 27.0.1, NSAlert strips
+        // the key equivalent and default status from a destructive button when
+        // it runs, so Return reached NO button at all. The `.warning` style and
+        // the "interrupt these processes" text carry the danger instead.
+        let close = alert.addButton(withTitle: quitting ? "Quit" : "Close")
+        close.keyEquivalent = "\r"
         let cancel = alert.addButton(withTitle: "Cancel")
         cancel.keyEquivalent = "\u{1b}"
-        let close = alert.addButton(withTitle: quitting ? "Quit" : "Close")
-        close.keyEquivalent = ""
-        close.hasDestructiveAction = true
-        // Cancel is both Return and Escape, never the destructive first response.
-        alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
-        return alert.runModal() == .alertSecondButtonReturn
+        alert.window.defaultButtonCell = close.cell as? NSButtonCell
+        return alert.runModal() == .alertFirstButtonReturn
     }
 }

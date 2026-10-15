@@ -26,7 +26,7 @@ in app/.build/t21-routing.swift (ignored scratch), not a standing regression gat
 * ⌘W and tab × with vim, npm, afk and ssh warn once; idle prompt closes silently.
 * Nested split focus: warning names every actual victim, cancellation changes nothing.
 * Two Spaces with repeated process names: ⌘Q shows one warning with total job count.
-* Return and Escape both cancel; Close/Quit is visibly destructive.
+* Return confirms Close/Quit (the default button); Escape cancels. Not red: NSAlert strips Return from a `hasDestructiveAction` button (macOS 27.0.1).
 * Process warning Cancel never opens an editor Save dialog. On acceptance, existing
   editor Save/Cancel behaviour remains. Cancelling a later file cannot undo an earlier Save.
 * Process exits or another begins while a modal warning is displayed: observation
