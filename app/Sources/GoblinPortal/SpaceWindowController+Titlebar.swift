@@ -48,6 +48,7 @@ extension SpaceWindowController {
 
     /// Ghostty re-applies its titlebar style on full-screen exit because "macOS breaks it
     /// usually"; so do we, and it also covers a ⌘R that happened while in full screen.
+    /// `NSWindowDelegate` conformance is declared in `SpaceWindowController.swift:22`.
     func windowDidExitFullScreen(_ notification: Notification) {
         applyTitlebarStyle()
     }
