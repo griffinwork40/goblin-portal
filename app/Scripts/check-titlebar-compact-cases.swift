@@ -96,6 +96,7 @@ func freshRoot(_ base: URL, _ name: String) -> URL {
 
     // ---- C4c / C5c: tab bar or banner under compact → full inset, no overlap -------------------
     print("\n  C4c — compact + second Space (native tab bar)")
+    // no document needed: only the tab bar's effect on contentLayoutRect is measured
     let other = SpaceWindowController(config: compactConfig(), root: freshRoot(root, "c4c"))
     guard let wo = other.window else { env("no second window") }
     w2.addTabbedWindow(wo, ordered: .above); w2.orderFront(nil); pump(0.8)
