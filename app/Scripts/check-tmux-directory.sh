@@ -65,7 +65,7 @@ if [ "${1:-}" = "--falsify" ]; then
     trap 'rm -rf "$FWORK"' EXIT
     # name|python replacement on the copy: "old" -> "new" pairs, all must apply.
     mutant() {
-        local name="$1" file="$2" old="$3" new="$4" expected="${5:-}"
+        local name="$1" file="$2" old="$3" new="$4" expected="$5"
         rm -rf "$FWORK/src" && mkdir -p "$FWORK/src"
         cp "$UNIT" "$SUBPROCESS" "$FWORK/src/"
         if ! python3 - "$FWORK/src/$file" "$old" "$new" <<'PY'
@@ -91,24 +91,35 @@ PY
     echo "FALSIFY — each mutant of a COPY of the shipped source must turn the gate red"
     mutant no-ownership TmuxDirectory.swift \
         'guard tty == clientTTY else { return nil }' \
-        '_ = tty'
+        '_ = tty' \
+        'the attached client'\''s pane directory'
     mutant first-answer-wins TmuxDirectory.swift \
         '            guard owner == nil else {' \
         '            return URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
-            guard owner == nil else {'
+            guard owner == nil else {' \
+        'two servers both claim the tty → nil'
+    # Remove nilReason from the post-probe deadline path (line 83, unique): the sleeper
+    # case exits nil but logs "no server owning the tty" instead of "deadline exceeded",
+    # catching the diag assertion without hanging (old "+ 3600" mutation stalled the gate).
     mutant ignore-deadline TmuxDirectory.swift \
-        'let deadline = now() + max(0, timeout)' 'let deadline = now() + 3600 + 0 * timeout'
+        '                if now() >= deadline { nilReason = "deadline exceeded"; return nil }' \
+        '                if now() >= deadline { return nil }' \
+        'diag: deadline exceeded'
     mutant skip-normalisation TmuxDirectory.swift \
         'return URL(fileURLWithPath: owner).standardizedFileURL.resolvingSymlinksInPath()' \
-        'return URL(fileURLWithPath: owner)'
+        'return URL(fileURLWithPath: owner)' \
+        'the attached client'\''s pane directory'
     # The two below were chosen to break things the assertions were NOT written around.
     mutant no-utf8-flag TmuxDirectory.swift \
-        'let arguments = ["-u", "-S", socket.path,' 'let arguments = ["-S", socket.path,'
+        'let arguments = ["-u", "-S", socket.path,' 'let arguments = ["-S", socket.path,' \
+        'the attached client'\''s pane directory'
     mutant kill-child-not-group TmuxDirectory+Subprocess.swift \
         '        kill(-pid, SIGKILL)
-' ''
+' '' \
+        'its grandchild (which held the pipes) was killed too'
     mutant stderr-undrained TmuxDirectory+Subprocess.swift \
-        'pollfd(fd: err, events: Int16(POLLIN), revents: 0)]' 'pollfd(fd: -1, events: 0, revents: 0)]'
+        'pollfd(fd: err, events: Int16(POLLIN), revents: 0)]' 'pollfd(fd: -1, events: 0, revents: 0)]' \
+        '300 KB of stderr is drained, answer still arrives'
     mutant no-socket-uid TmuxDirectory.swift \
         'info.st_uid == uid' 'true' 'socket uid: foreign-owned sockets rejected'
     mutant silent-nil TmuxDirectory.swift \
