@@ -190,7 +190,16 @@ func diagnostic(_ reason: String?, sockets count: Int, enabled: Bool = true,
     if let oldDiag { setenv("GOBLIN_PORTAL_DIAG", oldDiag, 1) } else { unsetenv("GOBLIN_PORTAL_DIAG") }
     let text = (try? String(contentsOfFile: log, encoding: .utf8)) ?? "unreadable"
     let expected = reason.map { "[diag] tmux-directory: \($0); sockets=\(count)\n" } ?? ""
-    check("diag: \(reason ?? "silent")", text == expected && (reason == nil || answer == nil), text)
+    if let reason {
+        // Error path: log must match exactly AND the query must have returned nil.
+        check("diag: \(reason)", text == expected && answer == nil, text)
+    } else if enabled {
+        // Success path: log must be silent AND the query must have returned a non-nil URL.
+        check("diag: silent", text == expected && answer != nil, text)
+    } else {
+        // DIAG disabled path: log must be silent (answer may be nil or non-nil).
+        check("diag: silent (diag off)", text == expected, text)
+    }
 }
 diagnostic("no tmux binary", sockets: 0) { resolve(main.tty, all, tmux: Fixture.work + "/missing").0 }
 diagnostic("invalid client tty", sockets: 0) { resolve("relative", all).0 }
