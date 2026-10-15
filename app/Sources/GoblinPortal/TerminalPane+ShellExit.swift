@@ -120,11 +120,11 @@ extension TerminalPane {
             self.exitedDirectory = nil
             self.status = .idle
             // `lastLocalDirectory` and `localReport` on PaneDirectoryState are NOT
-            // cleared here — the first live poll after restart overwrites them, matching
-            // the same contract as `localReport` and `lastContext` (also not cleared).
-            // The sub-second window where the restarted shell inherits the prior values
-            // is deliberate; clearing early would erase a valid fallback before the
-            // new shell has had a chance to report its own directory.
+            // cleared here. Each field has its own update condition: `lastLocalDirectory`
+            // is written only after a successful local kernel-cwd resolution, and
+            // `localReport` is written only when a new OSC 7 arrives from the shell.
+            // Leaving the prior values in place is deliberate: they remain the best
+            // available fallback until the restarted shell satisfies each condition.
             // Same shell/environment as start(), including TERM_PROGRAM and
             // GOBLIN_PORTAL_INTEGRATION. startProcess reuses this SAME view and
             // terminal buffer (MacLocalTerminalView.swift:175-177).

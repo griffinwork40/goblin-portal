@@ -48,10 +48,10 @@
 #
 # FALSIFICATION. Two mutants:
 #   A: change #""" to """ / """# to """ in StarterConfig.swift → exit 1 (bad JSON).
-#   B (combined anchor+stripper): indent `struct ConfigFile` in Config.swift AND
-#     insert `/* var bogus } */` in its body → exit 0. The `^` anchor prevents a
-#     match inside a string literal; the stripper keeps the `}` from corrupting the
-#     brace counter. Both defences must hold simultaneously.
+#   B (robustness control): indent `struct ConfigFile` in Config.swift AND insert
+#     `/* var bogus } */` in its body → exit 0. Confirms stripper/brace-counter
+#     survive indentation and block-comments; does NOT prove the `^` anchor (an
+#     indented declaration matches both anchored and unanchored patterns).
 #
 # Usage: ./Scripts/check-starter-config.sh
 #

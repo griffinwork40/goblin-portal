@@ -45,9 +45,9 @@
 # FALSIFICATION. Validated by commenting out one palette command → exit 1 (missing
 # selector listed); restoring → exit 0. No sentinel-selector control: the gate is
 # a set-membership check, not a responder-chain query (no "resolves everything" risk).
-# PART 2 function-key mutant: corrupt one fnKeyMap glyph in a COPY of this script
-# (e.g. NSRightArrowFunctionKey "→" → "X") → must exit 1 for any palette command
-# whose hint uses that key. Exit 0 means that key is unexercised; use another.
+# PART 2 key-hint mutant: in a COPY of CommandPalette+Commands.swift change one
+# keyHint (e.g. "⌘T" → "⌘X" for "New Tab"), leave the harness unchanged, and
+# require the hint-mismatch case to fail (exit 1). The harness must be untouched.
 #
 # EXIT CODES (same three-valued contract as every gate in this repo):
 #   0 = all menu selectors are covered by the palette or the allowlist,
