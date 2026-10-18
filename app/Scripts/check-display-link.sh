@@ -30,6 +30,11 @@
 #      the other display, whose refresh rate may differ
 #   8  FALSIFICATION: case 2 re-run with SWIFTTERM_DISPLAY_LINK=0 (upstream's timer) MUST
 #      FAIL. If the old path passes these bounds, the gate is blind and exits 1.
+#   9  patch 0016, each renderer: a 200ms producer (slower than the eight-tick idle window
+#      at any refresh >= 60Hz) keeps the link running <= 4 ticks per paint, and a 33ms
+#      producer still never pause/resume-churns (<= 1 pause). FALSIFICATION: the 200ms run
+#      repeated with SWIFTTERM_ADAPTIVE_PAUSE=0 (0010's fixed window) MUST read >= 6 ticks
+#      per paint, or the case cannot see the patch and the gate is blind.
 #
 # Each stream case takes the MEDIAN of three runs, because this measures a live window
 # server on a machine doing other work. Measured spread on an M-series MacBook Pro
@@ -98,17 +103,19 @@ if ! swiftc -O -o "$DLCHECK" "$TMP/main.swift" -I "$PRODUCTS" -L "$PRODUCTS" \
 fi
 
 # run <env-pacing 0|1> <args...>  -> one result line on stdout, or exits 2
+# ADAPT=0 (a global, set around one call) turns off patch 0016 for case 9's falsification.
+ADAPT=1
 run() {
   local pace="$1"; shift
   local out rc
-  out="$(SWIFTTERM_DISPLAY_LINK="$pace" "$DLCHECK" "$@" 2>"$TMP/err")"; rc=$?
+  out="$(SWIFTTERM_DISPLAY_LINK="$pace" SWIFTTERM_ADAPTIVE_PAUSE="$ADAPT" "$DLCHECK" "$@" 2>"$TMP/err")"; rc=$?
   if [[ "$out" == *ENV=* ]]; then
     echo "✗ environmental: ${out#*ENV=} — not a verdict" >&2; exit 2
   fi
   if [[ "$rc" != "0" ]]; then
     echo "✗ harness died (exit $rc) on '$*' — environmental" >&2; sed 's/^/    /' "$TMP/err" >&2; exit 2
   fi
-  echo "$out" | grep -E '^(STREAM|IDLE|SYNC|REPARENT|SCREENMOVE) ' | tail -1
+  echo "$out" | grep -E '^(STREAM|IDLE|SYNC|REPARENT|SCREENMOVE|SLOW) ' | tail -1
 }
 field() { local v="${1#* $2=}"; echo "${v%% *}"; }   # field <line> <key>
 median3() { printf '%s\n' "$@" | sort -g | sed -n 2p; }
@@ -186,6 +193,27 @@ for r in coretext metal; do
   else
     say "  ok  8  falsification, $r: timer path fails the bounds as it must (${v#bad })"
   fi
+done
+
+# --- case 9: slow producers pause sooner (patch 0016) ----------------------------------
+# Ticks per paint = reference-link vsyncs during which the pacer's link was running,
+# divided by paints. 0016: ~2 (paint tick + one idle tick). 0010 alone: ~9.
+per_paint() { awk -v a="$(field "$1" active_ticks)" -v d="$(field "$1" draws)" 'BEGIN{printf "%.1f", (d>0)? a/d : 99}'; }
+for r in coretext metal; do
+  line="$(run 1 slow "$r" 200 2)" || exit 2
+  tpp="$(per_paint "$line")"
+  if [[ "$(field "$line" draws)" -ge 5 ]] && awk -v t="$tpp" 'BEGIN{exit !(t <= 4)}'; then
+    say "  ok  9  200ms producer, $r: link ran ${tpp} ticks per paint"
+  else fail "9  200ms producer, $r: $line (want >= 5 paints, <= 4 active ticks per paint)"; fi
+  line="$(run 1 slow "$r" 33 2)" || exit 2
+  if [[ "$(field "$line" pauses)" -le 1 ]]; then
+    say "  ok  9  33ms producer, $r: $(field "$line" pauses) pauses (no churn)"
+  else fail "9  33ms producer, $r: $line (want <= 1 pause: a steady stream must not churn)"; fi
+  ADAPT=0; line="$(run 1 slow "$r" 200 2)" || exit 2; ADAPT=1
+  tpp="$(per_paint "$line")"
+  if awk -v t="$tpp" 'BEGIN{exit !(t >= 6)}'; then
+    say "  ok  9  falsification, $r: fixed window reads ${tpp} ticks per paint, as it must"
+  else blind=1; fail "9  BLIND: with SWIFTTERM_ADAPTIVE_PAUSE=0 a 200ms producer read ${tpp} ticks per paint (want >= 6)"; fi
 done
 
 if [[ "$failures" -gt 0 ]]; then

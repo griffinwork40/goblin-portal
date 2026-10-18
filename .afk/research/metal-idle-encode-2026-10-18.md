@@ -77,7 +77,28 @@ Per frame, at matched clock state, removing the 7 idle ticks cuts **total** proc
 40 to 70 µs of app CPU per idle tick, plus the WindowServer side, which was not isolated
 because WindowServer `ps` is too noisy at this load. The `draw(in:)` cost itself does not change.
 
-## Proposed fix (prototyped, not shipped)
+## Shipped as patch 0016 (same day)
+
+`patches/swiftterm/0016-pause-sooner-for-slow-producers.patch` implements the rule below
+in `MacDisplayLinkPacer.swift`, with a `SWIFTTERM_ADAPTIVE_PAUSE=0` kill switch. Evidence:
+
+- `check-display-link.sh` case 9 (new), both renderers: a 200ms producer reads **1.0**
+  link ticks per paint with 0016 and **8.0** with the switch off, which is the falsification.
+  A 33ms stream shows exactly 1 pause. Direct runs show it is the burst-start pause: 1 with
+  0016, 0 without, at both 16ms and 33ms, and every frame is painted in both cases.
+  Cases 1 to 8 are unchanged and green.
+- CPU A/B, one binary, interleaved, quiet machine (load about 2), 137x46, 240 spinner
+  frames: shipped **4.85 / 4.57 / 4.63 %** of a core (this reproduces #143's original 4.4 %),
+  0016 **3.22 / 4.61 / 3.76 %**. The outside-draw ÷ draw ratio is 2.01 / 1.93 / 1.96 vs
+  1.76 / 1.52 / 1.63, about **17 %** less process CPU. The high adaptive rep coincides with
+  a slower draw (1,520 µs vs about 1,300 µs), the same clock confound as above.
+- `verify-vendor.sh` exits 3 on a tree with 0010 but not 0016 (one combined pin hash).
+  Green: `check-metal-renderer.sh`, `check-metal-throughput.sh` (ratio 0.798),
+  `check-file-size.sh`, `check-afk-loc.sh`, `swift build`. `check-render-parity.sh` exited
+  2 (environmental: it needs a 2x main screen, and this run's main screen was the 1x
+  external). 0016 touches no drawing code.
+
+## Proposed fix (as prototyped)
 
 **Adaptive pause.** On each paint, check whether the gap since the previous paint was longer than
 the idle window (`idleTicksBeforePause × tick duration`). If it was, the producer is slower than

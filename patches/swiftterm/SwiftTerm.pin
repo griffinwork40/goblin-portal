@@ -25,11 +25,11 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-10-09 the tree differs from upstream in TWELVE files (FIFTEEN patches):
+# As of 2026-10-18 the tree differs from upstream in TWELVE files (SIXTEEN patches):
 # Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005),
 # PtmuxDcsHandler.swift (0005, new file), MacTerminalView.swift (0006/0008/0009/0010/0014),
 # AppleTerminalView.swift (0007/0010/0013/0014/0015), TerminalViewSearch.swift (0009),
-# MacDisplayLinkPacer.swift (0010, new file), MetalTerminalRenderer.swift (0011/0012/0013/0014), and
+# MacDisplayLinkPacer.swift (0010, new file; 0016), MetalTerminalRenderer.swift (0011/0012/0013/0014), and
 # CoreTextGlyphRasterizer.swift (0012). File count and patch count are not the same number
 # and have not been since 0003; do not infer one from the other. For the history of how
 # the patch set grew, see git log patches/swiftterm/SwiftTerm.pin.
@@ -270,7 +270,8 @@ upstream_apple_terminal_view = d28360034441f9a4573debcfe8ac5f86b3c57b3059da5f94b
 patched_terminal_view_search  = 59314eda53d681038224cd9525f65a1f1ced1bad21d5983cdc6fc30e68f53bb6
 
 # MacDisplayLinkPacer.swift — added by 0010-pace-redraws-on-display-link.patch, no
-# upstream counterpart. This is the hash verify-vendor.sh requires (checked in
+# upstream counterpart, AFTER 0016-pause-sooner-for-slow-producers.patch (one combined
+# hash: a tree with 0010 but not 0016 is "unknown" by design). This is the hash verify-vendor.sh requires (checked in
 # verify-vendor-views.sh).
 #
 # What 0010 does: upstream coalesces redraws with asyncAfter(+16.67ms) from the first
@@ -286,9 +287,19 @@ patched_terminal_view_search  = 59314eda53d681038224cd9525f65a1f1ced1bad21d5983c
 # also how app/Scripts/check-display-link.sh measures the old path for its falsification
 # case (the old timer must FAIL the gate's bounds, and does).
 #
+# What 0016 does: a producer SLOWER than the eight-tick idle window (a 12 Hz agent spinner
+# at 120/144 Hz) already paused and resumed the link once per frame, but paid 8 idle ticks
+# first, each a synchronous CoreAnimation round trip into WindowServer. When the gap since
+# the previous paint exceeded the window, the link now pauses after ONE idle tick. Measured
+# at 144 Hz: 2160 -> 480 ticks for 240 spinner paints; 16/33ms streams unchanged except one
+# extra pause at burst start. SWIFTTERM_ADAPTIVE_PAUSE=0 restores the fixed window.
+# Severity: SILENT. A tree missing 0016 paints identically; it burns idle CPU.
+# Gate: check-display-link.sh case 9 (falsified with SWIFTTERM_ADAPTIVE_PAUSE=0).
+# See .afk/research/metal-idle-encode-2026-10-18.md (issue #143).
+#
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
-mac_display_link_pacer = 15395368a055fb89b5caf7ca17b77a6fc2015757958f33271ae67765795bd200
+mac_display_link_pacer = f74427113fa9168abf5257532288d182e02cf1f0d5359dd99b26d51c94374776
 
 # Apple/Metal/MetalTerminalRenderer.swift AFTER 0011-cache-empty-glyphs-and-font-names.patch,
 # 0012-rasterize-color-glyphs-at-logical-size.patch,

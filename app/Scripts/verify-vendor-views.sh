@@ -1,5 +1,5 @@
 # Sourced by verify-vendor.sh — never run on its own. The VIEW-LAYER half of the vendor
-# verdict: every check on the files patches 0006-0015 touch (MacTerminalView.swift,
+# verdict: every check on the files patches 0006-0016 touch (MacTerminalView.swift,
 # AppleTerminalView.swift, TerminalViewSearch.swift, MacDisplayLinkPacer.swift,
 # Apple/Metal/MetalTerminalRenderer.swift, Apple/Metal/CoreTextGlyphRasterizer.swift).
 #
@@ -40,7 +40,7 @@ WANT_PACER="$(pin_value mac_display_link_pacer)"
 GOT_PACER="$(sha256_of "$PACER")"
 if [[ "$GOT_PACER" != "$WANT_PACER" ]]; then
   err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift does not match"
-  err "       the pinned hash. The file was edited or came from a different version of 0010."
+  err "       the pinned hash. The file was edited or came from a different version of 0010/0016."
   err ""
   err "  expected: $WANT_PACER"
   err "  found:    $GOT_PACER"
