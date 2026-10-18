@@ -64,8 +64,17 @@ extension SpaceWindowController {
         // desk may be the one they are not looking at — so it is just the fallback.
         guard let screen = NSScreen.main ?? window.screen else { return }
         let frame = defaultFrame(
-            contentSize: contentSize, styleMask: window.styleMask, in: screen.visibleFrame)
+            contentSize: contentSize, styleMask: frameMathMask(window), in: screen.visibleFrame)
         window.setFrame(frame, display: false)
+    }
+
+    /// The mask this file's frame math uses: the window's own, minus `.fullSizeContentView`.
+    /// That flag (`"titlebar": "compact"`) makes AppKit report content == frame, so 1100x680
+    /// "content" would open 32pt short and a poisoned 500x532 frame would read as 500x532
+    /// content and escape the repair (measured; C8 in `check-titlebar-layout.sh`). The
+    /// usable content is still frame minus the title row, so the math must ignore the flag.
+    static func frameMathMask(_ window: NSWindow) -> NSWindow.StyleMask {
+        window.styleMask.subtracting(.fullSizeContentView)
     }
 
     /// Content size `NSSplitViewController` gives a window it was never told to size: the
@@ -80,7 +89,8 @@ extension SpaceWindowController {
     /// once, a cost judged far below leaving every early installer at 28 columns.
     /// Call AFTER `setFrameAutosaveName`; re-saves so the repair sticks.
     static func repairPoisonedSavedFrame(of window: NSWindow, contentSize: NSSize) {
-        let content = window.contentRect(forFrameRect: window.frame).size
+        let content = NSWindow.contentRect(
+            forFrameRect: window.frame, styleMask: frameMathMask(window)).size
         guard abs(content.width - poisonedContentSize.width) < 0.5,
               abs(content.height - poisonedContentSize.height) < 0.5 else { return }
         applyDefaultFrame(to: window, contentSize: contentSize)

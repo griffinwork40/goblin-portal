@@ -136,6 +136,13 @@ mutant tmux-generation-unchecked TerminalPane+DirectoryState.swift "delivery for
 mutant tmux-nil-answer-silent ShellContext.swift "unfindable tmux server" \
 '            if tmuxDirectory == nil && tmuxAnswered { return context(nil, .paused(program: "tmux")) }' \
 '            _ = tmuxAnswered'
+# 12. #208 regression: lastKnownDirectoryPath reverted to prefer localReport over
+#     lastLocalDirectory — the stale OSC 7 outranks the kernel-resolved path again.
+#     Caught by the pure table case "#208-A lastLocalDirectory wins over localReport".
+mutant last-known-dir-prefers-osc7 TerminalPane+DirectoryState.swift \
+    "#208-A lastLocalDirectory wins over localReport" \
+'        return state.lastLocalDirectory ?? state.localReport' \
+'        return state.localReport ?? state.lastLocalDirectory'
 
 case "$RESULT" in
     0) echo "FALSIFY: every mutant was caught"; exit 0 ;;

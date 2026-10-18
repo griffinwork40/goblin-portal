@@ -34,13 +34,17 @@ func runGroupTable() {
     let rows: [(String, [String?]?, ForegroundKind)] = [
         ("alone in its group → .knownShell", ["bash"], leader),
         ("bash + zsh (all shells) → .knownShell", ["bash", "zsh"], leader),
-        ("zsh alone → .knownShell", ["zsh"], leader),
+        ("bash-leader + zsh member (all shells) → .knownShell(leader)", ["zsh"], leader),
         ("script + ssh → .remote(ssh)", ["bash", "ssh"], .remote(name: "ssh")),
         ("script + screen → .otherMultiplexer", ["bash", "screen"], .otherMultiplexer(name: "screen")),
         ("script + sleep → .command(sleep)", ["bash", "sleep"], .command(name: "sleep")),
         ("script + sleep + ssh → .remote (remote outranks)", ["bash", "sleep", "ssh"], .remote(name: "ssh")),
         ("script + screen + mosh → .remote", ["bash", "screen", "mosh"], .remote(name: "mosh")),
         ("script + tmux → .command(tmux) (no tty: fail-closed)", ["bash", "tmux"], .command(name: "tmux")),
+        // R2.F7: /usr/bin/script(1) classifies as .command before group refinement is
+        // reached; a bash leader + script member must refuse typing (.command), not
+        // pass as .knownShell. Exercises the default branch, not a named category.
+        ("script(1) member → .command(script) (typing refused)", ["bash", "script"], .command(name: "script")),
         ("enumeration nil → refuse (.command)", nil, .command(name: "bash")),
         ("enumeration empty → refuse (.command)", [], .command(name: "bash")),
         ("unreadable member → refuse (.command)", ["bash", nil], .command(name: "bash")),

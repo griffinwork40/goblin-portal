@@ -164,6 +164,11 @@ enum PreferencesDiff {
     // MARK: fontThicken
 
     /// True when the fontThicken flag changed.
+    ///
+    /// No UI control produces `fontThicken` after the checkbox was removed in #196.
+    /// This path and `PreferencesSeed.defaultFontThicken` are kept intentionally for
+    /// harness case D5 (changedKeys round-trip) and C2 (seed round-trip) in
+    /// `check-preferences-apply-harness.swift` — review finding #200, finding 2.
     static func fontThickenChanged(from old: [String: Any], to new: [String: Any]) -> Bool {
         let o = old["fontThicken"] as? Bool ?? PreferencesSeed.defaultFontThicken
         let n = new["fontThicken"] as? Bool ?? PreferencesSeed.defaultFontThicken

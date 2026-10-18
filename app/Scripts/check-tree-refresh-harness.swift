@@ -21,8 +21,8 @@
 //   4. BLOCKING-SETROOT  — main-thread heartbeat must keep firing while lister blocks
 //   5. BLOCKING-REFRESH  — same for refresh()
 //   6-8. STALE-DROP, EDIT-DEFER, MUTATION-INVALIDATES — check-tree-refresh-cases.swift
-//   9-15. NO-EMPTY-FRAME, REVEAL-IN-FLIGHT, SYNC-ADOPT, NO-MAIN-LISTING,
-//         SELECTION-SURVIVES, SUBFOLDER-REFRESH, EXPAND-IN-FLIGHT —
+//   9-16. NO-EMPTY-FRAME, REVEAL-IN-FLIGHT, SYNC-ADOPT, NO-MAIN-LISTING,
+//         SELECTION-SURVIVES, SUBFOLDER-REFRESH, EXPAND-IN-FLIGHT, ASYNC-SORT-ORDER —
 //         check-tree-refresh-invariants.swift
 //
 // DESIGN: AVOIDING A HANG
@@ -215,13 +215,13 @@ func runGate(treePath: String) -> Int32 {
     // CASES 6-8: staleness and deferral (check-tree-refresh-cases.swift).
     runStalenessCases(vc: vc, treeURL: treeURL)
 
-    // CASES 9-15: what the outline shows mid-flight, and what survives a landing
+    // CASES 9-16: what the outline shows mid-flight, and what survives a landing
     // (check-tree-refresh-invariants.swift).
     runInvariantCases(vc: vc, treeURL: treeURL)
 
     // -----------------------------------------------------------------------
     print()
-    if gBad == 0 { print("all tree-refresh gate cases passed (15 cases)") }
+    if gBad == 0 { print("all tree-refresh gate cases passed (16 cases)") }
     else { print("\(gBad) tree-refresh gate case(s) FAILED") }
     return gBad == 0 ? 0 : 1
 }

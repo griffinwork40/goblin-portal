@@ -49,26 +49,51 @@ enum TmuxDirectory {
         timeout: TimeInterval = 0.25
     ) -> URL? {
         let deadline = now() + max(0, timeout)
-        guard clientTTY.hasPrefix("/"),
-              let tmux = resolveExecutable(tmuxExecutable)
-        else { return nil }
-        let sockets = socketFiles(in: socketDirectories ?? defaultSocketDirectories())
+        var nilReason = "no server owning the tty"
+        var socketCount = 0
+        // One line per unanswered query, not per decoy socket: #209 R1.7 needs the
+        // paused state to be diagnosable without multiplying logs on normal probes.
+        defer { if !nilReason.isEmpty { diag("\(nilReason); sockets=\(socketCount)") } }
+        guard clientTTY.hasPrefix("/") else { nilReason = "invalid client tty"; return nil }
+        guard let tmux = resolveExecutable(tmuxExecutable) else {
+            nilReason = "no tmux binary"; return nil
+        }
+        let directories = socketDirectories ?? defaultSocketDirectories()
+        guard directories.contains(where: {
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: $0.path, isDirectory: &isDirectory)
+                && isDirectory.boolValue
+        }) else { nilReason = "no socket directory"; return nil }
+        let sockets = socketFiles(in: directories)
+        socketCount = sockets.count
+        guard !sockets.isEmpty else { nilReason = "no sockets"; return nil }
+        var malformed = false
 
         // EVERY socket is asked, even after one claims the tty, because two claimants is
         // a state we cannot disambiguate and must refuse (the doc comment's contract).
         // The cost is one ~4-6 ms spawn per extra server, and a typical user has one.
         var owner: String?
         for socket in sockets {
-            guard now() < deadline else { return nil }
-            guard let path = probe(socket, clientTTY: clientTTY, tmux: tmux, deadline: deadline)
-            else { continue }
+            guard now() < deadline else { nilReason = "deadline exceeded"; return nil }
+            guard let path = probe(socket, clientTTY: clientTTY, tmux: tmux, deadline: deadline,
+                                  malformed: &malformed)
+            else {
+                // The last socket can consume the deadline too; no next iteration
+                // would otherwise distinguish that timeout from an unowned tty.
+                if now() >= deadline { nilReason = "deadline exceeded"; return nil }
+                continue
+            }
             guard owner == nil else {
-                diag("tty \(clientTTY) claimed by more than one server; refusing")
+                nilReason = "tty \(clientTTY) claimed by more than one server; refusing"
                 return nil
             }
             owner = path
         }
-        guard let owner else { return nil }
+        guard let owner else {
+            if malformed { nilReason = "unparseable output" }
+            return nil
+        }
+        nilReason = ""
         // Same normalisation as `ShellDirectory.current` (ShellDirectory.swift:78): tmux
         // reports the kernel's `/private/tmp/...` spelling (measured), and the sidebar's
         // root-unchanged guard compares resolved paths, so an unnormalised answer here
@@ -96,20 +121,21 @@ enum TmuxDirectory {
     /// exactly the file enumerated and no TMUX_TMPDIR/uid lookup is re-done by tmux.
     /// `-f /dev/null` would be meaningless here (no server is started by this command).
     static func probe(
-        _ socket: URL, clientTTY: String, tmux: String, deadline: TimeInterval
+        _ socket: URL, clientTTY: String, tmux: String, deadline: TimeInterval,
+        malformed: inout Bool
     ) -> String? {
         let arguments = ["-u", "-S", socket.path, "display-message", "-p", "-c", clientTTY,
                          "#{client_tty}\n#{pane_current_path}"]
-        guard let data = run(tmux, arguments, deadline: deadline),
-              let text = String(data: data, encoding: .utf8)
-        else { return nil }
+        guard let data = run(tmux, arguments, deadline: deadline) else { return nil }
+        guard let text = String(data: data, encoding: .utf8) else { malformed = true; return nil }
         // Split on the FIRST newline only: a tty never contains one, a path may contain
         // anything but NUL, and only the single trailing newline tmux adds is removed.
-        guard let split = text.firstIndex(of: "\n") else { return nil }
+        guard let split = text.firstIndex(of: "\n") else { malformed = true; return nil }
         let tty = String(text[..<split])
         var path = String(text[text.index(after: split)...])
         if path.hasSuffix("\n") { path.removeLast() }
-        guard tty == clientTTY, path.hasPrefix("/") else { return nil }
+        guard tty == clientTTY else { return nil }
+        guard path.hasPrefix("/") else { malformed = true; return nil }
         return path
     }
 
@@ -117,14 +143,18 @@ enum TmuxDirectory {
     /// order. tmux keeps one socket per `-L` name in its `tmux-<uid>` directory; anything
     /// else there (a stray regular file) is skipped by checking the file type with
     /// lstat rather than trusting the name. A missing directory contributes nothing.
-    static func socketFiles(in directories: [URL]) -> [URL] {
+    static func socketFiles(in directories: [URL], uid: uid_t = getuid()) -> [URL] {
         var sockets: [URL] = []
         for directory in directories {
             let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
             for name in names.sorted() {
                 let url = directory.appendingPathComponent(name)
                 var info = stat()
-                if lstat(url.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFSOCK {
+                // TMUX_TMPDIR can be world-writable: file type alone does not make
+                // a foreign user's endpoint safe to probe (#209 S4). Use lstat's uid,
+                // not the name; the uid parameter lets the gate test without chown.
+                if lstat(url.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFSOCK,
+                   info.st_uid == uid {
                     sockets.append(url)
                 }
             }

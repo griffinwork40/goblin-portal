@@ -141,7 +141,7 @@ EOF
 #
 # Why both trigger types: a tag push sets headBranch to the tag name; a manual
 # `gh workflow run release.yml -f tag=vX.Y.Z` sets headBranch to the branch the
-# dispatch was fired from (usually main) and records the tag in displayTitle.
+# dispatch was fired from (usually main) and is titled "release <tag>" by release.yml's run-name.
 # The v1.9.0 incident produced exactly the second shape: an operator-dispatched
 # run that the original poll loop (--branch "$TAG" only) could not find.
 #
@@ -167,12 +167,15 @@ EOR
         fi
       done <<< "$run"
     fi
-    # Second try: workflow_dispatch run — headBranch is main (or whatever branch),
-    # but the displayTitle contains the tag input value.
-    run="$(gh run list -R "$REPO" --workflow release.yml -L 20 \
+    # Second try: workflow_dispatch run — found by its exact title.
+    # COUPLED: .github/workflows/release.yml run-name must produce "release <tag>".
+    # Exact equality (not contains) prevents "release v1.9.0-rc1" matching v1.9.0
+    # (#199 finding 1). Tag passed via $ENV so no quoting coupling with is_semver
+    # (#199 finding 2); gh's --jq is gojq and takes no --arg.
+    run="$(CUT_RELEASE_TITLE="release $TAG" gh run list -R "$REPO" --workflow release.yml -L 20 \
       --json databaseId,headSha,url,displayTitle,event \
-      --jq ".[] | select(.event == \"workflow_dispatch\" and (.displayTitle | contains(\"$TAG\"))) \
-            | [(.databaseId | tostring), .headSha, .url] | join(\" \")" \
+      --jq '.[] | select(.event == "workflow_dispatch" and .displayTitle == $ENV.CUT_RELEASE_TITLE)
+            | [(.databaseId | tostring), .headSha, .url] | join(" ")' \
       2>/dev/null || true)"
     if [ -n "$run" ]; then
       while IFS= read -r line; do

@@ -24,7 +24,7 @@ extension PreferencesWindow {
         let sizeRow       = makeRow(label: "Font Size:",   control: makeSizeContainer())
         let cursorRow     = makeRow(label: "Cursor:",      control: cursorPopup)
         let rendererRow   = makeRow(label: "Renderer:",    control: rendererPopup)
-        // thickenRow removed (#152): fontThicken is a no-op on macOS 15+.
+        // thickenRow removed (#152): fontThicken may have no visible effect on current macOS.
 
         // — Terminal section —
         let scrollbackRow = makeRow(label: "Scrollback:",  control: makeScrollbackContainer())

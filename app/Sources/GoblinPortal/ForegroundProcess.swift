@@ -102,6 +102,10 @@ enum ForegroundProcess {
         guard case .knownShell(_, let leaderName) = leader else { return leader }
         guard let names = memberNames, !names.isEmpty else { return .command(name: leaderName) }
         let kinds = names.map { name -> ForegroundKind in
+            // A member whose path could not be read (exited mid-enumeration, or not
+            // ours) is attributed to the leader's name intentionally: "a shell,
+            // probably" is exactly the guess that let text reach ssh before group
+            // refinement existed, and refusing under the leader's name is fail-closed.
             guard let name else { return .command(name: leaderName) }
             return kind(executableName: name, pid: 0, integratedShellPid: -1, clientTTY: nil)
         }

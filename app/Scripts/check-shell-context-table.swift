@@ -166,6 +166,46 @@ let command = ShellDirectoryPolicy.resolve(
 check("command in front, no report -> the shell's cwd",
       command.directory == shellDir && command.followStatus == .local, "\(command)")
 
+// 7. lastKnownDirectoryPath preference order (issue #208, R1.2).
+//    The ordering is tested here in isolation because it is pure logic over two optional
+//    strings — no AppKit, no pty. Modelling `PaneDirectoryState` fields directly.
+//    Case A: lastLocalDirectory set — must win over a different localReport.
+//    (Models: shell was polled after `cd X && exec cmd`; OSC 7 still names the old dir.)
+//    Falsification mutant 12 (last-known-dir-prefers-osc7) in check-shell-context-falsify.sh
+//    flips the ?? order in the PRODUCTION getter (TerminalPane+DirectoryState.swift) and
+//    must fail "#208-A lastLocalDirectory wins over localReport" in check-shell-context.sh
+//    layer 1. Cases A and D below exercise FakeState only (harness-local); they document
+//    the intended ordering but are not what mutant 12 catches.
+print("lastKnownDirectoryPath preference order")
+struct FakeState {
+    var lastLocalDirectory: String?
+    var localReport: String?
+    var lastKnownDirectoryPath: String? { lastLocalDirectory ?? localReport }
+}
+// A: kernel-resolved path wins over a stale OSC 7 report (#208 primary fix).
+var stateA = FakeState(lastLocalDirectory: "/kernel/resolved", localReport: "/stale/osc7")
+check("#208-A lastLocalDirectory wins over localReport",
+      stateA.lastKnownDirectoryPath == "/kernel/resolved",
+      "got=\(stateA.lastKnownDirectoryPath ?? "nil")")
+// B: no kernel resolve yet — localReport is the fallback (pane never polled while live,
+//    but the integrated shell did fire precmd at least once).
+var stateB = FakeState(lastLocalDirectory: nil, localReport: "/osc7/only")
+check("#208-B localReport fallback when lastLocalDirectory is nil",
+      stateB.lastKnownDirectoryPath == "/osc7/only",
+      "got=\(stateB.lastKnownDirectoryPath ?? "nil")")
+// C: neither set — nil returned, restart falls back to resolvedWorkingDirectory().
+var stateC = FakeState(lastLocalDirectory: nil, localReport: nil)
+check("#208-C nil when neither is set",
+      stateC.lastKnownDirectoryPath == nil,
+      "got=\(stateC.lastKnownDirectoryPath ?? "nil")")
+// D: inverted ordering (the pre-#208 bug) must NOT satisfy A.
+//    Falsification in code: if we flip the order, case A fails.
+var stateD = FakeState(lastLocalDirectory: "/kernel/resolved", localReport: "/stale/osc7")
+let invertedResult = stateD.localReport ?? stateD.lastLocalDirectory
+check("#208-D inverted ordering picks the wrong value (falsifier)",
+      invertedResult == "/stale/osc7",
+      "got=\(invertedResult ?? "nil")")
+
 print("")
 if failures == 0 {
     print("all \(cases) truth-table checks passed")

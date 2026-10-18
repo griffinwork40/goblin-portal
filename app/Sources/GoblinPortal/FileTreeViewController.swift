@@ -182,6 +182,18 @@ final class FileTreeViewController: NSViewController {
         view = stack
     }
 
+    /// Keep the stack's first row below the titlebar. The stack is this controller's root
+    /// view and the sidebar runs full height under `.fullSizeContentView`, where the filter
+    /// field otherwise landed on the traffic lights (y688-708 vs the lights' y689-703,
+    /// measured — `.afk/plans/titlebar-reclaim-scope.md` §1b). The safe-area inset is 0
+    /// under the shipped style mask, so the edge stays at `sidebarTopInset` exactly.
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        guard let stack = view as? NSStackView else { return }
+        let top = GlassDrawingStyle.resolved().sidebarTopInset + view.safeAreaInsets.top
+        if stack.edgeInsets.top != top { stack.edgeInsets.top = top }
+    }
+
     // `refresh()` (async, window-became-key) and `refreshSynchronously()` (every file
     // operation) live in `FileTreeViewController+Loading.swift` (#158).
 

@@ -6,7 +6,7 @@
 //  `FileNode.reloadChildren()` called `FileManager` directly.
 //  Extracting that call behind a replaceable static lister lets the step-3 gate harness
 //  inject a controlled stub that blocks, stalls, or returns canned entries — without any
-//  changes to FileNode's identity-preservation or sorting logic.
+//  changes to FileNode's identity-preservation logic.
 //
 //  The seam is a single `var lister: @Sendable (URL) -> [DirectoryEntry]` on the
 //  `DirectoryListing` enum.  Replacing it in the harness requires `@testable import
@@ -90,11 +90,27 @@ enum DirectoryListing {
         }
     }
 
+    /// Sort values before they cross back to main (#207). The #158 baseline measured
+    /// ~35 ms of remaining main work including localized sorting; FileNode identity
+    /// reconciliation and outline updates cannot move, but this pure comparison can.
+    /// One rule for async listings and synchronous disclosure/mutation reloads.
+    static func sorted(_ entries: [DirectoryEntry]) -> [DirectoryEntry] {
+        entries.sorted { lhs, rhs in
+            // Preserve Finder-style groups from FileNode.reconcile: directories first,
+            // hidden last within each group. Dotfiles stay shown, but should not bury
+            // the browsable content (53 dot-directories above Projects in measured HOME).
+            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+            if lhs.isHidden != rhs.isHidden { return !lhs.isHidden }
+            return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent)
+                == .orderedAscending
+        }
+    }
+
     // MARK: Visibility filter
 
     /// Drop the two entries nobody wants to browse in a developer tree.
     ///
-    /// Dotfiles are **kept** (rationale beside the `FileNode.reconcile` sort and the
+    /// Dotfiles are **kept** (rationale beside `sorted(_:)` and the
     /// note at the end of `FileNode`).
     static func isVisible(_ url: URL) -> Bool {
         let name = url.lastPathComponent

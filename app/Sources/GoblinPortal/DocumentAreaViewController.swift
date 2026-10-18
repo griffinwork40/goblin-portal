@@ -37,6 +37,8 @@ final class DocumentAreaViewController: NSViewController {
     let container = SplitContainerView()
 
     private var isStripVisible = false
+    /// KVO on the window's `contentLayoutRect`; installed by `+SafeArea.swift`.
+    var layoutRectObservation: NSKeyValueObservation?
 
     // MARK: - Terminal padding
 
@@ -137,9 +139,20 @@ final class DocumentAreaViewController: NSViewController {
         container.removeSplit()
     }
 
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        observeContentLayoutRect()
+    }
+
     override func viewDidLayout() {
         super.viewDidLayout()
-        let bounds = view.bounds
+        // Lay out inside the part of the view the titlebar does not cover. Under the
+        // default style mask the inset is 0 and this is `view.bounds` exactly; under
+        // `.fullSizeContentView` it keeps row 0 out of the titlebar band (+28pt
+        // overlap measured without it — `.afk/plans/titlebar-reclaim-scope.md` §1b).
+        let full = view.bounds
+        let bounds = NSRect(
+            x: 0, y: 0, width: full.width, height: max(0, full.height - layoutTopInset))
         let stripHeight = isStripVisible ? DocumentTabStrip.height : 0
         // Non-flipped coordinates: the strip is at the TOP, so it takes the high y.
         strip.frame = NSRect(

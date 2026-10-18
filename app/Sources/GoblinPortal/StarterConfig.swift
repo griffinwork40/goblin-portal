@@ -70,7 +70,7 @@ enum StarterConfig {
 
       "// unfocusedPaneOpacity": "0.0-1.0. Palette-aware by default (PaneDimming.swift): dims to about 0.7 where body text stays at APCA Lc >= 45; does not dim under classic-repaired (body text is already below the floor). An explicit 0.0-1.0 value overrides the default and prints a warning if the result drops body text below Lc 45. Out-of-range values are ignored with a warning.",
 
-      "// fontThicken": "No effect on macOS 15+ — CGContextSetFontSmoothingStyle is a no-op in both renderers. Setting true emits a config warning. Key accepted to keep existing configs valid.",
+      "// fontThicken": "May have no visible effect on current macOS — CGContextSetFontSmoothingStyle is a no-op in both renderers on recent releases. Setting true emits a config warning. Key accepted to keep existing configs valid.",
       "fontThicken": false,
 
       "// lineHeight": "Multiplier on the font's natural line height (default 1.0). 1.2 = 20% extra leading. Range 0.8–2.0. Uses SwiftTerm's public lineSpacing property, which correctly resizes the terminal grid after changing.",
@@ -78,6 +78,8 @@ enum StarterConfig {
 
       "// closeOnShellExit": "clean (default) | always | never. clean = close the pane when the shell exits with code 0, keep it when the shell exits with a nonzero code or a signal — so you can read the last output. always = close unconditionally (pre-T2.2 behaviour). never = always keep the pane until you press CmdW. On keep: an inline status line shows the exit code or signal name; press Return to restart a fresh login shell in the same pane at the last known directory (scrollback is preserved). Unknown values warn and fall back to clean.",
       "// closeOnShellExit-note": "Does not add a Preferences UI control in this release — set it in config.json.",
+
+      "// titlebar": "standard (default) | compact. compact hides the window title and lets the terminal (or the document tab strip) use the titlebar row wherever no window button sits above it — about +2 rows with the sidebar showing; no change with the sidebar collapsed, 2+ Spaces (tab bar), or a config warning showing. The band over the terminal no longer drags the window; drag from the sidebar's top. Unknown values warn and fall back to standard. Applies on reload (CmdR).",
 
       "// editor": "editing behaviour for the file viewer (the tab you get when you double-click a file in the sidebar)",
       "// editor.tabWidth": "spaces per indent level, 1-16. Default 4.",

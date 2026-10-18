@@ -37,8 +37,9 @@ final class PreferencesWindow: NSWindowController {
     let scrollbackField  = NSTextField()
     let optionAsMetaCheck = NSButton(checkboxWithTitle: "Option as Meta",
                                      target: nil, action: nil)
-    // fontThickenCheck removed (#152): CGContextSetFontSmoothingStyle is a no-op on
-    // macOS 15+. The key is still parsed from config.json (fail-soft) and warned on.
+    // fontThickenCheck removed (#152): CGContextSetFontSmoothingStyle may have no
+    // visible effect on current macOS (no-op in both renderers on recent releases).
+    // The key is still parsed from config.json (fail-soft) and warned on.
     let rendererPopup    = NSPopUpButton()
 
     // MARK: - Config string tables
@@ -240,7 +241,7 @@ final class PreferencesWindow: NSWindowController {
 
         // Booleans
         d["optionAsMeta"] = optionAsMetaCheck.state == .on
-        // fontThicken omitted: no UI control (#152). Existing configs retain their value
+        // fontThicken omitted: no UI control (#152, may have no visible effect). Existing configs retain their value
         // unmodified (PreferencesDiff only writes keys that appear in `d`).
 
         // Renderer — use the canonical config name; no literal fallback.

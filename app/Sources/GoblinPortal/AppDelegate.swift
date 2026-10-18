@@ -56,11 +56,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // in NSRunningApplication before posting, so this registration window is safe.
         openFileHandler.register()
 
-        // Request notification permission so the app can post alerts when long
-        // commands finish in background tabs (CommandNotification). Safe to call
-        // repeatedly — the system ignores it after the user has granted or denied.
-        CommandNotification.requestPermissionIfNeeded()
-
         // Register as delegate so macOS delivers banners even when Goblin Portal is
         // frontmost. Without this, the system silently drops notifications from
         // the active app — defeating the primary use-case: a build finishing in
@@ -231,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ConfigWarningPresenter.shared.report(config.warnings)  // also Settings Apply's path
         for controller in SpaceWindowController.open {
             controller.space.apply(config: config)
+            controller.applyTitlebarStyle()  // after apply: reads space.config.titlebar
             controller.window?.backgroundColor = config.effectiveBackground
             // Re-derived on every reload, not just at init: editing the theme from
             // a dark background to a light one (or back) has to move the sidebar

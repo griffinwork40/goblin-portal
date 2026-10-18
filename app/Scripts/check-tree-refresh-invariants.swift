@@ -215,4 +215,37 @@ func runInvariantCases(vc: FileTreeViewController, treeURL: URL) {
     check(childNames(bNode) == ["y.txt"] && ov.isItemExpanded(bNode) && yShown,
           case: "EXPAND-IN-FLIGHT",
           msg: "b/ children=\(childNames(bNode)) expanded=\(ov.isItemExpanded(bNode)) yRow=\(yShown)")
+
+    // CASE 16: ASYNC-SORT-ORDER (#207). The injected lister deliberately returns
+    // unsorted values, so neither production FileManager order nor the sync first
+    // frame can accidentally prove async ordering. Exercise BOTH setRoot and refresh.
+    let sortRoot = treeURL.appendingPathComponent("sorting")
+    let unsorted = [
+        DirectoryEntry(url: sortRoot.appendingPathComponent("file10"), isDirectory: false, isHidden: false),
+        DirectoryEntry(url: sortRoot.appendingPathComponent("hidden"), isDirectory: true, isHidden: true),
+        DirectoryEntry(url: sortRoot.appendingPathComponent("folder2"), isDirectory: true, isHidden: false),
+        DirectoryEntry(url: sortRoot.appendingPathComponent("file2"), isDirectory: false, isHidden: false)
+    ]
+    let expected = ["folder2", "hidden", "file2", "file10"]
+    DirectoryListing.lister = { _ in unsorted }
+    vc.setRoot(sortRoot)
+    DirectoryListing.lister = live
+    pump(0.3)
+    let adopted = childNames(vc.root)
+    let adoptedRows = rowURLs(ov).map(\.lastPathComponent)
+    let oldNodes = vc.root.children ?? []
+    DirectoryListing.lister = { _ in Array(unsorted.reversed()) }
+    vc.refresh()
+    DirectoryListing.lister = live
+    pump(0.3)
+    let refreshed = childNames(vc.root)
+    let refreshedRows = rowURLs(ov).map(\.lastPathComponent)
+    // adoptedRows / refreshedRows: what the outline view actually displays, not just
+    // what the model holds. A display-only regression (wrong reloadData call order,
+    // stale data-source snapshot) would leave the model correct but the rows wrong.
+    check(adopted == expected && refreshed == expected
+          && adoptedRows == expected && refreshedRows == expected
+          && zip(oldNodes, vc.root.children ?? []).allSatisfy { $0 === $1 },
+          case: "ASYNC-SORT-ORDER",
+          msg: "setRoot model=\(adopted) rows=\(adoptedRows) refresh model=\(refreshed) rows=\(refreshedRows)")
 }

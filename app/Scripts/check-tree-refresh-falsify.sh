@@ -201,6 +201,12 @@ run_mutant sync-drops-root "SYNC-ADOPT" "$L" \
   '        if displayedRoot !== root {' \
   '        if false {'
 
+# #207. Removing the worker's sort must fail the actual async order case, not
+# merely the structural thread-placement assertion in check-child-sorting.sh.
+run_mutant async-unsorted "ASYNC-SORT-ORDER" "$L" \
+  'listings[dir] = DirectoryListing.sorted(lister(dir))' \
+  'listings[dir] = lister(dir)'
+
 wait
 ran=0; caught=0; missed=0; env=0
 for v in "$TMP"/*.verdict; do

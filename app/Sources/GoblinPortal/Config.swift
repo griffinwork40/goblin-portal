@@ -72,6 +72,7 @@ struct ConfigFile: Decodable {
     /// When to close a pane after its shell exits.
     /// Accepted values: `"clean"` (default), `"always"`, `"never"`.
     var closeOnShellExit: String?
+    var titlebar: String?  // "standard" | "compact" — TitlebarStyle.swift
 
     struct EditorSpec: Decodable {
         var tabWidth: Int?
@@ -229,6 +230,7 @@ struct AppConfig {
     /// Unknown values warn and fall back to `"clean"`. Wired in `Config+Load.swift`.
     /// Gated by `app/Scripts/check-shell-exit.sh`.
     var closeOnShellExit: CloseOnShellExit
+    var titlebar: TitlebarStyle  // `TitlebarStyle.swift`; applied by SpaceWindowController+Titlebar
 
     /// Non-nil when the user has configured `"preset": "auto"`. Holds the two resolved
     /// palettes so the appearance observer can switch between them without re-parsing the
@@ -328,7 +330,7 @@ struct AppConfig {
             // Terminal.app's default: close on a clean exit (code 0), keep on anything
             // else so the user can read what went wrong. `"always"` restores pre-T2.2
             // behaviour; `"never"` keeps every pane regardless.
-            closeOnShellExit: .clean
+            closeOnShellExit: .clean, titlebar: .standard
         )
     }
 
