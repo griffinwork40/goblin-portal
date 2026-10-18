@@ -22,7 +22,7 @@
 //  umber), which is harder to reason about and harder to test than "always with splits".
 //  A user who finds the border redundant may want a `showFocusBorder: false` config key
 //  to disable it — no such key exists in `ConfigFile`/`AppConfig` yet; wire only if
-//  daily-drive reveals the demand (TODO: tracked in issue #245).
+//  daily-drive reveals the demand (tracked in #249).
 //
 //  IMPLEMENTATION
 //
@@ -92,7 +92,7 @@ extension SpaceViewController {
         // catalog color — so a System Settings accent-color change made mid-session
         // (without a config reload) will NOT be reflected until the next `apply(config:)`
         // call. Re-subscribing to `NSColor.systemColorsDidChangeNotification` would fix
-        // this but is out of scope; see issue #245.
+        // this and is tracked in #249.
         let borderCGColor = accentColor.withAlphaComponent(0.55).cgColor
 
         for leaf in leaves {
