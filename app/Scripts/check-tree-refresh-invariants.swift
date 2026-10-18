@@ -232,6 +232,9 @@ func runInvariantCases(vc: FileTreeViewController, treeURL: URL) {
     DirectoryListing.lister = live
     pump(0.3)
     let adopted = childNames(vc.root)
+    // adoptedRows / refreshedRows: what the outline view actually displays, not just
+    // what the model holds. A display-only regression (wrong reloadData call order,
+    // stale data-source snapshot) would leave the model correct but the rows wrong.
     let adoptedRows = rowURLs(ov).map(\.lastPathComponent)
     let oldNodes = vc.root.children ?? []
     DirectoryListing.lister = { _ in Array(unsorted.reversed()) }
@@ -240,12 +243,11 @@ func runInvariantCases(vc: FileTreeViewController, treeURL: URL) {
     pump(0.3)
     let refreshed = childNames(vc.root)
     let refreshedRows = rowURLs(ov).map(\.lastPathComponent)
-    // adoptedRows / refreshedRows: what the outline view actually displays, not just
-    // what the model holds. A display-only regression (wrong reloadData call order,
-    // stale data-source snapshot) would leave the model correct but the rows wrong.
-    check(adopted == expected && refreshed == expected
-          && adoptedRows == expected && refreshedRows == expected
+    check(adopted == expected && refreshed == expected,
+          case: "ASYNC-SORT-ORDER-MODEL",
+          msg: "setRoot model=\(adopted) refresh model=\(refreshed)")
+    check(adoptedRows == expected && refreshedRows == expected
           && zip(oldNodes, vc.root.children ?? []).allSatisfy { $0 === $1 },
-          case: "ASYNC-SORT-ORDER",
-          msg: "setRoot model=\(adopted) rows=\(adoptedRows) refresh model=\(refreshed) rows=\(refreshedRows)")
+          case: "ASYNC-SORT-ORDER-DISPLAY",
+          msg: "setRoot rows=\(adoptedRows) refresh rows=\(refreshedRows)")
 }
