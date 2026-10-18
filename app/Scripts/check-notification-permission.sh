@@ -62,11 +62,12 @@ cd "$(dirname "$0")/.."
 SRC_POLICY="Sources/GoblinPortal/NotificationPermissionPolicy.swift"
 SRC_NOTIFICATION="Sources/GoblinPortal/CommandNotification.swift"
 SRC_APPDELEGATE="Sources/GoblinPortal/AppDelegate.swift"
+SRC_APPDELEGATE_NOTIF="Sources/GoblinPortal/AppDelegate+Notifications.swift"
 
 command -v swiftc >/dev/null 2>&1 || {
     echo "error: swiftc not found — no Swift toolchain on PATH." >&2; exit 2; }
 
-for f in "$SRC_POLICY" "$SRC_NOTIFICATION" "$SRC_APPDELEGATE"; do
+for f in "$SRC_POLICY" "$SRC_NOTIFICATION" "$SRC_APPDELEGATE" "$SRC_APPDELEGATE_NOTIF"; do
     [[ -f "$f" ]] || {
         echo "error: $f not found — did the file move?" >&2; exit 2; }
 done
@@ -75,23 +76,37 @@ done
 # Part A: Structural wiring greps
 # ---------------------------------------------------------------------------
 
-# A1: AppDelegate.swift must not contain requestPermissionIfNeeded or a direct
-#     requestAuthorization call that could fire from applicationDidFinishLaunching.
-#     Strip comments before grepping so a doc comment about the old behaviour
-#     cannot mask a live call-site (same technique as check-theme-contrast.sh).
-# The check lives in a function so falsification mutant 3 (Part C) runs the
-# SAME assertion against a mutated copy, rather than a re-typed lookalike.
+# A1: AppDelegate must not call requestPermissionIfNeeded or requestAuthorization
+#     from launch. Comments stripped first (same technique as check-theme-contrast.sh).
+#     getNotificationSettings IS allowed (#229) — it reads without prompting.
+#     Function form lets mutant 3 run the same assertion against a mutated copy.
 launch_calls_permission() {
     grep -v '^\s*//' "$1" | grep -q 'requestPermissionIfNeeded\|requestAuthorization'
 }
-say "A1: AppDelegate launch must not call requestAuthorization..."
+say "A1: AppDelegate launch must not call requestAuthorization (getNotificationSettings allowed)..."
 if launch_calls_permission "$SRC_APPDELEGATE"; then
-    echo "FAIL A1: AppDelegate.swift contains a requestPermissionIfNeeded or" >&2
-    echo "         requestAuthorization call — launch must not prompt for permission." >&2
-    echo "         T2.5 removes this; its re-appearance is a regression." >&2
+    echo "FAIL A1: AppDelegate.swift contains requestPermissionIfNeeded or requestAuthorization." >&2
+    echo "         Launch must not prompt — T2.5. getNotificationSettings is allowed." >&2
     exit 1
 fi
 say "  ok  no requestAuthorization reachable from AppDelegate launch"
+
+# A1b/A1c: #229 wiring — both sides must be present.
+#   A1b: AppDelegate.swift calls readNotificationAuthState (the launch site).
+#   A1c: AppDelegate+Notifications.swift calls getNotificationSettings (reads
+#        existing auth without prompting — T2.5 rule preserved).
+say "A1b: AppDelegate.swift calls readNotificationAuthState (#229 launch wiring)..."
+if ! grep -v '^\s*//' "$SRC_APPDELEGATE" | grep -q 'readNotificationAuthState'; then
+    echo "FAIL A1b: AppDelegate.swift does not call readNotificationAuthState (#229)." >&2
+    exit 1
+fi
+say "  ok  readNotificationAuthState wired at launch"
+say "A1c: AppDelegate+Notifications implements via getNotificationSettings (no prompt)..."
+if ! grep -v '^\s*//' "$SRC_APPDELEGATE_NOTIF" | grep -q 'getNotificationSettings'; then
+    echo "FAIL A1c: AppDelegate+Notifications.swift does not call getNotificationSettings." >&2
+    exit 1
+fi
+say "  ok  getNotificationSettings used (reads without prompting)"
 
 # A2: CommandNotification.swift must reference policy.notificationRequested
 #     — the single delivery funnel must consult the policy.
@@ -208,6 +223,25 @@ _ = p11.notificationRequested(title: "a", body: "")  // notDetermined → pendin
 _ = p11.authorizationCompleted(granted: false)         // → denied
 let a11 = p11.notificationRequested(title: "b", body: "")
 check("B11 re-ask after denial drops", a11 == .drop)
+
+// MARK: - B12: applyKnownState(.authorized) before first request → post immediately
+// Simulates a returning user who already granted: the launch-time
+// getNotificationSettings read seeds the policy so the first notification
+// posts directly without going through requestAuthorization (#229).
+var p12 = NotificationPermissionPolicy()
+p12.applyKnownState(.authorized)
+check("B12 state authorized after seed", p12.authState == .authorized)
+let a12 = p12.notificationRequested(title: "seed", body: "authorized")
+check("B12 seeds authorized → post (no requestAuthorization)", a12 == .post(title: "seed", body: "authorized"))
+
+// MARK: - B13: applyKnownState(.denied) before first request → drop (no dialog)
+// Simulates a user who previously denied: seeding the policy at launch means
+// the app never calls requestAuthorization again in that session (#229).
+var p13 = NotificationPermissionPolicy()
+p13.applyKnownState(.denied)
+check("B13 state denied after seed", p13.authState == .denied)
+let a13 = p13.notificationRequested(title: "seed", body: "denied")
+check("B13 seeds denied → drop (no requestAuthorization)", a13 == .drop)
 
 print("\(total - failures)/\(total) passed")
 exit(failures == 0 ? 0 : 1)
