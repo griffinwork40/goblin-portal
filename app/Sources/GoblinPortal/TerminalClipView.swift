@@ -56,4 +56,35 @@ final class TerminalClipView: NSView {
     var fillColor: NSColor = .clear {
         didSet { layer?.backgroundColor = fillColor.cgColor }
     }
+
+    /// Name of the focus-border sublayer `SpaceViewController+FocusCue.swift` adds to
+    /// this view's layer. Owned here, beside `focusBorderFrame(in:)`, because this view
+    /// is what re-frames it on every resize and the two files must never disagree.
+    static let focusBorderLayerName = "goblin.focusBorder"
+
+    /// The border's frame for a given host bounds: inset 0.5pt so the 1pt stroke lies
+    /// entirely inside the pane and never paints over the divider or a neighbour.
+    static func focusBorderFrame(in bounds: CGRect) -> CGRect {
+        bounds.insetBy(dx: 0.5, dy: 0.5)
+    }
+
+    /// Re-frame the focus border whenever this view is laid out.
+    ///
+    /// `SplitContainerView.layout()` resizes pane frames on window resize, divider drag,
+    /// full screen and sidebar toggle without re-running `updateFocusCue`, so a frame set
+    /// only when focus changes went stale (PR #217 land review, round 1). An explicit
+    /// re-frame here was preferred over a CALayer `autoresizingMask` because it reapplies
+    /// the exact inset rule rather than relying on margin arithmetic; a throwaway probe
+    /// on 2026-10-18 showed the frame stale without this override and correct with it.
+    /// Animations are disabled so the border snaps with the pane instead of lagging.
+    override func layout() {
+        super.layout()
+        guard let host = layer else { return }
+        for sub in host.sublayers ?? [] where sub.name == Self.focusBorderLayerName {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            sub.frame = Self.focusBorderFrame(in: host.bounds)
+            CATransaction.commit()
+        }
+    }
 }
