@@ -20,9 +20,9 @@
 //  are complementary, not substitutes. Showing the border only when opacity == 1.0 would
 //  make its behaviour theme-dependent (visible under classic-repaired, absent under
 //  umber), which is harder to reason about and harder to test than "always with splits".
-//  A user who finds the border redundant under high-contrast themes can disable it by
-//  setting `showFocusBorder: false` in config.json (not yet wired — left for follow-up
-//  if daily-drive reveals the demand).
+//  A user who finds the border redundant may want a `showFocusBorder: false` config key
+//  to disable it — no such key exists in `ConfigFile`/`AppConfig` yet; wire only if
+//  daily-drive reveals the demand (TODO: tracked in issue #245).
 //
 //  IMPLEMENTATION
 //
@@ -85,8 +85,14 @@ extension SpaceViewController {
         }
 
         // Resolve the accent CGColor once. `.cgColor` is safe here because
-        // `effectiveAccent` is already a concrete colour (not a dynamic system
-        // colour) — same reasoning as `SplitContainerView+Appearance.swift:40`.
+        // `updateSplitDimming` is called from `apply(config:)`, so appearance-change
+        // paths routed through config reload resolve the color correctly. However,
+        // when no theme is installed (`"preset": "classic"`), `effectiveAccent` falls
+        // back to `NSColor.controlAccentColor` (Config+Chrome.swift:102) — a dynamic
+        // catalog color — so a System Settings accent-color change made mid-session
+        // (without a config reload) will NOT be reflected until the next `apply(config:)`
+        // call. Re-subscribing to `NSColor.systemColorsDidChangeNotification` would fix
+        // this but is out of scope; see issue #245.
         let borderCGColor = accentColor.withAlphaComponent(0.55).cgColor
 
         for leaf in leaves {
