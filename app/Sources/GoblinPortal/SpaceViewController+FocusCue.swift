@@ -36,6 +36,14 @@
 //  `updateSplitDimming`; stacking two opacity-animated properties on the same view
 //  produces unpredictable compositing.
 //
+//  RESIZE TRACKING
+//
+//  `SplitContainerView.layout()` resizes pane frames on every window resize and divider
+//  drag without re-running `updateFocusCue`, so `TerminalClipView.layout()` re-frames
+//  the border on every layout pass. The layer name and the inset rule both live on
+//  `TerminalClipView` (`focusBorderLayerName`, `focusBorderFrame(in:)`) so this file and
+//  the view cannot disagree about either.
+//
 //  `update(focusCue:accentColor:)` is called from `updateSplitDimming` after the
 //  dimming pass, so a single code path drives both effects for every focus-change event:
 //  ⌘⇧H/J/K/L, clicks, splits, collapse, tab switch, and ⌘R reload.
@@ -92,8 +100,6 @@ extension SpaceViewController {
 
     // MARK: - Private layer helpers
 
-    private static let focusBorderLayerName = "goblin.focusBorder"
-
     /// Add (or update) the focus border layer on `view`.
     ///
     /// If the layer already exists (e.g. after a resize or theme reload), its
@@ -103,26 +109,22 @@ extension SpaceViewController {
         guard let hostLayer = view?.layer else { return }
 
         let border: CALayer
-        if let existing = hostLayer.sublayers?.first(where: { $0.name == Self.focusBorderLayerName }) {
+        if let existing = hostLayer.sublayers?.first(where: { $0.name == TerminalClipView.focusBorderLayerName }) {
             border = existing
         } else {
             let newLayer = CALayer()
-            newLayer.name = Self.focusBorderLayerName
+            newLayer.name = TerminalClipView.focusBorderLayerName
             newLayer.zPosition = 1000   // above cell content; below any overlay views
             hostLayer.addSublayer(newLayer)
             border = newLayer
         }
 
-        // Size the border to hug the inside of the clip view. Inset by 0.5pt so the
-        // 1pt stroke is completely inside the pane — it never paints over the divider
-        // pixel or a neighbouring pane's edge row.
-        let inset: CGFloat = 0.5
-        border.frame = hostLayer.bounds.insetBy(dx: inset, dy: inset)
-
         // Disable the implicit position/bounds/colour animations that CALayer applies
-        // by default: the border should snap with focus, not lag behind it.
+        // by default: the border should snap with focus, not lag behind it. The frame
+        // is set here too; TerminalClipView.layout() keeps it current on every resize.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        border.frame = TerminalClipView.focusBorderFrame(in: hostLayer.bounds)
         border.borderWidth = 1.0
         border.borderColor = color
         CATransaction.commit()
@@ -131,7 +133,7 @@ extension SpaceViewController {
     /// Remove the focus border layer from `view` if one is present.
     private func removeFocusBorder(from view: NSView?) {
         guard let sublayers = view?.layer?.sublayers else { return }
-        for layer in sublayers where layer.name == Self.focusBorderLayerName {
+        for layer in sublayers where layer.name == TerminalClipView.focusBorderLayerName {
             layer.removeFromSuperlayer()
         }
     }
