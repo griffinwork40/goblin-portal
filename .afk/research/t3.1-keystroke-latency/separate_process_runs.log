@@ -1,0 +1,16 @@
+{ 2.13 2.47 2.62 }
+=== 10 ABAB separate-process pairs ===
+pair 1: direct_p50=112.7 dispatch_p50=174.2 delta=61.5 direct_wins=1
+pair 2: direct_p50=109.8 dispatch_p50=171.6 delta=61.8 direct_wins=1
+pair 3: direct_p50=108.6 dispatch_p50=173.5 delta=64.9 direct_wins=1
+pair 4: direct_p50=108.2 dispatch_p50=170.9 delta=62.7 direct_wins=1
+pair 5: direct_p50=114.5 dispatch_p50=173.5 delta=59.0 direct_wins=1
+pair 6: direct_p50=107.5 dispatch_p50=173.7 delta=66.2 direct_wins=1
+pair 7: direct_p50=110.0 dispatch_p50=171.4 delta=61.4 direct_wins=1
+pair 8: direct_p50=108.6 dispatch_p50=172.8 delta=64.2 direct_wins=1
+pair 9: direct_p50=109.2 dispatch_p50=172.1 delta=62.9 direct_wins=1
+pair 10: direct_p50=110.7 dispatch_p50=171.0 delta=60.3 direct_wins=1
+
+direct_wins=10/10
+mean_per_pair_p50_delta=62.5 µs
+{ 1.88 2.40 2.59 }
