@@ -1,0 +1,28 @@
+{ 2.31 2.53 2.65 }
+=== AB runs ===
+--- AB run 1 ---
+  direct p50   111.7  p95   157.2  p99  2946.0  max   2946.0 µs
+  dispatchio p50   175.5  p95   218.7  p99   286.5  max    286.5 µs
+RESULT {"order":"AB","n":100,"p50_delta_us":63.8}
+--- AB run 2 ---
+  direct p50   109.0  p95   135.4  p99   217.4  max    217.4 µs
+  dispatchio p50   171.9  p95   188.7  p99   217.8  max    217.8 µs
+RESULT {"order":"AB","n":100,"p50_delta_us":62.9}
+--- AB run 3 ---
+  direct p50   110.8  p95   144.0  p99   210.8  max    210.8 µs
+  dispatchio p50   173.7  p95   205.8  p99   257.5  max    257.5 µs
+RESULT {"order":"AB","n":100,"p50_delta_us":62.9}
+=== BA runs ===
+--- BA run 1 ---
+  direct p50   176.8  p95   203.7  p99   257.1  max    257.1 µs
+  dispatchio p50   174.5  p95   195.7  p99   258.7  max    258.7 µs
+RESULT {"order":"BA","n":100,"p50_delta_us":-2.2}
+--- BA run 2 ---
+  direct p50   173.6  p95   195.0  p99   244.7  max    244.7 µs
+  dispatchio p50   172.6  p95   192.8  p99   375.7  max    375.7 µs
+RESULT {"order":"BA","n":100,"p50_delta_us":-1.0}
+--- BA run 3 ---
+  direct p50   172.4  p95   196.8  p99   218.1  max    218.1 µs
+  dispatchio p50   171.5  p95   191.0  p99   193.9  max    193.9 µs
+RESULT {"order":"BA","n":100,"p50_delta_us":-1.0}
+{ 2.44 2.55 2.65 }

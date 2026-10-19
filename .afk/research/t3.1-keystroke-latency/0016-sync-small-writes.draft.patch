@@ -1,0 +1,129 @@
+--- a/Sources/SwiftTerm/LocalProcess.swift
++++ b/Sources/SwiftTerm/LocalProcess.swift
+@@ -208,15 +208,73 @@
+         }
+     }
+     
+-    /**
+-     * Sends the array slice to the local process using DispatchIO
+-     * - Parameter data: The range of bytes to send to the child process
+-     */
+-    public func send (data: ArraySlice<UInt8>)
+-    {
+-        guard running else {
++    // PATCH 0016 — synchronous fast path for small writes.
++    //
++    // WHY: every keystroke goes through send(data:). The normal path enqueues a
++    // DispatchIO.write onto a global queue, which pays ~80–110 µs of dispatch
++    // overhead before the byte reaches the pty master. For single-keystroke payloads
++    // (<= synchronousWriteLimit bytes) when no DispatchIO write is already in flight,
++    // the fd is O_NONBLOCK, so write(2) either succeeds immediately or returns EAGAIN
++    // (pty full). In the success case we skip the queue entirely; in the EAGAIN case
++    // we fall through to DispatchIO for the full remainder, preserving byte order.
++    //
++    // SAFETY INVARIANTS:
++    //   1. Order: the direct write only fires when asyncWritesInFlight == 0, so no
++    //      DispatchIO write can be ahead of us in the kernel queue.
++    //   2. Partial write: any un-written remainder is forwarded to DispatchIO so
++    //      order is preserved even on a partial direct write.
++    //   3. Kill-switch: SWIFTTERM_SYNC_WRITE=0 disables the path entirely; the static
++    //      var is also toggled by the latency harness per-sample.
++    //   4. Non-blocking requirement: we check O_NONBLOCK before attempting; if the fd
++    //      lacks the flag the write could block the main thread, so we fall through.
++
++    /// Maximum payload (bytes) eligible for the synchronous fast path.
++    public static let synchronousWriteLimit: Int = 1024
++
++    /// Set to false (or export SWIFTTERM_SYNC_WRITE=0) to disable the fast path.
++    public static var synchronousSmallWritesEnabled: Bool = {
++        ProcessInfo.processInfo.environment["SWIFTTERM_SYNC_WRITE"] != "0"
++    }()
++
++    // Counts DispatchIO writes currently in flight. Incremented before the
++    // DispatchIO.write call, decremented in its completion handler.
++    // Guarded by writeLock.
++    private let writeLock = NSLock()
++    private var asyncWritesInFlight: Int = 0
++
++    /// Attempt a direct write(2) for small payloads when idle; fall through to
++    /// DispatchIO for the remainder (or the whole payload if conditions aren't met).
++    private func writeDirectlyIfIdle(_ data: ArraySlice<UInt8>) {
++        // Precondition: fd must carry O_NONBLOCK so write(2) never blocks.
++        let flags = fcntl(childfd, F_GETFL)
++        guard flags != -1, (flags & O_NONBLOCK) != 0 else {
++            sendViaDispatchIO(data); return
++        }
++        // Precondition: no DispatchIO write in flight (order safety).
++        writeLock.lock()
++        let idle = asyncWritesInFlight == 0
++        writeLock.unlock()
++        guard idle else { sendViaDispatchIO(data); return }
++
++        // Attempt synchronous write. On partial write or EAGAIN, forward remainder.
++        let n = data.withUnsafeBytes { ptr -> Int in
++            write(childfd, ptr.baseAddress!, ptr.count)
++        }
++        if n == data.count {
++            // Fast path: whole payload written synchronously — done.
+             return
+         }
++        if n > 0 {
++            // Partial write: remainder must go through DispatchIO to preserve order.
++            sendViaDispatchIO(data.dropFirst(n))
++        } else {
++            // n == -1: EAGAIN (pty full) or other transient error — full payload via DispatchIO.
++            sendViaDispatchIO(data)
++        }
++    }
++
++    /// Enqueue data onto DispatchIO (the original upstream path).
++    private func sendViaDispatchIO(_ data: ArraySlice<UInt8>) {
+         let copy = sendCount
+         sendCount += 1
+         data.withUnsafeBytes { ptr in
+@@ -225,9 +283,14 @@
+             if debugIO {
+                 print ("[SEND-\(copy)] Queuing data to client: \(data) ")
+             }
+-
+-            DispatchIO.write(toFileDescriptor: childfd, data: ddata, runningHandlerOn: DispatchQueue.global(qos: .userInitiated), handler:  { [weak self] dd, errno in
++            writeLock.lock()
++            asyncWritesInFlight += 1
++            writeLock.unlock()
++            DispatchIO.write(toFileDescriptor: childfd, data: ddata, runningHandlerOn: DispatchQueue.global(qos: .userInitiated), handler: { [weak self] dd, errno in
+                 guard let self else { return }
++                self.writeLock.lock()
++                self.asyncWritesInFlight -= 1
++                self.writeLock.unlock()
+                 self.total += copyCount
+                 if self.debugIO {
+                     print ("[SEND-\(copy)] completed bytes=\(self.total)")
+@@ -237,7 +300,28 @@
+                 }
+             })
+         }
++    }
+ 
++    /**
++     * Sends the array slice to the local process.
++     *
++     * Small payloads (<= `synchronousWriteLimit`) are written directly on the caller's
++     * thread when no DispatchIO write is in flight and the pty master is O_NONBLOCK
++     * (patch 0016).  Larger payloads, or payloads that arrive while a DispatchIO write
++     * is in flight, always use DispatchIO so byte order is preserved.
++     * - Parameter data: The range of bytes to send to the child process
++     */
++    public func send (data: ArraySlice<UInt8>)
++    {
++        guard running else {
++            return
++        }
++        if LocalProcess.synchronousSmallWritesEnabled,
++           data.count <= LocalProcess.synchronousWriteLimit {
++            writeDirectlyIfIdle(data)
++        } else {
++            sendViaDispatchIO(data)
++        }
+     }
+     
+     /* Used to generate the next file name counter */
