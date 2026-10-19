@@ -93,15 +93,22 @@ if launch_calls_permission "$SRC_APPDELEGATE"; then
 fi
 say "  ok  no requestAuthorization reachable from AppDelegate launch"
 
-# A2: CommandNotification.swift must reference policy.notificationRequested
-#     — the single delivery funnel must consult the policy.
-say "A2: CommandNotification must route through policy.notificationRequested..."
-if ! grep -q 'policy\.notificationRequested' "$SRC_NOTIFICATION"; then
-    echo "FAIL A2: CommandNotification.swift does not call policy.notificationRequested." >&2
-    echo "         The single delivery funnel must consult the permission policy." >&2
-    exit 1
-fi
-say "  ok  CommandNotification routes through policy.notificationRequested"
+# A2: CommandNotification.swift structural funnel check (comment-stripped).
+#   (a) postIfNeeded and postEscapeNotification must each call post(title: in their
+#       own body — so neither can bypass the policy by calling actuallyPost directly.
+#   (b) actuallyPost must only be referenced from within the private post() body and
+#       the authorization completion handler, NOT from either public entry point.
+# Falsified by rewiring postEscapeNotification to call actuallyPost directly.
+say "A2: CommandNotification public entry points must funnel through post(title:)..."
+_a2_fail() { echo "FAIL A2: $*" >&2; exit 1; }
+# Strip line comments, then extract the body of each public function up to its
+# closing brace (lines between the func line and the next standalone '}').
+_body() { awk "/static func $1/,/^    }$/{print}" "$SRC_NOTIFICATION" | grep -v '^\s*//' ; }
+_body postIfNeeded       | grep -q 'post(title:'        || _a2_fail "postIfNeeded does not call post(title:)"
+_body postEscapeNotification | grep -q 'post(title:'   || _a2_fail "postEscapeNotification does not call post(title:)"
+_body postIfNeeded       | grep -q 'actuallyPost'       && _a2_fail "postIfNeeded calls actuallyPost directly"
+_body postEscapeNotification | grep -q 'actuallyPost'  && _a2_fail "postEscapeNotification calls actuallyPost directly"
+say "  ok  both public entry points funnel through post(title:) only"
 
 # A3: CommandNotification.swift must reference CommandOutcome.longRunningThreshold
 #     (inherited from the pre-T2.5 invariant; check-command-notification.sh also pins this).
@@ -166,6 +173,16 @@ let q = p.authorizationCompleted(granted: true)
 check("B5 state authorized", p.authState == .authorized)
 check("B5 queue cleared", p.pendingQueue.isEmpty)
 check("B5 returned count", q.count == cap)  // cap items were in queue
+
+// MARK: - B5b: trigger-only grant — one notification, no burst, grant → authorized, queue empty
+var p5b = NotificationPermissionPolicy()
+_ = p5b.notificationRequested(title: "only", body: "one")  // → .requestThenPost, state .pending
+check("B5b state pending", p5b.authState == .pending)
+check("B5b queue empty before grant", p5b.pendingQueue.isEmpty)  // no burst; nothing enqueued
+let q5b = p5b.authorizationCompleted(granted: true)
+check("B5b state authorized", p5b.authState == .authorized)
+check("B5b returned queue empty", q5b.isEmpty)  // trigger carried in action value, not queue
+check("B5b pendingQueue cleared", p5b.pendingQueue.isEmpty)
 
 // MARK: - B6: authorized → post
 let a6 = p.notificationRequested(title: "post", body: "me")
@@ -272,6 +289,9 @@ PENDING_LINE=$(grep -n 'authState = .pending' "$SRC_POLICY" | head -1 | cut -d: 
 DENIED_DROP_LINE=$((DENIED_RETURN_LINE + 1))
 sed "${DENIED_DROP_LINE}s/return .drop/return .post(title: title, body: body)/" \
     "$SRC_POLICY" > "$TMP/m_denied.swift"
+if cmp -s "$SRC_POLICY" "$TMP/m_denied.swift"; then
+    echo "error: mutant 1 sed did not apply — target line may have shifted" >&2; exit 2
+fi
 require_fail "re-ask-when-denied" "$TMP/m_denied.swift"
 
 # Mutant 2: remove the state transition to .pending (state stays .notDetermined after first call).
