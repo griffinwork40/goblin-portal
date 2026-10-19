@@ -271,8 +271,8 @@ patched_terminal_view_search  = 59314eda53d681038224cd9525f65a1f1ced1bad21d5983c
 
 # MacDisplayLinkPacer.swift — added by 0010-pace-redraws-on-display-link.patch, no
 # upstream counterpart, AFTER 0016-pause-sooner-for-slow-producers.patch (one combined
-# hash: a tree with 0010 but not 0016 is "unknown" by design). This is the hash verify-vendor.sh requires (checked in
-# verify-vendor-views.sh).
+# hash: a tree with 0010 but not 0016 is "unknown" by design).
+# This is the hash verify-vendor.sh requires (checked in verify-vendor-views.sh).
 #
 # What 0010 does: upstream coalesces redraws with asyncAfter(+16.67ms) from the first
 # queued byte, which has no relationship to vsync. A 60fps producer is coalesced to ~30fps
