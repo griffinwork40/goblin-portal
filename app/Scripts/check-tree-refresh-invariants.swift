@@ -216,7 +216,7 @@ func runInvariantCases(vc: FileTreeViewController, treeURL: URL) {
           case: "EXPAND-IN-FLIGHT",
           msg: "b/ children=\(childNames(bNode)) expanded=\(ov.isItemExpanded(bNode)) yRow=\(yShown)")
 
-    // CASE 16: ASYNC-SORT-ORDER (#207). The injected lister deliberately returns
+    // CASE 16: ASYNC-SORT-ORDER-MODEL / -DISPLAY (#207). The injected lister deliberately returns
     // unsorted values, so neither production FileManager order nor the sync first
     // frame can accidentally prove async ordering. Exercise BOTH setRoot and refresh.
     let sortRoot = treeURL.appendingPathComponent("sorting")
