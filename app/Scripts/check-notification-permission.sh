@@ -38,16 +38,23 @@
 #   A1:  AppDelegate must not call requestAuthorization at launch (getNotificationSettings ok).
 #   A1b: AppDelegate calls readNotificationAuthState (#229 launch wiring).
 #   A1c: AppDelegate+Notifications uses getNotificationSettings (reads without prompting).
-#   A2:  CommandNotification public entry points funnel through post(title:), never actuallyPost.
+#   A2:  CommandNotification routes through policy.notificationRequested (#250 structural).
 #   A3:  CommandNotification couples to CommandOutcome.longRunningThreshold.
 #
 # WHAT IT CANNOT REACH
-#   System permission dialog timing, OS completion-handler ordering, UNDaemon
-#   behaviour under a live AppKit run loop — daily-drive territory.
+#   Whether the system permission dialog actually appears at the right moment,
+#   whether the OS delivers the completion handler on the thread we expect, or
+#   whether UNUserNotificationCenter honours the deferred grant in practice —
+#   all require a live UNDaemon and the app running.  Those are daily-drive
+#   territory.  The DispatchQueue.main.async hop in the completion handler is
+#   the concurrency seam the gate cannot inspect; it is the only path from an
+#   arbitrary-thread callback back to the @MainActor policy.
 #
 # EXIT CODES
-#   0 = all checks pass.  1 = policy/wiring failure.
-#   2 = environmental (no toolchain, missing source, harness would not compile).
+#   0 = all checks pass.
+#   1 = a real policy or wiring failure.
+#   2 = environmental: no toolchain, source missing, or harness would not compile.
+#       A broken environment must never masquerade as a green gate.
 #
 set -uo pipefail
 
@@ -68,61 +75,6 @@ for f in "$SRC_POLICY" "$SRC_NOTIFICATION" "$SRC_APPDELEGATE" "$SRC_APPDELEGATE_
     [[ -f "$f" ]] || {
         echo "error: $f not found — did the file move?" >&2; exit 2; }
 done
-
-# ---------------------------------------------------------------------------
-# Part A: Structural wiring greps
-# ---------------------------------------------------------------------------
-
-# A1: AppDelegate must not call requestPermissionIfNeeded or requestAuthorization at launch.
-#     getNotificationSettings IS allowed (#229). Comments stripped; function form lets mutant 3
-#     run the same assertion against a mutated copy.
-launch_calls_permission() {
-    grep -v '^\s*//' "$1" | grep -q 'requestPermissionIfNeeded\|requestAuthorization'
-}
-say "A1: AppDelegate launch must not call requestAuthorization (getNotificationSettings allowed)..."
-if launch_calls_permission "$SRC_APPDELEGATE"; then
-    echo "FAIL A1: AppDelegate.swift contains requestPermissionIfNeeded or requestAuthorization." >&2
-    echo "         Launch must not prompt — T2.5. getNotificationSettings is allowed." >&2
-    exit 1
-fi
-say "  ok  no requestAuthorization reachable from AppDelegate launch"
-
-# A1b: AppDelegate calls readNotificationAuthState (#229). A1c: AppDelegate+Notifications
-#       calls getNotificationSettings (reads existing auth without prompting).
-say "A1b: AppDelegate.swift calls readNotificationAuthState (#229 launch wiring)..."
-if ! grep -v '^\s*//' "$SRC_APPDELEGATE" | grep -q 'readNotificationAuthState'; then
-    echo "FAIL A1b: AppDelegate.swift does not call readNotificationAuthState (#229)." >&2
-    exit 1
-fi
-say "  ok  readNotificationAuthState wired at launch"
-say "A1c: AppDelegate+Notifications implements via getNotificationSettings (no prompt)..."
-if ! grep -v '^\s*//' "$SRC_APPDELEGATE_NOTIF" | grep -q 'getNotificationSettings'; then
-    echo "FAIL A1c: AppDelegate+Notifications.swift does not call getNotificationSettings." >&2
-    exit 1
-fi
-say "  ok  getNotificationSettings used (reads without prompting)"
-
-# A2: CommandNotification structural funnel check (comment-stripped): both public entry
-#     points call post(title:) and neither calls actuallyPost directly.
-#     Falsified by rewiring postEscapeNotification to call actuallyPost directly.
-say "A2: CommandNotification public entry points must funnel through post(title:)..."
-_a2_fail() { echo "FAIL A2: $*" >&2; exit 1; }
-# Strip line comments, then extract the body of each public function up to its
-# closing brace (lines between the func line and the next standalone '}').
-_body() { awk "/static func $1/,/^    }$/{print}" "$SRC_NOTIFICATION" | grep -v '^\s*//' ; }
-_body postIfNeeded       | grep -q 'post(title:'        || _a2_fail "postIfNeeded does not call post(title:)"
-_body postEscapeNotification | grep -q 'post(title:'   || _a2_fail "postEscapeNotification does not call post(title:)"
-_body postIfNeeded       | grep -q 'actuallyPost'       && _a2_fail "postIfNeeded calls actuallyPost directly"
-_body postEscapeNotification | grep -q 'actuallyPost'  && _a2_fail "postEscapeNotification calls actuallyPost directly"
-say "  ok  both public entry points funnel through post(title:) only"
-
-# A3: CommandNotification must reference CommandOutcome.longRunningThreshold (pre-T2.5 invariant).
-say "A3: CommandNotification still couples to CommandOutcome.longRunningThreshold..."
-if ! grep -q 'CommandOutcome\.longRunningThreshold' "$SRC_NOTIFICATION"; then
-    echo "FAIL A3: CommandNotification.swift no longer references CommandOutcome.longRunningThreshold." >&2
-    exit 1
-fi
-say "  ok  threshold coupling intact"
 
 # ---------------------------------------------------------------------------
 # Part B: Compiled policy harness
@@ -261,78 +213,16 @@ out="$("$TMP/gate" 2>&1)"; gate_status=$?
 say "$out"
 
 # ---------------------------------------------------------------------------
-# Part C: Falsification — each mutant must exit 1
-# Line-number sed for stability; same main.swift truth table; exit 0 = blind gate (exit 2).
+# Parts A + C live in notification-permission-wiring.sh (sourced, not a
+# standalone gate).  Sourced after Part B so $TMP and main.swift are available
+# for the falsification mutants.
+# ---------------------------------------------------------------------------
+. "$(dirname "$0")/notification-permission-wiring.sh"
+
+# ---------------------------------------------------------------------------
+# Summary
 # ---------------------------------------------------------------------------
 say ""
-say "C: Falsification..."
-
-require_fail() {
-    local label="$1"
-    local mutant="$2"
-    if ! swiftc -o "$TMP/${label}_bin" \
-        "$mutant" \
-        "$TMP/main.swift" 2>"$TMP/${label}_compile.log"; then
-        echo "FAIL falsification($label): mutant did not compile — gate is blind" >&2
-        cat "$TMP/${label}_compile.log" | head -5 | sed 's/^/    /' >&2
-        exit 2
-    fi
-    "$TMP/${label}_bin" > "$TMP/${label}.log" 2>&1
-    code=$?
-    if [[ $code -eq 1 ]]; then
-        say "  ok  mutant($label) correctly exits 1"
-    elif [[ $code -eq 0 ]]; then
-        echo "FAIL falsification($label): mutant passed when it should fail" >&2
-        cat "$TMP/${label}.log" | sed 's/^/    /' >&2
-        exit 1
-    else
-        echo "FAIL falsification($label): mutant exited $code (expected 1)" >&2
-        exit 1
-    fi
-}
-
-# Discover the line numbers we need once — avoids brittle line-number constants.
-# All three sed targets below are UNIQUE strings in the policy file.
-DENIED_RETURN_LINE=$(grep -n 'case .denied:' "$SRC_POLICY" | tail -1 | cut -d: -f1)
-PENDING_LINE=$(grep -n 'authState = .pending' "$SRC_POLICY" | head -1 | cut -d: -f1)
-
-[[ -n "$DENIED_RETURN_LINE" && -n "$PENDING_LINE" ]] || {
-    echo "error: could not locate mutation targets in $SRC_POLICY" >&2; exit 2; }
-
-# Mutant 1: denied → post (should drop); B8 must fail.
-DENIED_DROP_LINE=$((DENIED_RETURN_LINE + 1))
-sed "${DENIED_DROP_LINE}s/return .drop/return .post(title: title, body: body)/" \
-    "$SRC_POLICY" > "$TMP/m_denied.swift"
-if cmp -s "$SRC_POLICY" "$TMP/m_denied.swift"; then
-    echo "error: mutant 1 sed did not apply — target line may have shifted" >&2; exit 2
-fi
-require_fail "re-ask-when-denied" "$TMP/m_denied.swift"
-
-# Mutant 2: remove .pending transition; B1 state-after and B2 enqueue must fail.
-sed "${PENDING_LINE}s/authState = .pending/\/\/ authState transition removed/" \
-    "$SRC_POLICY" > "$TMP/m_pending.swift"
-require_fail "no-pending-transition" "$TMP/m_pending.swift"
-
-# Mutant 3: re-insert a live requestPermissionIfNeeded call into AppDelegate and require A1
-# to fire. Comment injection cannot work — A1 strips comments first (PR #227 R1.1).
-LAUNCH_LINE=$(grep -n 'func applicationDidFinishLaunching(' "$SRC_APPDELEGATE" | head -1 | cut -d: -f1)
-[[ -n "$LAUNCH_LINE" ]] || {
-    echo "error: applicationDidFinishLaunching not found in $SRC_APPDELEGATE — mutant 3 cannot apply" >&2; exit 2; }
-sed "${LAUNCH_LINE}a\\
-        CommandNotification.requestPermissionIfNeeded()
-" "$SRC_APPDELEGATE" > "$TMP/m_launch_call.swift"
-if cmp -s "$SRC_APPDELEGATE" "$TMP/m_launch_call.swift"; then
-    echo "FAIL falsification(launch-call): injection did not apply — mutant never ran" >&2
-    exit 2
-fi
-if launch_calls_permission "$TMP/m_launch_call.swift"; then
-    say "  ok  mutant(launch-call) A1 fires on a live call re-inserted into applicationDidFinishLaunching"
-else
-    echo "FAIL falsification(launch-call): A1 is blind to a live re-inserted call" >&2
-    exit 1
-fi
-
-say ""  # summary
 if [[ $gate_status -eq 0 ]]; then
     say "all notification-permission checks passed (structural + policy truth table + falsification)"
 else
