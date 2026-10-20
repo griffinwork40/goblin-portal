@@ -42,12 +42,12 @@
 # verified against a menu item that does not exist.
 # Selectors with a tag (find-panel variants) are matched by (selector, tag) pair.
 #
-# FALSIFICATION. Validated by commenting out one palette command → exit 1 (missing
-# selector listed); restoring → exit 0. No sentinel-selector control: the gate is
-# a set-membership check, not a responder-chain query (no "resolves everything" risk).
-# PART 2 key-hint mutant: manual procedure — in a COPY of CommandPalette+Commands.swift
-# change one keyHint (e.g. "⌘T" → "⌘X" for "New Tab") and require exit 1. Manual
-# because the harness is at the 350-LOC ceiling; a scripted mutant is deferred until split.
+# FALSIFICATION. Part 1: comment out one palette command → exit 1 (missing selector
+# listed); restoring → exit 0. No sentinel-selector control: set-membership check,
+# not a responder-chain query (no "resolves everything" risk).
+# Part 2 (--falsify, check-palette-covers-menu-falsify.sh): mutates "New Tab" keyHint
+# "⌘T"→"⌘X" in a cp -cR copy of CommandPalette+Commands.swift (shipped source,
+# harness untouched) and requires the hint-mismatch case to exit 1 with "New Tab" named.
 #
 # EXIT CODES (same three-valued contract as every gate in this repo):
 #   0 = all menu selectors are covered by the palette or the allowlist,
@@ -66,7 +66,7 @@
 # Usage: ./Scripts/check-palette-covers-menu.sh
 #
 set -uo pipefail
-
+[ "${1:-}" = "--falsify" ] && exec "$(cd "$(dirname "$0")" && pwd)/check-palette-covers-menu-falsify.sh"
 QUIET="${QUIET:-0}"
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 

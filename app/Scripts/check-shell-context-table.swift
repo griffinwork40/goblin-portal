@@ -212,9 +212,10 @@ check("#207 tmux pane with local command -> path returned as .local",
 //    (Models: shell was polled after `cd X && exec cmd`; OSC 7 still names the old dir.)
 //    Falsification mutant 12 (last-known-dir-prefers-osc7) in check-shell-context-falsify.sh
 //    flips the ?? order in the PRODUCTION getter (TerminalPane+DirectoryState.swift) and
-//    must fail "#208-A lastLocalDirectory wins over localReport" in check-shell-context.sh
-//    layer 1. Cases A and D below exercise FakeState only (harness-local); they document
-//    the intended ordering but are not what mutant 12 catches.
+//    is caught by layer 2 CASE 10: a real pane whose kernel-resolved lastLocalDirectory
+//    (dirB) differs from its stored OSC 7 report (dirR) must return dirB; the flipped
+//    getter returns dirR instead. Cases A and D below exercise FakeState only
+//    (harness-local); they document the intended ordering but are not what mutant 12 catches.
 print("lastKnownDirectoryPath preference order")
 struct FakeState {
     var lastLocalDirectory: String?

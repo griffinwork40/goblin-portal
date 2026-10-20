@@ -138,9 +138,11 @@ mutant tmux-nil-answer-silent ShellContext.swift "unfindable tmux server" \
 '            _ = tmuxAnswered'
 # 12. #208 regression: lastKnownDirectoryPath reverted to prefer localReport over
 #     lastLocalDirectory — the stale OSC 7 outranks the kernel-resolved path again.
-#     Caught by the pure table case "#208-A lastLocalDirectory wins over localReport".
+#     Caught by layer 2 CASE 10: a real pane with a kernel-resolved lastLocalDirectory
+#     (dirB) and a stale OSC 7 report (dirR from CASE 5) must return dirB from
+#     lastKnownDirectoryPath; flipping the ?? order returns dirR instead.
 mutant last-known-dir-prefers-osc7 TerminalPane+DirectoryState.swift \
-    "#208-A lastLocalDirectory wins over localReport" \
+    "#208 lastKnownDirectoryPath on real pane: kernel-resolved path wins over stale OSC 7" \
 '        return state.lastLocalDirectory ?? state.localReport' \
 '        return state.localReport ?? state.lastLocalDirectory'
 
