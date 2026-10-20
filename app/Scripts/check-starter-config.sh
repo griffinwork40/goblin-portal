@@ -46,17 +46,17 @@
 # or type mismatch). 2 = environmental (no toolchain, source file missing, harness
 # would not compile). A broken environment must never read as a green gate.
 #
-# FALSIFICATION. Two mutants:
-#   A: change #""" to """ / """# to """ in StarterConfig.swift → exit 1 (bad JSON).
-#   B (robustness control): indent `struct ConfigFile` in Config.swift AND insert
-#     `/* var bogus } */` in its body → exit 0. Confirms stripper/brace-counter
-#     survive indentation and block-comments; does NOT prove the `^` anchor (an
-#     indented declaration matches both anchored and unanchored patterns).
-#
+# FALSIFICATION. A: #"""→""" in StarterConfig.swift → exit 1 (bad JSON).
+# B (robustness control): indent struct ConfigFile + block-comment in Config.swift →
+#   exit 0; confirms stripper/brace-counter survive but does NOT prove the ^ anchor.
+# C (anchor proof, --falsify): prepend `// struct ConfigFile { var decoy }` in a
+#   cp -cR copy of Config.swift; anchored awk ignores it (exit 0); unanchored awk
+#   emits "decoy" → drift mismatch → exit 1. (check-starter-config-falsify.sh)
 # Usage: ./Scripts/check-starter-config.sh
 #
 set -uo pipefail
 
+[ "${1:-}" = "--falsify" ] && exec "$(cd "$(dirname "$0")" && pwd)/check-starter-config-falsify.sh"
 cd "$(dirname "$0")/.."
 SRC="Sources/GoblinPortal/StarterConfig.swift"
 

@@ -237,6 +237,20 @@ MainActor.assumeIsolated {
     expect("after detach from the hidden server: .shell, .local", ctx.foreground == .shell
            && ctx.followStatus == .local, describe(ctx))
 
+    print("CASE 10 — lastKnownDirectoryPath on a real pane (#208, R1.2)")
+    // After CASE 8's detach, the pane is back at the shell in dirB with a live kernel
+    // read. `lastLocalDirectory` was written by every `.local` resolution with a non-nil
+    // path (TerminalPane+DirectoryState.swift:185). `lastKnownDirectoryPath` must return
+    // it — proving that the PRODUCTION getter (`state.lastLocalDirectory ?? state.localReport`)
+    // gives the kernel-resolved path precedence over the stale OSC 7 from CASE 5.
+    // This is the case mutant 12 (last-known-dir-prefers-osc7) must fail: it flips the ??
+    // order in the PRODUCTION getter so localReport wins — the real pane then returns
+    // dirR instead of dirB, and this assertion fires.
+    let lkd = pane.lastKnownDirectoryPath
+    expect("#208 lastKnownDirectoryPath on real pane: kernel-resolved path wins over stale OSC 7",
+           lkd == dirB.path,
+           "got=\(lkd ?? "nil") want=\(dirB.path) (stale OSC 7 was \(pane.directoryState.localReport ?? "nil"))")
+
     pane.documentWillClose()
     _ = pump(0.3)
     print("")
