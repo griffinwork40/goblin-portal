@@ -63,6 +63,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // AppDelegate+Notifications.swift.
         UNUserNotificationCenter.current().delegate = self
 
+        // Read the system's existing notification authorization without prompting
+        // and seed CommandNotification's policy. T2.5 deferred the permission
+        // prompt to the first relevant use; this read ensures a returning user
+        // who already granted does not pay an extra async round-trip on the first
+        // background-command notification of each session. Also re-reads on
+        // didBecomeActiveNotification so a System Settings change applies without
+        // a relaunch. Implementation in AppDelegate+Notifications.swift.
+        readNotificationAuthState()
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.readNotificationAuthState() }
+
         // Check for a newer release on GitHub, silently, at most once per 24 hours.
         // Deferred to the next run-loop tick so the window is visible before any
         // alert appears (auto-check only shows one when a new version exists).
