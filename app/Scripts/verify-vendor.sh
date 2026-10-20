@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its fifteen local patches applied.
+# WITH its sixteen local patches applied.
 #
 # Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
 # fine while silently corrupting scrollback (0002), bleeding stale cells across
@@ -12,7 +12,7 @@
 # small and off-centre under Metal (0012), misplacing combining marks after wide
 # CJK characters over the next narrow cell (0013), and silently ignoring `ligatures: false`
 # (0014), and rendering the scrollbar thumb as a fixed 1% hairline past ~4554 lines
-# (0015). This script makes that silent case loud. The view-file checks (0006-0015)
+# (0015). This script makes that silent case loud. The view-file checks (0006-0016)
 # live in verify-vendor-views.sh. Called first by make-app-bundle.sh.
 #
 # Buffer.swift carries 0002/0003/0004 under ONE combined hash — half-patched
@@ -54,6 +54,7 @@ PATCH_GLYPHMISS="$REPO_ROOT/patches/swiftterm/0011-cache-empty-glyphs-and-font-n
 PATCH_COLORGLYPH="$REPO_ROOT/patches/swiftterm/0012-rasterize-color-glyphs-at-logical-size.patch"
 PATCH_COMBINING="$REPO_ROOT/patches/swiftterm/0013-fix-combining-mark-after-wide-char.patch"
 PATCH_THUMB="$REPO_ROOT/patches/swiftterm/0015-proportional-scrollbar-thumb.patch"
+PATCH_SLOWPAUSE="$REPO_ROOT/patches/swiftterm/0016-pause-sooner-for-slow-producers.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -67,7 +68,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH" "$PATCH_COMBINING" "$PATCH_THUMB"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH" "$PATCH_COMBINING" "$PATCH_THUMB" "$PATCH_SLOWPAUSE"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -95,11 +96,11 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it:"
   err "  ./Scripts/bootstrap-vendor.sh"
   err ""
-  err "That clones $UPSTREAM_TAG, applies all fifteen patches in order, and re-runs this"
+  err "That clones $UPSTREAM_TAG, applies all sixteen patches in order, and re-runs this"
   err "check for the verdict. app/README.md documents the manual equivalent if you"
   err "would rather see the steps than trust a script."
   err ""
-  err "ALL FIFTEEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
+  err "ALL SIXTEEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
   err "narrowing), 0003 fixes the alt-buffer resize defect (stale cells bleeding across tmux"
   err "panes on widening), 0004 stops an upstream release-build abort() on every resize, 0005"
   err "adds DCS Ptmux passthrough, 0006 keeps the selection alive during linefeed at a plain"
@@ -109,9 +110,10 @@ if [[ ! -d "$VENDOR" ]]; then
   err "marks over the correct base glyph (not the next narrow cell), 0014 adds"
   err "disableLigatures so 'ligatures: false' in config.json actually works, and 0015"
   err "fixes the scrollbar thumb from a fixed 1% hairline to a proportional 1/rows floor"
-  err "so the thumb tracks position at any scrollback depth;"
+  err "so the thumb tracks position at any scrollback depth, and 0016 pauses the display"
+  err "link after one idle tick for producers slower than its idle window (spinners);"
   err "check-reflow.sh, check-altbuffer-resize.sh, check-render-parity.sh, and"
-  err "check-scrollback-cost.sh prove 0002, 0003, 0012, 0013, 0014, and 0015."
+  err "check-scrollback-cost.sh prove 0002, 0003, 0012, 0013, 0014, 0015, and check-display-link.sh proves 0010 and 0016."
   exit 1
 fi
 
@@ -282,4 +284,4 @@ fi
 # Sourced, not executed, so its exits are this script's.
 . "$APP_ROOT/Scripts/verify-vendor-views.sh"
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 15 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 16 local patches"
