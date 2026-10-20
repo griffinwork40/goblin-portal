@@ -47,7 +47,6 @@ enum CloseConfirmation {
         close.keyEquivalent = "\r"
         let cancel = alert.addButton(withTitle: "Cancel")
         cancel.keyEquivalent = "\u{1b}"
-        alert.window.defaultButtonCell = close.cell as? NSButtonCell
         return alert.runModal() == .alertFirstButtonReturn
     }
 }

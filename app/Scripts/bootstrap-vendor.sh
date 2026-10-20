@@ -102,6 +102,7 @@ PATCHES=(
   "0013-fix-combining-mark-after-wide-char.patch"
   "0014-disable-ligatures-both-renderers.patch"
   "0015-proportional-scrollbar-thumb.patch"
+  "0016-pause-sooner-for-slow-producers.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then

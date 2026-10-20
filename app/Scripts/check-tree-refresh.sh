@@ -30,7 +30,7 @@
 #  13. SELECTION-SURVIVES — selection reselected by URL after an async landing
 #  14. SUBFOLDER-REFRESH  — a new file in an expanded subfolder appears on refresh
 #  15. EXPAND-IN-FLIGHT   — a folder expanded mid-refresh keeps its children
-#  16. ASYNC-SORT-ORDER  — unsorted seam values ordered in setRoot/refresh (#207)
+#  16. ASYNC-SORT-ORDER-MODEL / -DISPLAY — unsorted seam values ordered in model and display for setRoot/refresh (#207)
 #   (9-16 live in check-tree-refresh-invariants.swift)
 #
 # --falsify  runs check-tree-refresh-falsify.sh instead (mutation testing).

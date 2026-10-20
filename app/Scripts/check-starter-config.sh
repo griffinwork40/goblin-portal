@@ -45,17 +45,17 @@
 # EXIT CODES: 0 = all cases passed. 1 = a real assertion failed (bad JSON, unknown key,
 # or type mismatch). 2 = environmental (no toolchain, source file missing, harness
 # would not compile). A broken environment must never read as a green gate.
-#
 # FALSIFICATION. A: #"""→""" in StarterConfig.swift → exit 1 (bad JSON).
-# B (robustness control): indent struct ConfigFile + block-comment in Config.swift →
-#   exit 0; confirms stripper/brace-counter survive but does NOT prove the ^ anchor.
-# C (anchor proof, --falsify): prepend `// struct ConfigFile { var decoy }` in a
-#   cp -cR copy of Config.swift; anchored awk ignores it (exit 0); unanchored awk
-#   emits "decoy" → drift mismatch → exit 1. (check-starter-config-falsify.sh)
+# B (robustness control): indent `struct ConfigFile` in Config.swift AND insert
+#   `/* var bogus } */` in its body → exit 0. Confirms stripper/brace-counter
+#   survive indentation and block-comments; does NOT prove the `^` anchor.
+#   Positive `^` proof: a decoy `// struct ConfigFile {` line above the real
+#   struct must be ignored (exit 0); an unanchored pattern would match it.
+# C (anchor proof, --falsify): check-starter-config-falsify.sh prepends that decoy
+#   to a cp -cR copy of Config.swift; anchored awk exits 0, unanchored exits 1.
 # Usage: ./Scripts/check-starter-config.sh
 #
 set -uo pipefail
-
 [ "${1:-}" = "--falsify" ] && exec "$(cd "$(dirname "$0")" && pwd)/check-starter-config-falsify.sh"
 cd "$(dirname "$0")/.."
 SRC="Sources/GoblinPortal/StarterConfig.swift"

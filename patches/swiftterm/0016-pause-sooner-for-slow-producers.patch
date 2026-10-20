@@ -1,0 +1,64 @@
+--- a/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
++++ b/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
+@@ -22,6 +22,17 @@
+ //   * Pause the link after `idleTicksBeforePause` consecutive idle ticks, so a terminal at
+ //     rest costs nothing. 8 ticks (67ms at 120Hz, 133ms at 60Hz) is longer than the gap of
+ //     a 30fps producer at either rate, so a steady stream never pause/resume-churns.
++//   * LOCAL PATCH 0016: a producer SLOWER than that window (a 12 Hz agent spinner at 120 or
++//     144 Hz: an 83ms gap against a 56-67ms window) churns anyway, once per frame, and the
++//     8 idle ticks before each pause bought nothing. Each tick is a synchronous CoreAnimation
++//     round trip into WindowServer (SLSDisplayStatusQuery), and a 12 Hz spinner at 144 Hz
++//     spent 9 ticks per paint. So when the gap since the previous paint already exceeded the
++//     window, the link pauses after ONE idle tick instead. It can only pause where the old
++//     rule was going to pause anyway (plus at most one extra resume when a slow producer
++//     speeds up), so a steady 30-60fps stream is untouched. Measured: 2160 -> 480 ticks for
++//     240 spinner paints at 144 Hz; 60/30fps streams unchanged (.afk/research/
++//     metal-idle-encode-2026-10-18.md). `SWIFTTERM_ADAPTIVE_PAUSE=0` restores the fixed
++//     window, and is how check-display-link.sh case 9 falsifies itself.
+ //   * Synchronized output (DEC mode 2026) is honoured by the SAME code that honoured it
+ //     before: queuePendingDisplay refuses to queue while it is active, and updateDisplay
+ //     early-returns while it is active. When the app ends the sync block,
+@@ -52,6 +63,10 @@
+     private var link: NSObject?
+     private var idleTicks = 0
+     private var lastTick: CFTimeInterval = 0
++    /// When the previous paint landed (0 = none yet), and whether the gap that ended at the
++    /// most recent paint was longer than the idle window (0016).
++    private var lastPaint: CFTimeInterval = 0
++    private var slowProducer = false
+     private var watchdogArmed = false
+     /// A Metal-only redraw (live resize, cursor colour) queued for the next tick.
+     private var metalPending = false
+@@ -116,9 +131,16 @@
+         lastTick = CACurrentMediaTime()
+         if paintPending(view) {
+             idleTicks = 0
++            // 0016: the idle window in seconds, at this display's refresh. A gap longer than
++            // it means the link paused and resumed between these two paints already.
++            let window = Double(TerminalDisplayPacer.idleTicksBeforePause)
++                * (sender.targetTimestamp - sender.timestamp)
++            slowProducer = TerminalView.adaptiveIdlePauseEnabled
++                && lastPaint > 0 && lastTick - lastPaint > window
++            lastPaint = lastTick
+         } else {
+             idleTicks += 1
+-            if idleTicks >= TerminalDisplayPacer.idleTicksBeforePause {
++            if idleTicks >= (slowProducer ? 1 : TerminalDisplayPacer.idleTicksBeforePause) {
+                 sender.isPaused = true
+             }
+         }
+@@ -169,6 +191,14 @@
+         return !(value == "0" || value == "false" || value == "FALSE")
+     }()
+ 
++    /// Patch 0016: pause after one idle tick when the producer is slower than the idle
++    /// window (see the pacer's header). Defaults to on; `SWIFTTERM_ADAPTIVE_PAUSE=0` or
++    /// assigning `false` restores 0010's fixed eight-tick window.
++    public static var adaptiveIdlePauseEnabled: Bool = {
++        let value = ProcessInfo.processInfo.environment["SWIFTTERM_ADAPTIVE_PAUSE"]
++        return !(value == "0" || value == "false" || value == "FALSE")
++    }()
++
+     /// Called on the main thread once per paint that had dirty rows, on BOTH the paced
+     /// and the fallback path. nil (the default) costs one load per paint. Goblin Portal
+     /// installs it under GOBLIN_PORTAL_DIAG; check-display-link.sh installs it to measure.

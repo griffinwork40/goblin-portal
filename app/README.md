@@ -36,7 +36,7 @@ of pure logic would have caught. So the checks are the `check-*.sh` scripts, a v
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all fifteen patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all sixteen patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-info-plist.sh    # every privacy usage-description key (incl. Local Network) is in the shipped Info.plist — headless
 ./Scripts/check-afk-loc.sh      # every `| \`X.swift\` | N |` row in AFK.md equals wc -l — headless (#178)
@@ -425,7 +425,7 @@ existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **fifteen** local patches:
+Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **sixteen** local patches:
 
 1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
    shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
@@ -521,8 +521,23 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **fifteen** local
     Gated by `check-render-parity.sh` ligature cases (both renderers, on+off); falsified
     by removing the `kCTLigatureAttributeName` injection. Fixes #153.
 
+15. `0015-proportional-scrollbar-thumb.patch` — replaces the scrollbar thumb's fixed 1%
+    floor in `scrollThumbsize` (`AppleTerminalView.swift`) with `1/rows`, so above ~4,554
+    lines of scrollback the thumb still tracks position instead of collapsing to a hairline
+    of constant size (T2.4).
+
+16. `0016-pause-sooner-for-slow-producers.patch` — when the gap since the previous paint
+    was longer than 0010's eight-tick idle window, `MacDisplayLinkPacer` pauses the display
+    link after **one** idle tick instead of eight. A 12 Hz agent spinner at 120/144 Hz
+    already paused and resumed the link once per frame, but paid eight idle ticks first,
+    each a synchronous CoreAnimation round trip into WindowServer: 9 ticks per paint, now 2
+    (measured 2160 -> 480 ticks for 240 paints at 144 Hz). Steady 16/33ms streams are
+    unchanged apart from one extra pause at the start of a burst. `SWIFTTERM_ADAPTIVE_PAUSE=0`
+    restores the fixed window. Gated by `check-display-link.sh` case 9, falsified with that
+    switch. Diagnosis: `../.afk/research/metal-idle-encode-2026-10-18.md` (#143).
+
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0015` (fifteen patches) in `../patches/swiftterm/`, all pinned by
+`0001` through `0016` (sixteen patches) in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -548,8 +563,8 @@ patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-ab
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
-for p in patches/swiftterm/00{06,07,08,09,10,11,12,13,14,15}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all fifteen patches)
+for p in patches/swiftterm/00{06,07,08,09,10,11,12,13,14,15,16}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all sixteen patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader

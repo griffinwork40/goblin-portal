@@ -20,11 +20,12 @@
 #      This line matches an UNANCHORED `struct ConfigFile` grep but must NOT be
 #      treated as the real struct declaration by the anchored awk pattern, because
 #      the awk comment-stripper removes `// …` lines before the pattern fires.
-#   3. ALSO add a real but differently-named struct before ConfigFile in the copy,
-#      so that an anchor-less awk (one that forgets to strip comments) would find
-#      the decoy's brace first and emit "decoy" as a property — causing a drift
-#      mismatch. The anchored, comment-stripping awk must skip the decoy entirely
-#      and still find the real ConfigFile, emitting the real properties and exiting 0.
+#   3. The decoy line begins with `//`, so the awk comment-stripper removes it before
+#      the struct-finder pattern fires. An anchor-less awk that skips comment-stripping
+#      would match the decoy, enter the struct body (the `{` on that same line), find
+#      no `var` declarations before the closing `}`, and exit having emitted nothing —
+#      causing a drift mismatch. The anchored, comment-stripping awk must skip the
+#      decoy entirely and still find the real ConfigFile, exiting 0.
 #   4. Run the clone's check-starter-config.sh in normal mode.
 #   5. Exit 0 from the clone = anchor proved (decoy ignored, real struct found).
 #      Exit 1 = anchor broken (decoy was treated as the struct); falsify fails (exit 1).

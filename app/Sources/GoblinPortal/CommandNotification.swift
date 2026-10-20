@@ -168,6 +168,25 @@ enum CommandNotification {
         }
     }
 
+    // MARK: - Launch-time auth seeding
+
+    /// Called once at launch from `AppDelegate+Notifications.swift` after
+    /// `getNotificationSettings` resolves the system's current authorization.
+    ///
+    /// WHY: On cold launch the policy starts `.notDetermined`, so the first
+    /// background-command notification always triggers `requestAuthorization`
+    /// even for a returning user who already granted. `getNotificationSettings`
+    /// reads the existing status without ever prompting — T2.5's "no prompt at
+    /// launch" rule is preserved — and seeding the policy here avoids the extra
+    /// async callback + main-queue hop on the happy path.
+    ///
+    /// WHY static: `policy` is `private static`; this keeps the mutation
+    /// confined to `CommandNotification` and avoids exposing the policy struct
+    /// directly to callers.
+    static func applyKnownAuthState(_ state: NotificationPermissionPolicy.AuthState) {
+        policy.applyKnownState(state)
+    }
+
     // MARK: - Helpers
 
     private static func formatDuration(_ seconds: Double) -> String {
