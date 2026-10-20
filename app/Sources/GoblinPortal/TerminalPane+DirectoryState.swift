@@ -30,11 +30,14 @@ struct TmuxClientKey: Equatable {
     let tty: String
 }
 
-/// One tmux answer and when it was taken. `directory` nil is a real answer ("tmux could
+/// One tmux answer and when it was taken. `state` nil is a real answer ("tmux could
 /// not say"), cached like any other so a failing tmux is asked at most twice a second.
 struct TmuxCacheEntry: Equatable {
     let key: TmuxClientKey
-    let directory: URL?
+    /// The active pane's path + command, or nil when tmux could not answer.
+    /// Carries `pane_current_command` so ShellContext can detect a remote session
+    /// running in the pane without a second spawn (#207, R1.4, 2026-10-19).
+    let state: TmuxPaneState?
     /// `ProcessInfo.systemUptime` (monotonic), so a wall-clock change cannot freeze it.
     let sampledAt: TimeInterval
     let generation: Int
@@ -144,7 +147,7 @@ extension TerminalPane {
         let state = directoryState
         noteForeground(kind, state)
 
-        var shellDirectory: URL?, knownShellDirectory: URL?, tmuxDirectory: URL?
+        var shellDirectory: URL?, knownShellDirectory: URL?, tmuxState: TmuxPaneState?
         var tmuxAnswered = false
         var reported: Osc7Directory? = state.localReport.map { .local(path: $0) }
         switch kind {
@@ -157,7 +160,7 @@ extension TerminalPane {
         case .tmuxClient(let pid, let tty)?:
             let key = TmuxClientKey(pid: pid, tty: tty)
             if let entry = state.tmuxCache, entry.key == key {
-                tmuxDirectory = entry.directory
+                tmuxState = entry.state
                 tmuxAnswered = true
                 if ProcessInfo.processInfo.systemUptime - entry.sampledAt > tmuxCacheMaxAge {
                     scheduleTmuxQuery(key, state)
@@ -176,7 +179,7 @@ extension TerminalPane {
         }
         let context = ShellDirectoryPolicy.resolve(
             foreground: kind, reported: reported, shellDirectory: shellDirectory,
-            knownShellDirectory: knownShellDirectory, tmuxDirectory: tmuxDirectory,
+            knownShellDirectory: knownShellDirectory, tmuxState: tmuxState,
             tmuxAnswered: tmuxAnswered)
         // Track the last kernel-resolved local directory for `lastKnownDirectoryPath`.
         // Updated on every `.local` resolution with a non-nil path so that `cd X && exec
@@ -208,7 +211,7 @@ extension TerminalPane {
     /// different generation (the cache was invalidated since), or a key that is no
     /// longer the live foreground (detached, re-attached, or tmux replaced by something
     /// else). Internal, not private, so the gate can deliver a late answer by hand.
-    func deliverTmuxDirectory(_ directory: URL?, for key: TmuxClientKey, generation: Int) {
+    func deliverTmuxDirectory(_ paneState: TmuxPaneState?, for key: TmuxClientKey, generation: Int) {
         let state = directoryState
         guard generation == state.tmuxGeneration, let process = view.process,
               case .tmuxClient(let pid, let tty)? = ForegroundProcess.current(
@@ -219,7 +222,7 @@ extension TerminalPane {
             return
         }
         state.tmuxCache = TmuxCacheEntry(
-            key: key, directory: directory,
+            key: key, state: paneState,
             sampledAt: ProcessInfo.processInfo.systemUptime, generation: generation)
     }
 
@@ -246,12 +249,12 @@ extension TerminalPane {
         let generation = state.tmuxGeneration
         let tty = key.tty
         tmuxDirectoryQueue.async { [weak self] in
-            let directory = TmuxDirectory.current(clientTTY: tty)
+            let paneState = TmuxDirectory.current(clientTTY: tty)
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.directoryState.tmuxInFlight = nil
-                    self.deliverTmuxDirectory(directory, for: key, generation: generation)
+                    self.deliverTmuxDirectory(paneState, for: key, generation: generation)
                 }
             }
         }
