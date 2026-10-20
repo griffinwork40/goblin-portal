@@ -73,6 +73,13 @@ final class SpaceViewController: NSSplitViewController {
     /// subscript-set and removeValue. Writes go through that extension — convention-enforced.
     var splitPeers: [ObjectIdentifier: SplitEntry] = [:]
 
+    /// Opaque token returned by `NotificationCenter.addObserver(forName:…)` for the
+    /// `NSColor.systemColorsDidChangeNotification` subscription. Held here because Swift
+    /// extensions cannot add stored properties; the subscription logic lives in
+    /// `SpaceViewController+FocusCue.swift`. Released (and the observation removed) when
+    /// `unsubscribeFromSystemColorChanges()` is called or this object is deallocated.
+    var systemColorObserver: (any NSObjectProtocol)?
+
     /// Internal for the same reason `config` above is: document construction lives in
     /// `+DocumentConstruction` and needs `documentArea.container.bounds` as the frame for a
     /// new pane. `let`, so the promotion grants read access only.
@@ -125,6 +132,13 @@ final class SpaceViewController: NSSplitViewController {
         // Set the initial divider explicitly. `minimumThickness` alone leaves the
         // sidebar at whatever the split view computes, which is not 220.
         splitView.setPosition(Self.defaultSidebarWidth, ofDividerAt: 0)
+
+        // Re-run the focus-cue pass whenever the system accent colour changes so the
+        // border reflects the new colour immediately (without a ⌘R reload). Only
+        // observable when `"preset": "classic"` is active — other presets use a fixed
+        // hex cursor colour — but the subscription is cheap and harmless for all themes.
+        // Implementation in SpaceViewController+FocusCue.swift (#249).
+        subscribeToSystemColorChanges()
     }
 
     // MARK: - Documents
@@ -290,7 +304,7 @@ final class SpaceViewController: NSSplitViewController {
         syncDockAttention()
     }
 
-    // MARK: - Config / lifecycle
+    // MARK: - Config reload
 
     func apply(config: AppConfig) {
         self.config = config
@@ -310,39 +324,5 @@ final class SpaceViewController: NSSplitViewController {
         // refresh the active split's dimming immediately so the user sees the effect
         // without switching focus. No-op when unsplit.
         if let active = activeDocument { updateSplitDimming(for: active) }
-    }
-
-    /// Called when the Space's window becomes key — see `FileTreeViewController.refresh()`
-    /// for why that is the chosen trigger rather than FSEvents. The documents get the
-    /// same signal for the same reason: an open file viewer is as stale as the tree is.
-    func windowDidBecomeKey() {
-        fileTree.refresh()
-        // Follow the focused shell's cwd only while this Space can actually be looked at.
-        // Paired with `stopDirectoryFollow()` in `windowDidResignKey()` — a background
-        // Space polling a pty is pure cost. See `SpaceViewController+DirectoryFollow.swift`.
-        startDirectoryFollow()
-        for document in documents { document.documentWindowDidBecomeKey() }
-        // Retire the active document's mark, because coming back to the window IS looking
-        // at it. Reachable only since PR #21 review item 1 made `isActiveDocument` test
-        // `isKeyWindow` too: a mark can now be raised while the whole app is in the
-        // background, and without this the tab you return to would keep staring until you
-        // switched away and back. The other documents keep theirs — the marker's contract is
-        // "looking at the tab retires it", and only one tab is being looked at.
-        activeDocument?.clearAttention()
-        // A document may have picked up an external change; the strip does not show
-        // that today, but the dot state is cheap to keep honest. After the line above, so
-        // the cleared status is what gets drawn rather than the stale one.
-        syncDocumentChrome()
-        // Propagate window-level focus-in so DECSET 1004 focus events reach the terminal.
-        // SwiftTerm only fires `setTerminalFocus` from `becomeFirstResponder`/
-        // `resignFirstResponder` — switching macOS window tabs without changing first-
-        // responder leaves tmux focus-events blind. Active document + its split peer only:
-        // background tabs are not visible, so CSI I there is a spurious focus-in. SwiftTerm
-        // gates the send on `sendFocus` (DECSET 1004), so a pane without focus events is a
-        // no-op. Resign-key counterpart lives in `windowDidResignKey()` in +DirectoryFollow.
-        activeDocument?.notifyWindowFocus(true)
-        if let active = activeDocument {
-            for peer in allSplitDocuments(for: active) { peer.notifyWindowFocus(true) }
-        }
     }
 }

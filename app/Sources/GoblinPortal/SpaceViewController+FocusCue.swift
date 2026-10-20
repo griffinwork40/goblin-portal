@@ -48,17 +48,81 @@
 //  dimming pass, so a single code path drives both effects for every focus-change event:
 //  ⌘⇧H/J/K/L, clicks, splits, collapse, tab switch, and ⌘R reload.
 //
+//  LIVE ACCENT-COLOUR REFRESH (#249)
+//
+//  When no theme is set (`"preset": "classic"`), `effectiveAccent` falls back to
+//  `NSColor.controlAccentColor` (Config+Chrome.swift:102) — a dynamic catalog colour.
+//  `.cgColor` on a catalog colour resolves for the current appearance at the moment of
+//  the call, so a System Settings accent-colour change made mid-session was only
+//  reflected at the next `apply(config:)` call. The observer added in
+//  `subscribeToSystemColorChanges()` catches `NSColor.systemColorsDidChangeNotification`
+//  and re-runs `updateSplitDimming` so the border colour updates immediately.
+//
+//  `SpaceViewController.viewDidLoad()` calls `subscribeToSystemColorChanges()` once.
+//  The `NotificationCenter` token is held in `systemColorObserver` and removed in
+//  `unsubscribeFromSystemColorChanges()`, called from the `deinit`-equivalent
+//  `tearDownAllDocuments()` path via `SpaceDocument` lifecycle — or automatically when
+//  the token is released because `NotificationCenter.default.addObserver(forName:…)`
+//  returns an opaque object whose dealloc removes the observation.
+//
 //  WHAT IS NOT VERIFIED
 //
 //  Rendering is unverified by an automated gate — the border is a CALayer mutation and
 //  requires a live window. Visual correctness (border visible, correct colour, animates
 //  on focus change, disappears after collapse) is documented in
 //  `.afk/verification/focus-cue-checklist.md` for daily-drive confirmation.
+//  Case K (border tracks resize) is gated mechanically by `check-focus-cue.sh`.
 //
 
 import AppKit
 
 extension SpaceViewController {
+
+    // MARK: - System accent-colour subscription
+
+    /// Subscribe to `NSColor.systemColorsDidChangeNotification` so that a mid-session
+    /// System Settings accent-colour change is reflected in the focus border immediately,
+    /// without requiring a `⌘R` config reload.
+    ///
+    /// Only matters when `effectiveAccent` resolves to `NSColor.controlAccentColor` —
+    /// i.e. when `"preset": "classic"` is active or the theme has no cursor colour.
+    /// Under a real theme the colour is a fixed hex value and the notification fires
+    /// harmlessly (re-running `updateSplitDimming` is cheap and idempotent).
+    ///
+    /// Called once from `viewDidLoad()`. The returned token is stored in
+    /// `systemColorObserver`; releasing it (or calling `unsubscribeFromSystemColorChanges()`)
+    /// removes the observation — no dangling reference.
+    func subscribeToSystemColorChanges() {
+        systemColorObserver = NotificationCenter.default.addObserver(
+            forName: NSColor.systemColorsDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            // Re-resolve the accent colour and repaint the focus border.
+            // `activeDocument` is nil when no split is open, and `updateSplitDimming`
+            // is a no-op when there is no split entry, so this is safe to call
+            // unconditionally. MainActor isolation is guaranteed because the observer
+            // is delivered on `.main` (queue: .main above).
+            MainActor.assumeIsolated {
+                if let active = self.activeDocument {
+                    self.updateSplitDimming(for: active)
+                }
+            }
+        }
+    }
+
+    /// Remove the system-colour observer. Called when the Space is torn down.
+    ///
+    /// Defensive — the token's own dealloc already removes the observation, but
+    /// explicit removal makes the lifecycle clear and guards against a future refactor
+    /// that holds the token somewhere with a longer lifetime.
+    func unsubscribeFromSystemColorChanges() {
+        if let token = systemColorObserver {
+            NotificationCenter.default.removeObserver(token)
+            systemColorObserver = nil
+        }
+    }
 
     // MARK: - Focus cue (accent border on the focused pane)
 
@@ -84,15 +148,10 @@ extension SpaceViewController {
             return
         }
 
-        // Resolve the accent CGColor once. `.cgColor` is safe here because
-        // `updateSplitDimming` is called from `apply(config:)`, so appearance-change
-        // paths routed through config reload resolve the color correctly. However,
-        // when no theme is installed (`"preset": "classic"`), `effectiveAccent` falls
-        // back to `NSColor.controlAccentColor` (Config+Chrome.swift:102) — a dynamic
-        // catalog color — so a System Settings accent-color change made mid-session
-        // (without a config reload) will NOT be reflected until the next `apply(config:)`
-        // call. Re-subscribing to `NSColor.systemColorsDidChangeNotification` would fix
-        // this and is tracked in #249.
+        // Resolve the accent CGColor once. `.cgColor` resolves a dynamic catalog
+        // colour (like `NSColor.controlAccentColor`) for the current appearance at
+        // the moment of call — which is correct now that `subscribeToSystemColorChanges()`
+        // re-runs this path whenever the system accent changes mid-session (#249).
         let borderCGColor = accentColor.withAlphaComponent(0.55).cgColor
 
         for leaf in leaves {

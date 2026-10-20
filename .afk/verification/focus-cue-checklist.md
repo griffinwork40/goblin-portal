@@ -37,11 +37,13 @@ Source: `SpaceViewController+FocusCue.swift`
       suppressed (opacity == 1.0), the border is the sole split-focus cue alongside the
       hollow unfocused cursor. Confirm both are perceptible.
 
-- [ ] **K. Border tracks resize** — with a split tab open, drag the window larger and
+- [x] **K. Border tracks resize** — with a split tab open, drag the window larger and
       smaller; drag the divider left and right. The border must hug the focused pane's
       edge at every size — no stale frame left over from the previous geometry.
       Mechanism: `TerminalClipView.layout()` re-applies `bounds.insetBy(dx:0.5,dy:0.5)`
       to any `"goblin.focusBorder"` sublayer with animations disabled.
+      **Gated by `app/Scripts/check-focus-cue.sh`** (K1 grow, K2 shrink, K3 control
+      mutant — layout() override deleted from a copy must fail K1). Added #249.
 
 ## Notes
 
