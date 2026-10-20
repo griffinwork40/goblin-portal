@@ -203,7 +203,7 @@ run_mutant sync-drops-root "SYNC-ADOPT" "$L" \
 
 # #207. Removing the worker's sort must fail the actual async order case, not
 # merely the structural thread-placement assertion in check-child-sorting.sh.
-run_mutant async-unsorted "ASYNC-SORT-ORDER" "$L" \
+run_mutant async-unsorted "ASYNC-SORT-ORDER-MODEL" "$L" \
   'listings[dir] = DirectoryListing.sorted(lister(dir))' \
   'listings[dir] = lister(dir)'
 

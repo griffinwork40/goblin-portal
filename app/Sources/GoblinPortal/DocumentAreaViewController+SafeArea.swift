@@ -48,6 +48,10 @@ extension DocumentAreaViewController {
     func observeContentLayoutRect() {
         // Reset first so reparenting into a new window installs a fresh observation
         // rather than keeping the old window's KVO alive until dealloc.
+        // Assumption: today's lifecycle is one window per controller; `viewDidAppear`
+        // is the only call site (DocumentAreaViewController.swift). If a controller
+        // ever moves to a different window, `viewDidMoveToWindow` would be a more
+        // reliable trigger — `viewDidAppear` may not fire for an already-visible window.
         layoutRectObservation = nil
         guard let window = view.window else { return }
         layoutRectObservation = window.observe(\.contentLayoutRect, options: [.new]) {

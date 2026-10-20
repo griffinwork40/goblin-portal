@@ -45,13 +45,13 @@
 # EXIT CODES: 0 = all cases passed. 1 = a real assertion failed (bad JSON, unknown key,
 # or type mismatch). 2 = environmental (no toolchain, source file missing, harness
 # would not compile). A broken environment must never read as a green gate.
-#
 # FALSIFICATION. Two mutants:
 #   A: change #""" to """ / """# to """ in StarterConfig.swift → exit 1 (bad JSON).
 #   B (robustness control): indent `struct ConfigFile` in Config.swift AND insert
 #     `/* var bogus } */` in its body → exit 0. Confirms stripper/brace-counter
-#     survive indentation and block-comments; does NOT prove the `^` anchor (an
-#     indented declaration matches both anchored and unanchored patterns).
+#     survive indentation and block-comments; does NOT prove the `^` anchor.
+#     Positive `^` proof: a decoy `// struct ConfigFile {` line above the real
+#     struct must be ignored (exit 0); an unanchored pattern would match it.
 #
 # Usage: ./Scripts/check-starter-config.sh
 #

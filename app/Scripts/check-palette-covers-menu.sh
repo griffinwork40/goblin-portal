@@ -45,9 +45,9 @@
 # FALSIFICATION. Validated by commenting out one palette command → exit 1 (missing
 # selector listed); restoring → exit 0. No sentinel-selector control: the gate is
 # a set-membership check, not a responder-chain query (no "resolves everything" risk).
-# PART 2 key-hint mutant: in a COPY of CommandPalette+Commands.swift change one
-# keyHint (e.g. "⌘T" → "⌘X" for "New Tab"), leave the harness unchanged, and
-# require the hint-mismatch case to fail (exit 1). The harness must be untouched.
+# PART 2 key-hint mutant: manual procedure — in a COPY of CommandPalette+Commands.swift
+# change one keyHint (e.g. "⌘T" → "⌘X" for "New Tab") and require exit 1. Manual
+# because the harness is at the 350-LOC ceiling; a scripted mutant is deferred until split.
 #
 # EXIT CODES (same three-valued contract as every gate in this repo):
 #   0 = all menu selectors are covered by the palette or the allowlist,
