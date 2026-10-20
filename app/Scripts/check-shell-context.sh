@@ -90,6 +90,7 @@ echo "LAYER 1 — ShellDirectoryPolicy.resolve truth table"
 mkdir -p "$WORK/pure"
 cp "$SCRIPTS/check-shell-context-table.swift" "$WORK/pure/main.swift"
 if ! swiftc -O "$SRC/ShellContext.swift" "$SRC/ForegroundProcess.swift" "$SRC/Osc7Directory.swift" \
+        "$SRC/TmuxDirectory.swift" "$SRC/TmuxDirectory+Subprocess.swift" \
         "$WORK/pure/main.swift" -o "$WORK/pure/run" 2>"$WORK/pure/build.log"; then
     echo "ENV: the truth table would not compile against the shipped sources"
     grep -E "error:" "$WORK/pure/build.log" | head -10 || true

@@ -27,7 +27,7 @@ let realDefaultDir = Fixture.env["GATE_REAL_SOCKET_DIR"] ?? ""
 var passedDirectories: [String] = []
 
 func resolve(_ tty: String, _ dirs: [URL], tmux: String? = Fixture.tmuxBinary,
-             timeout: TimeInterval = 1.0) -> (URL?, TimeInterval) {
+             timeout: TimeInterval = 1.0) -> (TmuxPaneState?, TimeInterval) {
     for dir in dirs {
         precondition(dir.path.hasPrefix(Fixture.work + "/"), "gate tried to probe \(dir.path)")
         passedDirectories.append(dir.path)
@@ -38,12 +38,18 @@ func resolve(_ tty: String, _ dirs: [URL], tmux: String? = Fixture.tmuxBinary,
     return (answer, Date().timeIntervalSince(start))
 }
 
+/// Convenience: just the normalised path string from a resolve call.
+func resolvePath(_ tty: String, _ dirs: [URL], tmux: String? = Fixture.tmuxBinary,
+                 timeout: TimeInterval = 1.0) -> String? {
+    resolve(tty, dirs, tmux: tmux, timeout: timeout).0?.path.path
+}
+
 /// Poll until `current` reports `expected` — pane_current_path is read from the pane
 /// process's cwd, so a `cd` typed via send-keys lands a few ms after send-keys returns.
 func eventually(_ tty: String, _ dirs: [URL], equals expected: String) -> String {
     var last = "nil"
     for _ in 0..<100 {
-        last = resolve(tty, dirs).0?.path ?? "nil"
+        last = resolve(tty, dirs).0?.path.path ?? "nil"
         if last == expected { return last }
         usleep(20_000)
     }
@@ -74,11 +80,14 @@ let all = [sockets]
 print("fixtures: main=\(main.tty) decoy=\(decoy.tty) custom=\(custom.tty), 4 sockets (1 stale)")
 
 print("ACTIVE PANE — a real client on a real pty")
-check("the attached client's pane directory", resolve(main.tty, all).0?.path == normalised(dirA),
-      resolve(main.tty, all).0?.path ?? "nil")
+check("the attached client's pane directory", resolvePath(main.tty, all) == normalised(dirA),
+      resolvePath(main.tty, all) ?? "nil")
 let raw: String? = Fixture.tmux(mainSock, ["display-message", "-p", "-c", main.tty, "#{pane_current_path}"]).1
 check("tmux's raw answer is NOT already normalised (so normalisation is exercised)",
       raw != nil && raw != normalised(dirA), raw ?? "nil")
+// pane_current_command is returned and non-empty for a normal shell pane
+let mainCmd = resolve(main.tty, all).0?.command ?? ""
+check("pane_current_command is non-empty for a normal shell pane", !mainCmd.isEmpty, mainCmd)
 
 Fixture.tmux(mainSock, ["new-window", "-c", dirB.path])
 check("new-window: the new active window's directory", eventually(main.tty, all, equals: normalised(dirB))
@@ -96,27 +105,72 @@ Fixture.tmux(mainSock, ["select-pane", "-t", "gate:1.0"])
 check("select-pane back to the first pane", eventually(main.tty, all, equals: normalised(dirC))
       == normalised(dirC))
 
+// SSH-PANE — active pane running a fake `ssh` binary (#207, R1.4, 2026-10-19).
+// When pane_current_command is a remote-session transport, isRemote must be true
+// so ShellContext maps the result to .remote(host: nil) with nil directory.
+// We use a fake binary named "ssh" that simply sleeps, started via send-keys so
+// tmux sets pane_current_command to "ssh". The path stays at dirC (the local
+// launch directory that must NOT be shown as the user's cwd).
+print("SSH-PANE — active pane running a remote-session command (#207)")
+// The fake ssh must be a COMPILED binary: a shell script reports the interpreter
+// (bash/sh) as pane_current_command, not the script name. cc is required by
+// check-shell-context.sh for the same reason; the gate exits 2 without it.
+// exec replaces the pane shell so the kernel's basename is "ssh" immediately
+// (check-shell-context.sh:117-118, same approach, 2026-10-09).
+let fakeSshDir = Fixture.directory("fake-ssh-bin")
+let fakeSshSrc = fakeSshDir.appendingPathComponent("ssh.c").path
+let fakeSshPath = fakeSshDir.appendingPathComponent("ssh").path
+if (try? FileManager.default.createDirectory(at: fakeSshDir,
+        withIntermediateDirectories: true)) == nil {
+    Fixture.fail("could not create fake-ssh-bin dir")
+}
+guard (try? "#include <unistd.h>\nint main(void){sleep(30);return 0;}\n"
+        .write(toFile: fakeSshSrc, atomically: true, encoding: .utf8)) != nil
+else { Fixture.fail("could not write fake ssh.c") }
+// Compile via TmuxDirectory.run (posix_spawn, already in scope): a 10 s deadline
+// is generous for a two-line C file. TmuxDirectory.run returns nil on non-zero exit.
+let compiled = TmuxDirectory.run("/usr/bin/cc",
+    ["-o", fakeSshPath, fakeSshSrc], deadline: TmuxDirectory.now() + 10)
+guard compiled != nil else { Fixture.fail("could not compile fake ssh") }
+Fixture.tmux(mainSock, ["send-keys", "-t", "gate:1.0", "exec '\(fakeSshPath)' dummy", "Enter"])
+// Poll until pane_current_command flips to "ssh".
+var sshState: TmuxPaneState? = nil
+for _ in 0..<150 {
+    sshState = resolve(main.tty, all).0
+    if sshState?.command == "ssh" { break }
+    usleep(20_000)
+}
+check("ssh-pane: pane_current_command is 'ssh'", sshState?.command == "ssh",
+      sshState?.command ?? "nil")
+check("ssh-pane: isRemote is true", sshState?.isRemote == true,
+      sshState.map { "cmd=\($0.command) path=\($0.path.path)" } ?? "nil")
+check("ssh-pane: path field is still the local launch dir (not nil — that is ShellContext's job)",
+      sshState?.path.path == normalised(dirC),
+      sshState?.path.path ?? "nil")
+// Let the fake ssh exit (it will, tmux keeps the pane dead until we don't need it).
+Fixture.tmux(mainSock, ["send-keys", "-t", "gate:1.0", "", ""])  // no-op
+
 print("OWNERSHIP — the decoy server in the same directory is never chosen")
 check("decoy's own client resolves to the decoy (positive control)",
-      resolve(decoy.tty, all).0?.path == normalised(dirDecoy))
-check("main's client never gets the decoy's directory", resolve(main.tty, all).0?.path == normalised(dirC))
+      resolvePath(decoy.tty, all) == normalised(dirDecoy))
+check("main's client never gets the decoy's directory", resolvePath(main.tty, all) == normalised(dirC))
 var unownedMaster: Int32 = -1, unownedSlave: Int32 = -1
 guard openpty(&unownedMaster, &unownedSlave, nil, nil, nil) == 0, let unownedName = ttyname(unownedSlave)
 else { Fixture.fail("openpty for the unowned tty") }
 let unowned = String(cString: unownedName)
 check("a tty no server owns → nil (tmux itself answers with ANOTHER client here)",
-      resolve(unowned, all).0 == nil, resolve(unowned, all).0?.path ?? "nil")
+      resolve(unowned, all).0 == nil, resolvePath(unowned, all) ?? "nil")
 check("a relative tty → nil", resolve("ttys000", all).0 == nil)
 
 print("CUSTOM SOCKET NAME, SPACES AND UNICODE")
 check("socket 'my custom-sock.é', path 'with space/café ☕ 日本'",
-      resolve(custom.tty, all).0?.path == normalised(dirWeird), resolve(custom.tty, all).0?.path ?? "nil")
+      resolvePath(custom.tty, all) == normalised(dirWeird), resolvePath(custom.tty, all) ?? "nil")
 check("tmuxExecutable nil finds tmux without PATH help", TmuxDirectory.current(
     clientTTY: custom.tty, socketDirectories: { passedDirectories.append(sockets.path); return all }(),
-    tmuxExecutable: nil, timeout: 1)?.path == normalised(dirWeird))
+    tmuxExecutable: nil, timeout: 1)?.path.path == normalised(dirWeird))
 Fixture.tmux(customSock, ["detach-client", "-t", custom.tty])
 for _ in 0..<100 where !Fixture.tmux(customSock, ["list-clients", "-F", "#{client_tty}"]).1.isEmpty { usleep(10_000) }
-check("detached client → nil", resolve(custom.tty, all).0 == nil, resolve(custom.tty, all).0?.path ?? "nil")
+check("detached client → nil", resolve(custom.tty, all).0 == nil, resolvePath(custom.tty, all) ?? "nil")
 
 print("NO ANSWER — stale, empty, missing")
 let staleOnly = Fixture.directory("stale-only")
@@ -131,6 +185,7 @@ let notExec = Fixture.directory("plain").appendingPathComponent("tmux")
 FileManager.default.createFile(atPath: notExec.path, contents: Data("x".utf8))
 check("non-executable file as tmux → nil", resolve(main.tty, all, tmux: notExec.path).0 == nil)
 
+
 print("SOCKET UID — real sockets, simulated caller uid (no privileged chown)")
 check("socket uid: our uid accepts real sockets", TmuxDirectory.socketFiles(in: all).count == 4)
 check("socket uid: foreign-owned sockets rejected",
@@ -143,9 +198,14 @@ check("relative path → nil",
 check("empty output → nil", resolve(main.tty, one, tmux: Fixture.fake("empty", "exit 0")).0 == nil)
 check("right output but non-zero exit → nil",
       resolve(main.tty, one, tmux: Fixture.fake("exit1", "printf '%s\\n/tmp\\n' \"$7\"; exit 1")).0 == nil)
-let claim = Fixture.fake("claim", "printf '%s\\n/private/tmp\\n' \"$7\"")
+// Fake that emits tty + path + command on three lines (the new format).
+let claim = Fixture.fake("claim", "printf '%s\\n/private/tmp\\nzsh\\n' \"$7\"")
 check("one claimant → its path, normalised (positive control)",
-      resolve(main.tty, one, tmux: claim).0?.path == normalised(URL(fileURLWithPath: "/private/tmp")))
+      resolvePath(main.tty, one, tmux: claim) == normalised(URL(fileURLWithPath: "/private/tmp")))
+// Fake that reports "ssh" as the command — isRemote must be true.
+let claimSsh = Fixture.fake("claim-ssh", "printf '%s\\n/private/tmp\\nssh\\n' \"$7\"")
+check("fake claimant with command=ssh → isRemote true",
+      resolve(main.tty, one, tmux: claimSsh).0?.isRemote == true)
 let twoSockets = [staleOnly, Fixture.directory("stale-two")]
 Fixture.makeStaleSocket(twoSockets[1].appendingPathComponent("dead2"), scratch: dirA)
 check("two servers both claim the tty → nil", resolve(main.tty, twoSockets, tmux: claim).0 == nil)
@@ -153,7 +213,7 @@ let (flood, floodTime) = resolve(main.tty, one, tmux: Fixture.fake(
     "flood", "head -c 2000000 /dev/zero | tr '\\0' 'x'"), timeout: 2)
 check("2 MB of stdout → nil, killed at the cap not the deadline", flood == nil && floodTime < 1, "\(floodTime)s")
 let (noisy, noisyTime) = resolve(main.tty, one, tmux: Fixture.fake(
-    "noisy", "head -c 300000 /dev/zero | tr '\\0' 'e' >&2; printf '%s\\n/private/tmp\\n' \"$7\""), timeout: 2)
+    "noisy", "head -c 300000 /dev/zero | tr '\\0' 'e' >&2; printf '%s\\n/private/tmp\\nzsh\\n' \"$7\""), timeout: 2)
 check("300 KB of stderr is drained, answer still arrives", noisy != nil && noisyTime < 1, "\(noisyTime)s")
 
 print("DEADLINE — overall, not per socket, and nothing survives it")
@@ -176,8 +236,9 @@ check("timeout 0 → nil immediately", zero == nil && zeroTime < 0.05, "\(zeroTi
 print("DIAG — exactly one reason and socket count per nil query, nothing on success")
 // Capture the shipped stderr writer, not a test-only sink: #209 R1.7's symptom is
 // a paused indicator with no log. dup2 also verifies the GOBLIN_PORTAL_DIAG gate.
+// The closure returns TmuxPaneState? (not URL?) since current() now returns that.
 func diagnostic(_ reason: String?, sockets count: Int, enabled: Bool = true,
-                _ query: () -> URL?) {
+                _ query: () -> TmuxPaneState?) {
     let oldDiag = getenv("GOBLIN_PORTAL_DIAG").map { String(cString: $0) }
     if enabled { setenv("GOBLIN_PORTAL_DIAG", "1", 1) } else { unsetenv("GOBLIN_PORTAL_DIAG") }
     let log = Fixture.work + "/diag.log"
@@ -194,7 +255,7 @@ func diagnostic(_ reason: String?, sockets count: Int, enabled: Bool = true,
         // Error path: log must match exactly AND the query must have returned nil.
         check("diag: \(reason)", text == expected && answer == nil, text)
     } else if enabled {
-        // Success path: log must be silent AND the query must have returned a non-nil URL.
+        // Success path: log must be silent AND the query must have returned non-nil.
         check("diag: silent", text == expected && answer != nil, text)
     } else {
         // DIAG disabled path: log must be silent (answer may be nil or non-nil).
@@ -231,7 +292,7 @@ check("TMUX_TMPDIR absent", TmuxDirectory.defaultSocketDirectories(environment: 
 /// a defect, and the deadline cases above already bound the worst case.
 func timing(_ label: String, _ tty: String, _ dirs: [URL]) {
     var times: [Double] = []
-    for _ in 0..<40 { let (url, time) = resolve(tty, dirs); if url != nil { times.append(time * 1000) } }
+    for _ in 0..<40 { let (state, time) = resolve(tty, dirs); if state != nil { times.append(time * 1000) } }
     times.sort()
     check("\(label): all 40 resolved", times.count == 40, "\(times.count)")
     if !times.isEmpty {

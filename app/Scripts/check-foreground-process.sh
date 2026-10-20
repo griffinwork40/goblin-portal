@@ -63,7 +63,8 @@ SRC="Sources/GoblinPortal/ForegroundProcess.swift"
 HARNESS="Scripts/check-foreground-process-harness.swift"
 TABLE="Scripts/check-foreground-process-table.swift"
 GROUP="Scripts/check-foreground-process-group.swift"
-DEPS=("Sources/GoblinPortal/ShellContext.swift" "Sources/GoblinPortal/Osc7Directory.swift")
+DEPS=("Sources/GoblinPortal/ShellContext.swift" "Sources/GoblinPortal/Osc7Directory.swift" \
+      "Sources/GoblinPortal/TmuxDirectory.swift" "Sources/GoblinPortal/TmuxDirectory+Subprocess.swift")
 
 FALSIFY=0
 [[ "${1:-}" == "--falsify" ]] && FALSIFY=1

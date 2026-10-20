@@ -30,7 +30,9 @@ func check(_ name: String, _ ok: Bool, _ detail: @autoclosure () -> String = "")
 
 let shellDir = URL(fileURLWithPath: "/gate/shell")      // the pane's own shell
 let knownDir = URL(fileURLWithPath: "/gate/known")      // a nested local shell
-let tmuxDir = URL(fileURLWithPath: "/gate/tmux")        // tmux's active pane
+let tmuxDir = URL(fileURLWithPath: "/gate/tmux")        // tmux's active pane (local command)
+let tmuxStateLocal = TmuxPaneState(path: tmuxDir, command: "zsh")   // shell in tmux pane
+let tmuxStateRemote = TmuxPaneState(path: tmuxDir, command: "ssh")  // ssh in tmux pane (#207)
 let reportedPath = "/gate/reported"                     // a LOCAL OSC 7 report
 let reportedDir = URL(fileURLWithPath: reportedPath)
 
@@ -42,7 +44,10 @@ let kinds: [ForegroundKind?] = [
 let reports: [Osc7Directory?] = [nil, .local(path: reportedPath), .remote(host: "other-host")]
 
 /// The rule, row by row (ShellContext.swift header; plan "Coordinator decisions" 1-2).
-func spec(_ kind: ForegroundKind?, _ report: Osc7Directory?, _ present: Bool)
+/// The `tmuxRemote` flag is an extension for #207 R1.4: when true, the tmuxState's
+/// pane command is a remote transport, so the result must be `.remote(host: nil)`.
+func spec(_ kind: ForegroundKind?, _ report: Osc7Directory?, _ present: Bool,
+          tmuxRemote: Bool = false)
     -> (URL?, DirectoryFollowStatus) {
     switch kind {
     case nil:
@@ -62,6 +67,9 @@ func spec(_ kind: ForegroundKind?, _ report: Osc7Directory?, _ present: Bool)
     case .tmuxClient?:
         // tmux's cached answer only. Never the outer shell's last OSC 7. In the grid
         // `tmuxAnswered == present`, so an absent directory is a cold cache: `.local`.
+        // When the pane command is a remote transport, path is the local launch dir —
+        // must not be shown; result is `.remote(host: nil)` (#207, R1.4, 2026-10-19).
+        if tmuxRemote { return (nil, .remote(host: nil)) }
         return (present ? tmuxDir : nil, .local)
     case .remote?:
         // Never a directory. The host is shown only when a remote report named one.
@@ -83,7 +91,7 @@ for kind in kinds {
                 foreground: kind, reported: report,
                 shellDirectory: present ? shellDir : nil,
                 knownShellDirectory: present ? knownDir : nil,
-                tmuxDirectory: present ? tmuxDir : nil, tmuxAnswered: present)
+                tmuxState: present ? tmuxStateLocal : nil, tmuxAnswered: present)
             let (wantDir, wantStatus) = spec(kind, report, present)
             let name = "fg=\(label(kind)) report=\(label(report)) dirs=\(present ? "present" : "absent")"
             check(name + " directory", got.directory == wantDir,
@@ -101,7 +109,7 @@ print("ShellDirectoryPolicy.resolve — named hazards")
 //    The stale remote report must not blank the directory or leak a remote status.
 let afterSsh = ShellDirectoryPolicy.resolve(
     foreground: .shell, reported: .remote(host: "old-host"),
-    shellDirectory: shellDir, knownShellDirectory: nil, tmuxDirectory: nil,
+    shellDirectory: shellDir, knownShellDirectory: nil, tmuxState: nil,
     tmuxAnswered: false)
 check("stale remote report, back in local shell -> shell cwd, .local",
       afterSsh.directory == shellDir && afterSsh.followStatus == .local, "\(afterSsh)")
@@ -109,26 +117,26 @@ check("stale remote report, back in local shell -> shell cwd, .local",
 //    answered yet. The outer shell's report is NOT where the user is.
 let tmuxCold = ShellDirectoryPolicy.resolve(
     foreground: .tmuxClient(pid: 9, tty: "/dev/ttys001"), reported: .local(path: reportedPath),
-    shellDirectory: shellDir, knownShellDirectory: nil, tmuxDirectory: nil,
+    shellDirectory: shellDir, knownShellDirectory: nil, tmuxState: nil,
     tmuxAnswered: false)
 check("stale local report under tmux (cache cold) -> nil, never the outer report",
       tmuxCold.directory == nil, "\(tmuxCold)")
 let tmuxWarm = ShellDirectoryPolicy.resolve(
     foreground: .tmuxClient(pid: 9, tty: "/dev/ttys001"), reported: .local(path: reportedPath),
-    shellDirectory: shellDir, knownShellDirectory: nil, tmuxDirectory: tmuxDir,
+    shellDirectory: shellDir, knownShellDirectory: nil, tmuxState: tmuxStateLocal,
     tmuxAnswered: true)
 check("stale local report under tmux (cache warm) -> tmux's answer",
       tmuxWarm.directory == tmuxDir, "\(tmuxWarm)")
 // 3. Same staleness for a nested shell and for ssh.
 let nested = ShellDirectoryPolicy.resolve(
     foreground: .knownShell(pid: 5, name: "bash"), reported: .local(path: reportedPath),
-    shellDirectory: shellDir, knownShellDirectory: knownDir, tmuxDirectory: tmuxDir,
+    shellDirectory: shellDir, knownShellDirectory: knownDir, tmuxState: tmuxStateLocal,
     tmuxAnswered: true)
 check("local report under a nested shell -> the nested shell's cwd",
       nested.directory == knownDir, "\(nested)")
 let sshLocal = ShellDirectoryPolicy.resolve(
     foreground: .remote(name: "ssh"), reported: .local(path: "/tmp"),
-    shellDirectory: shellDir, knownShellDirectory: knownDir, tmuxDirectory: tmuxDir,
+    shellDirectory: shellDir, knownShellDirectory: knownDir, tmuxState: tmuxStateLocal,
     tmuxAnswered: true)
 check("ssh in front with a local report -> nil and host nil, never /tmp",
       sshLocal.directory == nil && sshLocal.followStatus == .remote(host: nil), "\(sshLocal)")
@@ -137,13 +145,13 @@ check("ssh in front with a local report -> nil and host nil, never /tmp",
 for kind in [ForegroundKind.shell, .command(name: "afk")] {
     let stale = ShellDirectoryPolicy.resolve(
         foreground: kind, reported: .local(path: reportedPath),
-        shellDirectory: shellDir, knownShellDirectory: nil, tmuxDirectory: nil,
+        shellDirectory: shellDir, knownShellDirectory: nil, tmuxState: nil,
     tmuxAnswered: false)
     check("B2 stale local report + different shell cwd under \(kind) -> the shell cwd",
           stale.directory == shellDir && stale.followStatus == .local, "\(stale)")
     let fallback = ShellDirectoryPolicy.resolve(
         foreground: kind, reported: .local(path: reportedPath),
-        shellDirectory: nil, knownShellDirectory: nil, tmuxDirectory: nil, tmuxAnswered: false)
+        shellDirectory: nil, knownShellDirectory: nil, tmuxState: nil, tmuxAnswered: false)
     check("B2 kernel cwd unreadable + local report under \(kind) -> the report",
           fallback.directory == reportedDir && fallback.followStatus == .local, "\(fallback)")
 }
@@ -153,7 +161,7 @@ for kind in [ForegroundKind.shell, .command(name: "afk")] {
 //    it is `.local` + nil: a ~0.26 s transient, hidden either way, not worth a flash.
 let tmuxNil = ShellDirectoryPolicy.resolve(
     foreground: .tmuxClient(pid: 9, tty: "/dev/ttys001"), reported: .local(path: reportedPath),
-    shellDirectory: shellDir, knownShellDirectory: nil, tmuxDirectory: nil, tmuxAnswered: true)
+    shellDirectory: shellDir, knownShellDirectory: nil, tmuxState: nil, tmuxAnswered: true)
 check("tmux answered nil -> nil, .paused(tmux)",
       tmuxNil.directory == nil && tmuxNil.followStatus == .paused(program: "tmux"), "\(tmuxNil)")
 check("tmux cold (first query in flight) -> nil, .local",
@@ -161,10 +169,41 @@ check("tmux cold (first query in flight) -> nil, .local",
 // 6. A command in front: the shell's cwd, never anything else even if every input exists.
 let command = ShellDirectoryPolicy.resolve(
     foreground: .command(name: "agent-afk"), reported: nil,
-    shellDirectory: shellDir, knownShellDirectory: knownDir, tmuxDirectory: tmuxDir,
+    shellDirectory: shellDir, knownShellDirectory: knownDir, tmuxState: tmuxStateLocal,
     tmuxAnswered: true)
 check("command in front, no report -> the shell's cwd",
       command.directory == shellDir && command.followStatus == .local, "\(command)")
+// 7. #207 R1.4: tmux active pane is running ssh or mosh-client.
+//    The pane_current_path is the LOCAL launch directory; it must NOT appear as the
+//    user's cwd. ShellDirectoryPolicy must return nil directory and .remote(host: nil),
+//    matching the behaviour of a direct ssh in front of the pty.
+print("ShellDirectoryPolicy.resolve — tmux ssh-pane (#207, R1.4)")
+let tmuxSsh = ShellDirectoryPolicy.resolve(
+    foreground: .tmuxClient(pid: 9, tty: "/dev/ttys001"), reported: nil,
+    shellDirectory: shellDir, knownShellDirectory: nil, tmuxState: tmuxStateRemote,
+    tmuxAnswered: true)
+check("#207 tmux pane running ssh -> nil directory",
+      tmuxSsh.directory == nil, "got=\(tmuxSsh.directory?.path ?? "nil")")
+check("#207 tmux pane running ssh -> .remote(host: nil)",
+      tmuxSsh.followStatus == .remote(host: nil), "got=\(tmuxSsh.followStatus)")
+// The local launch path (tmuxDir) must never escape as the directory.
+check("#207 tmux pane running ssh -> local launch path NOT exposed",
+      tmuxSsh.directory?.path != tmuxDir.path, "got=\(tmuxSsh.directory?.path ?? "nil")")
+// mosh-client is also a remote transport.
+let tmuxMosh = ShellDirectoryPolicy.resolve(
+    foreground: .tmuxClient(pid: 9, tty: "/dev/ttys001"), reported: nil,
+    shellDirectory: nil, knownShellDirectory: nil,
+    tmuxState: TmuxPaneState(path: tmuxDir, command: "mosh-client"),
+    tmuxAnswered: true)
+check("#207 tmux pane running mosh-client -> .remote(host: nil)",
+      tmuxMosh.followStatus == .remote(host: nil) && tmuxMosh.directory == nil, "\(tmuxMosh)")
+// A warm cache with a non-remote command must still return the path as .local.
+let tmuxLocalCmd = ShellDirectoryPolicy.resolve(
+    foreground: .tmuxClient(pid: 9, tty: "/dev/ttys001"), reported: nil,
+    shellDirectory: nil, knownShellDirectory: nil, tmuxState: tmuxStateLocal,
+    tmuxAnswered: true)
+check("#207 tmux pane with local command -> path returned as .local",
+      tmuxLocalCmd.directory == tmuxDir && tmuxLocalCmd.followStatus == .local, "\(tmuxLocalCmd)")
 
 // 7. lastKnownDirectoryPath preference order (issue #208, R1.2).
 //    The ordering is tested here in isolation because it is pure logic over two optional

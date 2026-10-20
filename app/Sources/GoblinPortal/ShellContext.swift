@@ -76,15 +76,17 @@ enum ShellDirectoryPolicy {
     ///   - shellDirectory: the pane's login shell's kernel cwd — primary for `.shell` /
     ///     `.command`.
     ///   - knownShellDirectory: the kernel cwd of a `.knownShell` foreground.
-    ///   - tmuxDirectory: the cached tmux answer for the current client, if fresh.
+    ///   - tmuxState: the cached tmux answer for the current client, if fresh. Carries
+    ///     both the pane path and the pane command; nil means either not-yet-answered or
+    ///     tmux could not say — distinguished by `tmuxAnswered`.
     ///   - tmuxAnswered: a tmux query for the current client has COMPLETED (so a nil
-    ///     `tmuxDirectory` means "tmux could not say", not "not asked yet").
+    ///     `tmuxState` means "tmux could not say", not "not asked yet").
     static func resolve(
         foreground: ForegroundKind?,
         reported: Osc7Directory?,
         shellDirectory: URL?,
         knownShellDirectory: URL?,
-        tmuxDirectory: URL?,
+        tmuxState: TmuxPaneState?,
         tmuxAnswered: Bool
     ) -> ShellContext {
         // Lane C. Each branch reads ONLY the input that belongs to the program in front;
@@ -117,16 +119,25 @@ enum ShellDirectoryPolicy {
             // own kernel cwd answers.
             return context(knownShellDirectory, .local)
         case .tmuxClient?:
-            // tmux's answer for the active pane. Never the outer shell's report: the
-            // integration script is silent inside tmux (`TERM_PROGRAM=tmux`, plan "Why"),
-            // so that report is from before tmux. A COMPLETED nil answer means the app
-            // cannot find the server (`tmux -S /custom`, a TMUX_TMPDIR set only in the rc
-            // file): following is stuck, and a silent `.local` froze the sidebar with no
-            // note, so it is `.paused`. While the first query is still in flight it stays
-            // `.local` + nil: ~0.26 s measured, and both statuses hide the tree's root
-            // change anyway, so a pause note there would only flash.
-            if tmuxDirectory == nil && tmuxAnswered { return context(nil, .paused(program: "tmux")) }
-            return context(tmuxDirectory, .local)
+            // tmux's answer for the active pane: path + command. Never the outer shell's
+            // report: the integration script is silent inside tmux (`TERM_PROGRAM=tmux`,
+            // plan "Why"), so that report is from before tmux.
+            //
+            // A COMPLETED nil answer means the app cannot find the server (`tmux -S
+            // /custom`, a TMUX_TMPDIR set only in the rc file): following is stuck, and a
+            // silent `.local` froze the sidebar with no note, so it is `.paused`. While
+            // the first query is still in flight it stays `.local` + nil: ~0.26 s
+            // measured, and both statuses hide the tree's root change anyway.
+            //
+            // When the active pane IS running a remote-session transport (ssh,
+            // mosh-client, …), `pane_current_path` holds the LOCAL launch directory —
+            // not the user's location (#207, R1.4, 2026-10-19). Map that to `.remote`
+            // with nil host (no OSC 7 from inside tmux) and nil directory, exactly as a
+            // direct ssh in front of the pty is handled (ShellContext.swift `.remote`
+            // branch and AFK.md "ssh: following pauses").
+            if tmuxState == nil && tmuxAnswered { return context(nil, .paused(program: "tmux")) }
+            if let state = tmuxState, state.isRemote { return context(nil, .remote(host: nil)) }
+            return context(tmuxState?.path, .local)
         case .remote?:
             // Another machine's filesystem: no directory, ever. The host is display-only
             // and only trustworthy when a remote OSC 7 named it. The caller passes a

@@ -95,7 +95,7 @@ PY
         'the attached client'\''s pane directory'
     mutant first-answer-wins TmuxDirectory.swift \
         '            guard owner == nil else {' \
-        '            return URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
+        '            return state
             guard owner == nil else {' \
         'two servers both claim the tty → nil'
     # Remove nilReason from the post-probe deadline path (line 83, unique): the sleeper
@@ -106,8 +106,8 @@ PY
         '                if now() >= deadline { return nil }' \
         'diag: deadline exceeded'
     mutant skip-normalisation TmuxDirectory.swift \
-        'return URL(fileURLWithPath: owner).standardizedFileURL.resolvingSymlinksInPath()' \
-        'return URL(fileURLWithPath: owner)' \
+        'let normPath = URL(fileURLWithPath: rawPath).standardizedFileURL.resolvingSymlinksInPath()' \
+        'let normPath = URL(fileURLWithPath: rawPath)' \
         'the attached client'\''s pane directory'
     # The two below were chosen to break things the assertions were NOT written around.
     mutant no-utf8-flag TmuxDirectory.swift \
@@ -125,6 +125,12 @@ PY
     mutant silent-nil TmuxDirectory.swift \
         'defer { if !nilReason.isEmpty { diag("\(nilReason); sockets=\(socketCount)") } }' \
         '_ = socketCount' 'diag: no tmux binary'
+    # Drop the remoteCommands set so isRemote is always false: the ssh-pane case must fail
+    # because a pane running ssh would no longer be detected as remote (#207, R1.4).
+    mutant no-remote-command-mapping TmuxDirectory.swift \
+        'static let remoteCommands: Set<String> = ["ssh", "mosh-client", "mosh", "et", "autossh"]' \
+        'static let remoteCommands: Set<String> = []' \
+        'ssh-pane: isRemote is true'
     [ "$BLIND" -eq 0 ] || { echo "FALSIFY: at least one mutant survived"; exit 1; }
     echo "FALSIFY: every mutant was caught"; exit 0
 fi

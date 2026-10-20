@@ -1,6 +1,8 @@
 //
 //  TmuxDirectory.swift
-//  Asking tmux where the active pane of the client attached to a given tty is.
+//  Asking tmux where the active pane of the client attached to a given tty is,
+//  and what command that pane is running — so a pane running ssh or mosh reports
+//  as remote rather than exposing the local launch path (#207, 2026-10-19).
 //
 //  Pure and view-free — Foundation and Darwin only — so `check-tmux-directory.sh` can
 //  compile it alone and drive it against real tmux servers on isolated sockets.
@@ -9,14 +11,22 @@
 //  CLIENT, and the kernel can only tell us the client's own cwd: wherever tmux was
 //  started. The shells tmux runs never reach our pty directly, and the integration script
 //  stays silent inside tmux because tmux sets `TERM_PROGRAM=tmux` (measured on tmux 3.6a,
-//  2026-10-09). tmux itself, however, tracks every pane's directory, and it identifies a
-//  client by its tty — which is exactly the pty slave this app owns:
+//  2026-10-09). tmux itself, however, tracks every pane's directory AND its current
+//  command, and it identifies a client by its tty — which is exactly the pty slave this
+//  app owns:
 //
-//      tmux -L <socket> display-message -p -c <client tty> '#{pane_current_path}'
+//      tmux display-message -p -c <tty> '#{client_tty}\n#{pane_current_path}\n#{pane_current_command}'
 //
 //  follows window switches, pane switches and `cd` (measured, ~4 ms per spawn). The cost
 //  is a subprocess, so callers must never run this on the main thread
 //  (`TerminalPane+DirectoryState.swift` caches it off-main).
+//
+//  WHY pane_current_command. When the active tmux pane is running ssh or mosh-client,
+//  `pane_current_path` still holds the LOCAL directory ssh was launched from — the
+//  sidebar was showing that local path and calling it `.local`, with no "remote" note
+//  (#207, issue comment / R1.4, 2026-10-19). Adding `pane_current_command` lets
+//  `TmuxPaneState.isRemote` detect that case in one display-message round trip.
+//  `ShellContext.swift` maps it to `.remote(host: nil)` with nil directory.
 //
 //  CONTRACT FROZEN in wave 0 (K). Lane B owns the bodies. The subprocess machinery —
 //  deadline, pipe draining, process-group kill, reaping, finding the binary — lives in
@@ -28,9 +38,33 @@
 import Darwin
 import Foundation
 
-/// Resolving a tmux client's active-pane directory. A namespace: there is no state.
+/// The active pane's state as reported by one `display-message` round trip.
+/// Both path and command are needed to detect a pane running a remote session
+/// (ssh, mosh-client, …) without a second spawn (#207, R1.4, 2026-10-19).
+struct TmuxPaneState: Equatable {
+    /// The pane's current working directory (absolute path, normalised).
+    let path: URL
+    /// Basename of the command running in the pane (`pane_current_command`).
+    /// Empty string when tmux omits it (older servers — treated as non-remote).
+    let command: String
+
+    /// True when the pane is running a known remote-session transport.
+    /// These are the same names ForegroundProcess.kind maps to `.remote`
+    /// (ForegroundProcess.swift:196), kept in sync intentionally: both must
+    /// agree or a direct ssh and a tmux-hosted ssh behave differently.
+    var isRemote: Bool { TmuxDirectory.remoteCommands.contains(command) }
+}
+
+/// Resolving a tmux client's active-pane directory and command. A namespace: no state.
 enum TmuxDirectory {
-    /// The active pane's directory for the tmux client attached to `clientTTY`, or nil on
+    /// Remote-session command names whose presence in a tmux pane means the pane's
+    /// `pane_current_path` is the LOCAL launch directory, not the user's location.
+    /// Kept aligned with `ForegroundProcess.kind`'s `.remote` cases
+    /// (ForegroundProcess.swift:196). `mosh` is included: mosh forks mosh-client,
+    /// but tmux may report either name depending on which process leads the pane.
+    static let remoteCommands: Set<String> = ["ssh", "mosh-client", "mosh", "et", "autossh"]
+
+    /// The active pane's state for the tmux client attached to `clientTTY`, or nil on
     /// any failure: tmux missing, no server owns that client, a timeout, or output that
     /// is not an absolute path. Blocking: never call on the main thread.
     ///
@@ -47,7 +81,7 @@ enum TmuxDirectory {
         socketDirectories: [URL]? = nil,
         tmuxExecutable: String? = nil,
         timeout: TimeInterval = 0.25
-    ) -> URL? {
+    ) -> TmuxPaneState? {
         let deadline = now() + max(0, timeout)
         var nilReason = "no server owning the tty"
         var socketCount = 0
@@ -72,11 +106,11 @@ enum TmuxDirectory {
         // EVERY socket is asked, even after one claims the tty, because two claimants is
         // a state we cannot disambiguate and must refuse (the doc comment's contract).
         // The cost is one ~4-6 ms spawn per extra server, and a typical user has one.
-        var owner: String?
+        var owner: TmuxPaneState?
         for socket in sockets {
             guard now() < deadline else { nilReason = "deadline exceeded"; return nil }
-            guard let path = probe(socket, clientTTY: clientTTY, tmux: tmux, deadline: deadline,
-                                  malformed: &malformed)
+            guard let state = probe(socket, clientTTY: clientTTY, tmux: tmux, deadline: deadline,
+                                   malformed: &malformed)
             else {
                 // The last socket can consume the deadline too; no next iteration
                 // would otherwise distinguish that timeout from an unowned tty.
@@ -87,22 +121,19 @@ enum TmuxDirectory {
                 nilReason = "tty \(clientTTY) claimed by more than one server; refusing"
                 return nil
             }
-            owner = path
+            owner = state
         }
         guard let owner else {
             if malformed { nilReason = "unparseable output" }
             return nil
         }
         nilReason = ""
-        // Same normalisation as `ShellDirectory.current` (ShellDirectory.swift:78): tmux
-        // reports the kernel's `/private/tmp/...` spelling (measured), and the sidebar's
-        // root-unchanged guard compares resolved paths, so an unnormalised answer here
-        // would read as a directory change on every poll.
-        return URL(fileURLWithPath: owner).standardizedFileURL.resolvingSymlinksInPath()
+        return owner
     }
 
-    /// One server's answer for `clientTTY`: the active pane's raw path, or nil when this
-    /// server has no client on that tty (or is dead, slow, or says something malformed).
+    /// One server's answer for `clientTTY`: the active pane's state (path + command),
+    /// or nil when this server has no client on that tty (or is dead, slow, or says
+    /// something malformed).
     ///
     /// ONE SPAWN, AND IT CHECKS OWNERSHIP ITSELF. `display-message -c <tty>` does NOT
     /// fail for a tty the server does not own: measured on tmux 3.6a, it exits 0 and
@@ -113,30 +144,46 @@ enum TmuxDirectory {
     /// second spawn on the owning server to learn exactly what this one already proves,
     /// and a dead server fails both the same fast way ("no server running", exit 1).
     ///
+    /// The format now includes `#{pane_current_command}` on a third line (#207, R1.4,
+    /// 2026-10-19): a pane running ssh or mosh-client must not expose the local launch
+    /// path as the user's working directory. No extra spawn: the same display-message
+    /// round trip already had all three fields available from tmux's own state.
+    ///
     /// `-u` because tmux otherwise decides UTF-8 from LANG/LC_*, which an app launched
     /// from Finder does not have: measured under `env -i`, `café ☕` came back as
     /// `caf_ __`, and inside the gate's LANG-less harness the newline separator in the
     /// format below came back as `_` too, so without `-u` EVERY answer fails to parse
-    /// (the `--falsify` no-utf8-flag mutant turns 14 cases red). `-S` with the full socket path, never `-L`, so the server addressed is
-    /// exactly the file enumerated and no TMUX_TMPDIR/uid lookup is re-done by tmux.
-    /// `-f /dev/null` would be meaningless here (no server is started by this command).
+    /// (the `--falsify` no-utf8-flag mutant turns 14 cases red). `-S` with the full
+    /// socket path, never `-L`, so the server addressed is exactly the file enumerated
+    /// and no TMUX_TMPDIR/uid lookup is re-done by tmux. `-f /dev/null` would be
+    /// meaningless here (no server is started by this command).
     static func probe(
         _ socket: URL, clientTTY: String, tmux: String, deadline: TimeInterval,
         malformed: inout Bool
-    ) -> String? {
+    ) -> TmuxPaneState? {
         let arguments = ["-u", "-S", socket.path, "display-message", "-p", "-c", clientTTY,
-                         "#{client_tty}\n#{pane_current_path}"]
+                         "#{client_tty}\n#{pane_current_path}\n#{pane_current_command}"]
         guard let data = run(tmux, arguments, deadline: deadline) else { return nil }
         guard let text = String(data: data, encoding: .utf8) else { malformed = true; return nil }
-        // Split on the FIRST newline only: a tty never contains one, a path may contain
-        // anything but NUL, and only the single trailing newline tmux adds is removed.
-        guard let split = text.firstIndex(of: "\n") else { malformed = true; return nil }
-        let tty = String(text[..<split])
-        var path = String(text[text.index(after: split)...])
-        if path.hasSuffix("\n") { path.removeLast() }
+        // Three fields separated by newlines: client_tty, pane_current_path,
+        // pane_current_command. A tty never contains a newline; a path may contain
+        // anything but NUL; pane_current_command is a basename with no newline.
+        // We split on the first two newlines only and strip the trailing newline tmux adds.
+        guard let split1 = text.firstIndex(of: "\n") else { malformed = true; return nil }
+        let tty = String(text[..<split1])
         guard tty == clientTTY else { return nil }
-        guard path.hasPrefix("/") else { malformed = true; return nil }
-        return path
+        let rest = text[text.index(after: split1)...]
+        guard let split2 = rest.firstIndex(of: "\n") else { malformed = true; return nil }
+        let rawPath = String(rest[..<split2])
+        guard rawPath.hasPrefix("/") else { malformed = true; return nil }
+        var cmd = String(rest[rest.index(after: split2)...])
+        if cmd.hasSuffix("\n") { cmd.removeLast() }
+        // Same normalisation as `ShellDirectory.current` (ShellDirectory.swift:78): tmux
+        // reports the kernel's `/private/tmp/...` spelling (measured), and the sidebar's
+        // root-unchanged guard compares resolved paths, so an unnormalised answer here
+        // would read as a directory change on every poll.
+        let normPath = URL(fileURLWithPath: rawPath).standardizedFileURL.resolvingSymlinksInPath()
+        return TmuxPaneState(path: normPath, command: cmd)
     }
 
     /// Every socket file directly inside `directories`, sorted for a deterministic probe
