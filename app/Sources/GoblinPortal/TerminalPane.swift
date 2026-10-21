@@ -207,7 +207,12 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
 
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
         currentTitle = title
-        documentDelegate?.document(self, didChangeTitle: title)
+        // T5.3: classify this OSC 0/2 and refresh the derived tab title.
+        // `handleExplicitTitle` calls `notifyTitleChanged()` which fires
+        // `document(self, didChangeTitle:)` only when the label actually changed —
+        // no redundant strip redraws.  The old direct call is removed; the delegate
+        // callback is driven from `notifyTitleChanged` instead.
+        handleExplicitTitle(title)
     }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {

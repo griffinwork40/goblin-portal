@@ -156,6 +156,10 @@ final class DirectoryFollow {
         guard normPath != lastPushed?.resolvingSymlinksInPath().path else { return }
         lastPushed = directory
         space.followDirectory(directory)
+        // T5.3: directory changed — refresh the focused pane's tab title so "cd"
+        // updates the label within this tick. No new timer: this path already fires
+        // at most once per 750 ms and only when the directory actually changed.
+        (host as? TerminalPane)?.notifyDirectoryChanged()
     }
 }
 
