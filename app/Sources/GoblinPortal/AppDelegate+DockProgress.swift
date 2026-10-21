@@ -64,6 +64,10 @@ extension AppDelegate {
         // Reuse an existing DockProgressView if already installed.
         let view: DockProgressView
         if let existing = tile.contentView as? DockProgressView {
+            // `display()` is a synchronous round trip to the Dock process, and this runs
+            // on every chrome sync — a 10 Hz progress loop at an unchanged percentage
+            // would pay it ten times a second for nothing. Repaint only on a change.
+            if existing.aggregation == agg { return }
             view = existing
         } else {
             view = DockProgressView(frame: NSRect(x: 0, y: 0, width: tile.size.width,

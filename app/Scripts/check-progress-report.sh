@@ -166,43 +166,31 @@ compile "$SRC"
 "$TMP/gate" || exit $?
 
 # ── Falsification mutants ────────────────────────────────────────────────────
-mutants_applied=0
-
-# mutant-error-dominates: remove the `.error` dominance branch so error no
-# longer dominates; A3 must then fail.
-sed '/if active.contains(.error) { return .error }/d' "$SRC" > "$TMP/mutant-error.swift"
-if ! cmp -s "$SRC" "$TMP/mutant-error.swift"; then
-    mutants_applied=$(( mutants_applied + 1 ))
-    compile "$TMP/mutant-error.swift"
-    "$TMP/gate" > "$TMP/error-mutant.log" 2>&1
-    code=$?
-    if [ "$code" -ne 1 ]; then
-        echo "FAIL mutant error-dominates exited $code, expected 1"
-        exit 1
+# Each mutant counts only when ITS declared case fails: exit 1 from some other case
+# is WRONG-CASE and a miss. A pattern that no longer applies to the shipped policy is
+# environmental (exit 2) — never a silent skip, which the first version allowed for
+# either mutant as long as the other one still matched.
+mutant() {  # $1 name, $2 declared case label, $3 sed expression
+    sed "$3" "$SRC" > "$TMP/mutant-$1.swift"
+    if cmp -s "$SRC" "$TMP/mutant-$1.swift"; then
+        echo "FAIL mutant $1: pattern no longer applies to the shipped policy (environmental)"
+        exit 2
     fi
-    echo "ok mutant error-dominates rejected with exit 1"
-fi
-
-# mutant-clamp: remove the min/max clamp so over-100 values pass through;
-# P6 must then fail (200 stored instead of 100).
-sed 's/let pct = min(max(progress, 0), 100)/let pct = progress/' \
-    "$SRC" > "$TMP/mutant-clamp.swift"
-if ! cmp -s "$SRC" "$TMP/mutant-clamp.swift"; then
-    mutants_applied=$(( mutants_applied + 1 ))
-    compile "$TMP/mutant-clamp.swift"
-    "$TMP/gate" > "$TMP/clamp-mutant.log" 2>&1
-    code=$?
-    if [ "$code" -ne 1 ]; then
-        echo "FAIL mutant clamp exited $code, expected 1"
-        exit 1
+    compile "$TMP/mutant-$1.swift"
+    local code=0
+    "$TMP/gate" > "$TMP/$1.log" 2>&1 || code=$?
+    if [ "$code" -eq 1 ] && grep -q "^FAIL $2" "$TMP/$1.log"; then
+        echo "ok mutant $1 caught by $2"
+    elif [ "$code" -eq 1 ]; then
+        echo "FAIL mutant $1: WRONG-CASE (exit 1 but $2 did not fail)"; exit 1
+    else
+        echo "FAIL mutant $1 exited $code, expected 1 with $2 failing"; exit 1
     fi
-    echo "ok mutant clamp rejected with exit 1"
-fi
+}
 
-# Zero-mutant guard: if neither sed pattern matched, the gate is blind.
-if [ "$mutants_applied" -eq 0 ]; then
-    echo "FAIL: zero mutants applied — sed patterns no longer match source; gate is blind"
-    exit 2
-fi
+# error-dominates: drop the `.error` dominance branch; A3 must fail.
+mutant error-dominates "A3 " '/if active.contains(.error) { return .error }/d'
+# clamp: drop the min/max clamp so 200 is stored; P6 must fail.
+mutant clamp "P6 " 's/let pct = min(max(progress, 0), 100)/let pct = progress/'
 
-echo "check-progress-report: passed (2 mutants verified)"
+echo "check-progress-report: passed (2 mutants, each caught by its declared case)"
