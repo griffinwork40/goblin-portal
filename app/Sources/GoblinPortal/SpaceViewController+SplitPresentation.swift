@@ -106,8 +106,19 @@ extension SpaceViewController {
 
     /// Install the click callback on the outer container and any nested containers.
     ///
-    /// Each callback re-runs `updateSplitDimming` so a mouse click on an unfocused
-    /// pane immediately dims the other panes -- before firstResponder changes.
+    /// WHY KEPT (even though the KVO observer in +FirstResponderObserver.swift now drives
+    /// the visual update): `SplitContainerView.mouseDown` still fires `didReceiveClickInChild`
+    /// correctly for clicks that DO reach the container level — specifically, a click that
+    /// lands precisely on the 1px divider strip, which is not inside any terminal view and
+    /// therefore does travel up the responder chain normally. The callback is a no-op when
+    /// `didReceiveClickInChild` is nil, so keeping it wired costs nothing and avoids a
+    /// future regression if SwiftTerm's mouseDown call chain changes.
+    ///
+    /// The primary visual-update path for terminal clicks is now KVO on
+    /// NSWindow.firstResponder (SpaceViewController+FirstResponderObserver.swift): AppKit
+    /// calls makeFirstResponder on the clicked terminal view independently of the responder
+    /// chain walk, so firstResponder always changes correctly on click even though
+    /// SplitContainerView.mouseDown is never reached.
     func installClickCallback(primary: SpaceDocument) {
         let capturedPrimary = primary
         let handler: (NSView) -> Void = { [weak self] _ in

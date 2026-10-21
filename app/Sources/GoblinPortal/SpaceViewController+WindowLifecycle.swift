@@ -1,6 +1,6 @@
 //
 //  SpaceViewController+WindowLifecycle.swift
-//  Window-focus response for a Space.
+//  Window-focus response for a Space, plus view-appearance lifecycle hooks.
 //
 //  WHY THIS IS SEPARATE
 //
@@ -11,10 +11,34 @@
 //  window comes to the front". `apply(config:)` writes `self.config`, whose setter
 //  is `private` (file-scoped), so it stays in `SpaceViewController.swift`.
 //
+//  `viewDidAppear` and `viewWillDisappear` also live here: they are view-lifecycle
+//  hooks, not document-list concerns, and `SpaceViewController.swift` is already at
+//  the 350-LOC ceiling. The firstResponder KVO wiring (click-to-focus fix) needs
+//  `viewDidAppear` because `view.window` is nil during `viewDidLoad`.
+//
 
 import AppKit
 
 extension SpaceViewController {
+
+    // MARK: - View appearance
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        // Wire the firstResponder KVO now that view.window is guaranteed non-nil.
+        // viewDidLoad is too early — the window is not yet attached at that point.
+        // Implementation in SpaceViewController+FirstResponderObserver.swift.
+        if let window = view.window {
+            subscribeToFirstResponderChanges(in: window)
+        }
+    }
+
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        // Stop observing so a stale KVO block cannot fire against a partially torn-down Space.
+        // Implementation in SpaceViewController+FirstResponderObserver.swift.
+        unsubscribeFromFirstResponderChanges()
+    }
 
     // MARK: - Window focus
 

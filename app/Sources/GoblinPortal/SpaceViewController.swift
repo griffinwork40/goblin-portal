@@ -88,6 +88,10 @@ final class SpaceViewController: NSSplitViewController {
     /// write can race with it — the object has no other owners at that point.
     nonisolated(unsafe) var systemColorObserver: (any NSObjectProtocol)?
 
+    /// KVO token for `NSWindow.firstResponder` — drives click-to-focus split dimming.
+    /// Logic in `+FirstResponderObserver.swift`; same thread-safety as `systemColorObserver`.
+    nonisolated(unsafe) var firstResponderObserver: NSKeyValueObservation?
+
     /// Internal for the same reason `config` above is: document construction lives in
     /// `+DocumentConstruction` and needs `documentArea.container.bounds` as the frame for a
     /// new pane. `let`, so the promotion grants read access only.
@@ -118,6 +122,7 @@ final class SpaceViewController: NSSplitViewController {
         if let token = systemColorObserver {
             NotificationCenter.default.removeObserver(token)
         }
+        firstResponderObserver?.invalidate()  // thread-safe; same rationale as systemColorObserver
     }
 
     override func viewDidLoad() {
