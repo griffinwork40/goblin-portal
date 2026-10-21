@@ -49,6 +49,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-terminal-actions.sh   # four terminal-directed actions guarded against unsafe foreground; palette uses NSApp.sendAction (execution-time check only) — offscreen GUI; --falsify 4 mutants (each caught only by its declared case; compile-fail exits 2)
 ./Scripts/check-directory-indicator.sh # sidebar follow-status note: 10 cases — offscreen GUI; --falsify 4 APFS-clone mutants
 ./Scripts/check-tree-refresh.sh       # async setRoot/refresh()/refreshSynchronously(): 15 cases (adds NO-EMPTY-FRAME, REVEAL-IN-FLIGHT, SYNC-ADOPT, NO-MAIN-LISTING, SELECTION-SURVIVES, SUBFOLDER-REFRESH, EXPAND-IN-FLIGHT) — offscreen GUI; --falsify 16 mutants (~3 min)
+./Scripts/check-shell-scripts.sh      # drives the SHIPPED shell-integration.{bash,zsh,fish} in real interactive /bin/bash 3.2, zsh and fish through a pty: C/D per command, empty line silent, $? preserved, UTF-8 OSC 7 round trip, foreign PROMPT_COMMAND/DEBUG trap/extdebug/bash-preexec, fish native-133 dedupe — 19 cases, ~35s; needs fish (exit 2 without); --falsify 7 mutants
 ./Scripts/check-shell-integration.sh  # OSC 133 A/C/D state machine + 15 OSC 7 host-check cases (Osc7Directory) — fast, headless; --falsify 3 mutants (compile-fail or stale-pattern exits 2)
 ./Scripts/check-git-status.sh    # porcelain-v2 parsing + repo discovery, on real repos — headless
 ./Scripts/check-input-latency.sh # key-to-echo via the app's pty write path vs a bare write(2) floor, + paste/keys ordering — release, load-guarded, local only (T3.1)
