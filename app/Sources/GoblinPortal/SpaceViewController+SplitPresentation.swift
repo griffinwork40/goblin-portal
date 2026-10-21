@@ -106,8 +106,13 @@ extension SpaceViewController {
 
     /// Install the click callback on the outer container and any nested containers.
     ///
-    /// Each callback re-runs `updateSplitDimming` so a mouse click on an unfocused
-    /// pane immediately dims the other panes -- before firstResponder changes.
+    /// WHY KEPT, though it never fires for a terminal click: SwiftTerm's mouseDown
+    /// (MacTerminalView.swift:2496) consumes the event without calling super, so
+    /// `SplitContainerView.mouseDown` is never reached from inside a pane. Focus-on-click
+    /// is now taken in `GoblinPortalTerminalView+SmoothScroll.swift` mouseDown and the cue
+    /// follows via `SpaceViewController+FirstResponderObserver.swift`; gated by
+    /// check-click-focus.sh. This callback is kept because it is harmless and removing the
+    /// container's half touches a file at the 350-LOC ceiling.
     func installClickCallback(primary: SpaceDocument) {
         let capturedPrimary = primary
         let handler: (NSView) -> Void = { [weak self] _ in

@@ -39,7 +39,14 @@ extension GoblinPortalTerminalView {
     /// Drop to the grid before a click: selection and mouse reporting both map the click's
     /// point to a cell (MacTerminalView.swift:2491), and a half-cell offset would pick the
     /// wrong row.
+    ///
+    /// Click-to-focus is also taken here, explicitly: neither SwiftTerm's mouseDown
+    /// (MacTerminalView.swift:2496) nor any Goblin Portal code made a clicked terminal first
+    /// responder, so clicking the other split pane left keystrokes AND the focus cue on the old
+    /// one. The cue follows via SpaceViewController+FirstResponderObserver.swift. Gated by
+    /// check-click-focus.sh (C1-FR; falsified by deleting this line).
     override func mouseDown(with event: NSEvent) {
+        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
         smoothScroll.snapToGrid(reason: "mouseDown")
         super.mouseDown(with: event)
     }

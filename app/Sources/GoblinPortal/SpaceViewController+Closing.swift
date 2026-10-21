@@ -61,6 +61,10 @@ extension SpaceViewController {
         // the notification handler can never fire on a partially-torn-down Space.
         // Implementation in SpaceViewController+FocusCue.swift (#249).
         unsubscribeFromSystemColorChanges()
+        // Stop the firstResponder KVO before documents are torn down so the observer
+        // cannot fire against a partially-released Space hierarchy.
+        // Implementation in SpaceViewController+FirstResponderObserver.swift.
+        unsubscribeFromFirstResponderChanges()
 
         // Close split peers first (including any sub-split peers), before their
         // primary documents, so the splitPeers dictionary is cleared while the
