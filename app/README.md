@@ -40,6 +40,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-info-plist.sh    # every privacy usage-description key (incl. Local Network) is in the shipped Info.plist — headless
 ./Scripts/check-afk-loc.sh      # every `| \`X.swift\` | N |` row in AFK.md equals wc -l — headless (#178)
+./Scripts/check-primitives.sh   # T4.0: byte-feed 13 A1b rows to headless SwiftTerm; pinned truth table; FALSIFY=1 mutant; writes primitives-probe-2026-10-21.md
 ./Scripts/check-keybindings.sh   # truth table for the ⌘ line-editing map — fast, headless
 ./Scripts/check-space-restore.sh # truth table for OpenSpaceRoots (Space restore) — fast, headless
 ./Scripts/check-cwd-follow.sh    # per-pid cwd read + cd quoting (ShellDirectory) — fast, headless; foreground-selection now in check-shell-context.sh
