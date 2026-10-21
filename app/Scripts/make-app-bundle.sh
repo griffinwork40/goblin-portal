@@ -89,14 +89,17 @@ for bundle in "$BIN_DIR"/*.bundle; do
 done
 shopt -u nullglob
 
-# Shell-integration script. Bundled in Resources/ so TerminalPane.start() can
-# locate it via Bundle.main.path(forResource:ofType:) and set GOBLIN_PORTAL_INTEGRATION.
-SHELL_INT_SRC="$ROOT/Resources/shell-integration.zsh"
-if [[ -f "$SHELL_INT_SRC" ]]; then
-  cp "$SHELL_INT_SRC" "$APP/Contents/Resources/shell-integration.zsh"
-else
-  echo "==> warning: $SHELL_INT_SRC missing; shell-integration will not be available" >&2
-fi
+# Shell-integration scripts (zsh, bash, fish). Bundled in Resources/ so
+# TerminalPane.start() can locate each via Bundle.main.path(forResource:ofType:) and set
+# GOBLIN_PORTAL_INTEGRATION (zsh), GOBLIN_PORTAL_INTEGRATION_BASH and _FISH.
+for ext in zsh bash fish; do
+  SHELL_INT_SRC="$ROOT/Resources/shell-integration.$ext"
+  if [[ -f "$SHELL_INT_SRC" ]]; then
+    cp "$SHELL_INT_SRC" "$APP/Contents/Resources/shell-integration.$ext"
+  else
+    echo "==> warning: $SHELL_INT_SRC missing; $ext shell-integration will not be available" >&2
+  fi
+done
 
 # Update installer trampoline. Bundled in Resources/ so UpdateInstaller.swift can
 # locate it via Bundle.main.path(forResource:ofType:) and launch it as a detached

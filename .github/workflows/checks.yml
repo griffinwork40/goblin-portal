@@ -78,6 +78,15 @@ jobs:
           ./Scripts/check-reflow.sh
           ./Scripts/check-altbuffer-resize.sh
 
+      # Drives the SHIPPED shell-integration scripts inside real interactive bash (the
+      # runner's /bin/bash 3.2), zsh and fish through a pty. fish is installed here
+      # because the gate exits 2 without it rather than pass with fish unexercised.
+      - name: Shell-script gate
+        working-directory: app
+        run: |
+          brew install fish
+          ./Scripts/check-shell-scripts.sh
+
       # Everything below compiles a single shipped file standalone. No build required, no
       # window server, fast. Run as one step so a failure names the script in the log.
       # check-tmux-directory.sh is headless but needs a tmux binary (it exits 2 without

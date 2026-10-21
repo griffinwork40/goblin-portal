@@ -78,7 +78,15 @@ final class SpaceViewController: NSSplitViewController {
     /// extensions cannot add stored properties; the subscription logic lives in
     /// `SpaceViewController+FocusCue.swift`. Released (and the observation removed) when
     /// `unsubscribeFromSystemColorChanges()` is called or this object is deallocated.
-    var systemColorObserver: (any NSObjectProtocol)?
+    ///
+    /// `nonisolated(unsafe)` is required because `deinit` is nonisolated in Swift 6:
+    /// the compiler rejects a `@MainActor`-isolated property read from a nonisolated
+    /// context. `NotificationCenter.removeObserver(_:)` is documented thread-safe
+    /// (NSNotificationCenter is thread-safe per Apple docs), so reading and clearing
+    /// the token from `deinit` without actor isolation is correct. The `deinit` backstop
+    /// only fires when the object is already being torn down, so no concurrent MainActor
+    /// write can race with it — the object has no other owners at that point.
+    nonisolated(unsafe) var systemColorObserver: (any NSObjectProtocol)?
 
     /// Internal for the same reason `config` above is: document construction lives in
     /// `+DocumentConstruction` and needs `documentArea.container.bounds` as the frame for a
@@ -101,6 +109,15 @@ final class SpaceViewController: NSSplitViewController {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not used — controllers are created programmatically")
+    }
+
+    /// Backstop: removes the system-colour observer if `tearDownAllDocuments()` was not
+    /// reached. `removeObserver` is thread-safe and idempotent — see `systemColorObserver`
+    /// (above) for the full rationale and the `nonisolated(unsafe)` justification.
+    deinit {
+        if let token = systemColorObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     override func viewDidLoad() {

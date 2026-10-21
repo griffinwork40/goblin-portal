@@ -60,8 +60,20 @@ enum TmuxDirectory {
     /// Remote-session command names whose presence in a tmux pane means the pane's
     /// `pane_current_path` is the LOCAL launch directory, not the user's location.
     /// Kept aligned with `ForegroundProcess.kind`'s `.remote` cases
-    /// (ForegroundProcess.swift:196). `mosh` is included: mosh forks mosh-client,
-    /// but tmux may report either name depending on which process leads the pane.
+    /// (ForegroundProcess.swift:196).
+    ///
+    /// `mosh-client` is what `#{pane_current_command}` reports in practice: the `mosh`
+    /// binary is a Perl wrapper that exec-replaces itself with `mosh-client`
+    /// (https://github.com/mobile-shell/mosh/blob/master/scripts/mosh.pl, search
+    /// "exec mosh-client"), so the pane's leading process is always `mosh-client`.
+    /// `mosh` is kept as a belt-and-braces entry in case an atypical installation
+    /// ships a native binary rather than the Perl wrapper — the same rationale as
+    /// ForegroundProcess.swift:193-196, which keeps both names for the same reason.
+    ///
+    /// EternalTerminal's client binary is `et` (already present). `etterminal` is the
+    /// server-side helper launched by `et` over SSH on the REMOTE host; it never
+    /// appears as a local `pane_current_command`, so no `"et-client"` entry is needed
+    /// (https://github.com/MisterTea/EternalTerminal, "Installed programs").
     static let remoteCommands: Set<String> = ["ssh", "mosh-client", "mosh", "et", "autossh"]
 
     /// The active pane's state for the tmux client attached to `clientTTY`, or nil on

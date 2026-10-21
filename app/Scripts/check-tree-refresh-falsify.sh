@@ -207,6 +207,26 @@ run_mutant async-unsorted "ASYNC-SORT-ORDER-MODEL" "$L" \
   'listings[dir] = DirectoryListing.sorted(lister(dir))' \
   'listings[dir] = lister(dir)'
 
+# ASYNC-SORT-ORDER-DISPLAY — independent falsification DEFERRED (#259).
+#
+# The natural candidate (drop outlineView.reloadData() from the non-adopt landing) is
+# not isolating: reloadData() is also what makes restore()'s expandItem calls take
+# effect, so its removal fails EXPANSION and SUBFOLDER-REFRESH (WRONG-CASE) rather than
+# DISPLAY alone. Swapping reloadData() before applyListings() also does not isolate:
+# refreshedRows is sampled after pump() drains the full landing, so both calls have
+# completed and the outline reflects the correct model by read time.
+#
+# DISPLAY is partially covered by existing mutants: adopt-no-reload fails it (among
+# others), list-at-adopt fails it, list-at-landing fails it, and async-unsorted fails
+# it as a side-effect of MODEL failing. A mutation that updates the model correctly but
+# prevents ONLY the outline from reflecting it would require either (a) deferring the
+# reload to a future run loop turn (not achievable with a single sed replacement on
+# shipped source) or (b) a separate display-layer seam that does not yet exist.
+#
+# Deferral: accepted. The DISPLAY sub-case is partially covered by the mutants above;
+# a dedicated isolating mutant requires a new display seam or harness shape. Tracked
+# as advisory finding in #259.
+
 wait
 ran=0; caught=0; missed=0; env=0
 for v in "$TMP"/*.verdict; do

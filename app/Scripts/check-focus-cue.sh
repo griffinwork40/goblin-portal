@@ -340,5 +340,8 @@ else
 fi
 
 say ""
-say "all focus-cue cases passed (K1 grow, K2 shrink, K3 control mutant failed as required)"
-exit 0
+say "==> K4: notification path re-runs accent refresh (check-focus-cue-k4.swift)"
+# K4 and its falsification (K4-CONTROL) live in check-focus-cue-falsify.sh, sourced
+# here. The split keeps this file under the 350-LOC ceiling (AFK.md convention).
+# shellcheck source=check-focus-cue-falsify.sh
+source "$ROOT/Scripts/check-focus-cue-falsify.sh"

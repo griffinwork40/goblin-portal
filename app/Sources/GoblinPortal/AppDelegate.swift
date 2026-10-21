@@ -39,6 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// values survive a hide-and-re-show cycle (singleton pattern).
     private var preferencesWindow: PreferencesWindow?
 
+    /// Token for the `didBecomeActiveNotification` observer registered in
+    /// `applicationDidFinishLaunching`. Stored so it can be removed in
+    /// `applicationWillTerminate` — the documented pattern for block-based
+    /// `NotificationCenter.addObserver(forName:object:queue:)` (#257).
+    private var didBecomeActiveObserver: Any?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
         if let f = CLIArguments.shared.waitFile { openWaitFile(f) } else { restoreSpaces() } // --wait mode: AppDelegate+WaitMode.swift
@@ -71,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // didBecomeActiveNotification so a System Settings change applies without
         // a relaunch. Implementation in AppDelegate+Notifications.swift.
         readNotificationAuthState()
-        NotificationCenter.default.addObserver(
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil, queue: .main
         ) { [weak self] _ in self?.readNotificationAuthState() }
@@ -132,6 +138,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool {
         true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Remove the block-based observer to balance the addObserver in
+        // applicationDidFinishLaunching — the documented cleanup for the
+        // token-returning overload (Apple DTS; #257).
+        if let token = didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     // MARK: - Actions

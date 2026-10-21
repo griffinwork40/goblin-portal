@@ -189,7 +189,14 @@ extension TerminalPane {
         }
         if context != state.lastContext {
             state.lastContext = context
-            directoryDiag("fg=\(kind.map { "\($0)" } ?? "nil") dir=\(context.directory?.path ?? "nil") status=\(context.followStatus)")
+            // When a tmux pane's command triggered isRemote, log which command so
+            // "tmux pane remote" is diagnosable without re-running display-message
+            // (#258, nit: TerminalPane+DirectoryState.swift:188-189).
+            var extra = ""
+            if case .remote = context.followStatus, let cmd = tmuxState?.command, !cmd.isEmpty {
+                extra = " (command=\(cmd))"
+            }
+            directoryDiag("fg=\(kind.map { "\($0)" } ?? "nil") dir=\(context.directory?.path ?? "nil") status=\(context.followStatus)\(extra)")
         }
         return context
     }
