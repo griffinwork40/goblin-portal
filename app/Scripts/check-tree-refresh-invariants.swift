@@ -243,11 +243,16 @@ func runInvariantCases(vc: FileTreeViewController, treeURL: URL) {
     pump(0.3)
     let refreshed = childNames(vc.root)
     let refreshedRows = rowURLs(ov).map(\.lastPathComponent)
-    check(adopted == expected && refreshed == expected,
+    // Identity is a MODEL property: node objects must be REUSED, not replaced, so
+    // NSOutlineView's row-by-identity contract holds across refreshes (#158 review).
+    // Reported under MODEL so a failure names the identity data, not just row URLs.
+    let identityOK = zip(oldNodes, vc.root.children ?? []).allSatisfy { $0 === $1 }
+    let identityMsg = identityOK ? "ok" : "MISMATCH old=\(oldNodes.map { ObjectIdentifier($0) }) "
+        + "new=\(String(describing: vc.root.children?.map { ObjectIdentifier($0) }))"
+    check(adopted == expected && refreshed == expected && identityOK,
           case: "ASYNC-SORT-ORDER-MODEL",
-          msg: "setRoot model=\(adopted) refresh model=\(refreshed)")
-    check(adoptedRows == expected && refreshedRows == expected
-          && zip(oldNodes, vc.root.children ?? []).allSatisfy { $0 === $1 },
+          msg: "setRoot model=\(adopted) refresh model=\(refreshed) identity=\(identityMsg)")
+    check(adoptedRows == expected && refreshedRows == expected,
           case: "ASYNC-SORT-ORDER-DISPLAY",
           msg: "setRoot rows=\(adoptedRows) refresh rows=\(refreshedRows)")
 }
