@@ -83,7 +83,11 @@ pin_value() {
 # `open var disableLigatures: Bool` to `AppleTerminalView`, a backing `_disableLigatures`
 # Bool to `MacTerminalView`, and `kCTLigatureAttributeName: 0` injection to both the Core
 # Text attribute cache and the Metal ShaperCache — making `"ligatures": false` in
-# config.json functional in both renderers. A tree missing any
+# config.json functional in both renderers; 0015 floors the scrollbar thumb at 1/rows; 0016
+# pauses the display link sooner for slow producers; 0017 adds XTVERSION, DEC 1007
+# (alternate scroll, default ON and now actually switchable) and an honest 2027 DECRQM.
+# 0017 was missing from this list when its PR first opened, so CI's fresh bootstrap
+# built a tree without it and the pin rejected it. A tree missing any
 # one of them is not the tree this project is tested against, which is the whole
 # reason the pin records hashes rather than a version.
 PATCHES=(
@@ -103,6 +107,7 @@ PATCHES=(
   "0014-disable-ligatures-both-renderers.patch"
   "0015-proportional-scrollbar-thumb.patch"
   "0016-pause-sooner-for-slow-producers.patch"
+  "0017-xtversion-altscroll-mode2027.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then

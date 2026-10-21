@@ -19,10 +19,11 @@
 # this .sh is the build+run+falsify driver.
 #
 # FALSIFICATION
-# With FALSIFY=1: copies vendor/ to a temp dir, applies TWO mutants:
+# With FALSIFY=1: copies vendor/ to a temp dir, applies THREE mutants:
 #   (a) breaks the kitty keyboard query handler (kittyKbdQuery PRESENT→ABSENT)
 #   (b) removes the XtVersionDcsHandler branch from dispatchDcs (XTVERSION PRESENT→ABSENT)
-# Both mutants must be caught (both rows must flip).  A run where fewer than 2
+#   (c) makes DEC 1007 default OFF, declaration AND RIS line (altScroll1007 PRESENT→ABSENT)
+# All mutants must be caught (every row must flip).  A run where fewer than 3
 # mutants executed exits 2. Mutants are applied to a COPY, never in-place (AFK.md convention).
 #
 # Usage:
@@ -137,7 +138,8 @@ fi
 # Two mutants applied to a COPY of vendored source (never the shipped tree):
 #   Mutant A: suppress kitty keyboard query response → kittyKbdQuery PRESENT→ABSENT
 #   Mutant B: remove XtVersionDcsHandler branch → XTVERSION PRESENT→ABSENT
-# Both must be caught (exit 1 on both rows). A run where fewer than 2 mutations
+#   Mutant C: altScrollMode defaults OFF → altScroll1007 PRESENT→ABSENT
+# All must be caught (exit 1 on each row). A run where fewer than 3 mutations
 # were applied exits 2 so a vacuous falsification cannot silently report success.
 
 say "FALSIFY=1: applying kittyKbdQuery mutant to a COPY of app/ + vendor/…"
@@ -185,6 +187,19 @@ if [[ "$HITS_B" != "1" ]]; then
 fi
 say "  mutant B applied: XtVersionDcsHandler branch removed"
 
+# Mutant C: 1007 defaults OFF, so DECRQM's default reads RESET -> altScroll1007 ABSENT.
+# BOTH the declaration and the RIS line must flip: Terminal's init runs the reset, so
+# flipping the declaration alone changed nothing (the first attempt was not caught).
+HITS_C="$(perl -i -ne '
+    $n += s{public private\(set\) var altScrollMode: Bool = true}{public private(set) var altScrollMode: Bool = false // MUTANT-C};
+    $n += s{altScrollMode = true  // PATCH 0017: 1007 default is ON}{altScrollMode = false // MUTANT-C};
+    print; END { print STDERR $n+0 }' "$MUTANT_SRC" 2>&1 >/dev/null)"
+if [[ "$HITS_C" != "2" ]]; then
+    echo "error: 1007-default mutant matched $HITS_C time(s) (want 2) — source moved; update pattern." >&2
+    exit 2
+fi
+say "  mutant C applied: altScrollMode defaults OFF"
+
 say "  building SwiftTerm in the copy…"
 # Same helper, same backend selection and exit-2 contract as the normal path, run
 # from the copied app/ so `../vendor` is the mutated vendor.
@@ -212,18 +227,20 @@ MUTANT_EXIT=0
 "$TMP/primitivesprobe_mutant" >"$TMP/mutant.out" 2>&1 || MUTANT_EXIT=$?
 grep -E "✗|REGRESSION|kittyKbdQuery" "$TMP/mutant.out" || true
 
-# Both mutants must be caught (kittyKbdQuery AND XTVERSION must flip).
+# All mutants must be caught (kittyKbdQuery, XTVERSION AND altScroll1007 must flip).
 CAUGHT_KITTY=0
 CAUGHT_XTVER=0
 grep -E "kittyKbdQuery" "$TMP/mutant.out" | grep -qE "✗|REGRESSION" && CAUGHT_KITTY=1 || true
 grep -E "XTVERSION"     "$TMP/mutant.out" | grep -qE "✗|REGRESSION" && CAUGHT_XTVER=1 || true
+CAUGHT_1007=0
+grep -E "altScroll1007" "$TMP/mutant.out" | grep -qE "✗|REGRESSION" && CAUGHT_1007=1 || true
 
-if [[ "$MUTANT_EXIT" -eq 1 ]] && [[ "$CAUGHT_KITTY" -eq 1 ]] && [[ "$CAUGHT_XTVER" -eq 1 ]]; then
+if [[ "$MUTANT_EXIT" -eq 1 ]] && [[ "$CAUGHT_KITTY" -eq 1 ]] && [[ "$CAUGHT_XTVER" -eq 1 ]] && [[ "$CAUGHT_1007" -eq 1 ]]; then
     say ""
-    say "FALSIFY: both mutants CAUGHT (kittyKbdQuery + XTVERSION) ✓"
+    say "FALSIFY: all three mutants CAUGHT (kittyKbdQuery + XTVERSION + altScroll1007 default) ✓"
     exit 0
 elif [[ "$MUTANT_EXIT" -eq 1 ]]; then
-    echo "FALSIFY: gate exited 1 but not all mutants caught (kitty=$CAUGHT_KITTY xtver=$CAUGHT_XTVER) — PARTIAL, counted as missed." >&2
+    echo "FALSIFY: gate exited 1 but not all mutants caught (kitty=$CAUGHT_KITTY xtver=$CAUGHT_XTVER 1007=$CAUGHT_1007) — PARTIAL, counted as missed." >&2
     exit 1
 elif [[ "$MUTANT_EXIT" -eq 0 ]]; then
     echo "FALSIFY: mutants NOT caught — gate passed against broken source; gate is BLIND." >&2

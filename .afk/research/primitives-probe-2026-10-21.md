@@ -15,7 +15,7 @@ Metal / CoreText pixel draw **deferred** (requires offscreen GUI — noted per r
 | `DA1` | **PRESENT** | Response: [?65;4;1;2;6;21;22;17;28c \| sixel-bit(;4): true (A1b SUPPORTED ✓) |
 | `DA2` | **PRESENT** | Response: [>65;20;1c (A1b SUPPORTED ✓) |
 | `modifyOtherKeys` | **ABSENT** | DECRQM ?1036 → "[?1036;0$y" status=0(unknown) → ABSENT (A1b MISSING ✓) |
-| `altScroll1007` | **PRESENT** | DECRQM ?1007 -> "[?1007;2$y" (patch 0017 ✓ PRESENT) |
+| `altScroll1007` | **PRESENT** | default=1 after-l=2 after-h=1 (patch 0017 ✓ PRESENT) |
 | `mode2027` | **PRESENT** | DECRQM ?2027 -> "[?2027;4$y" status=4(always-reset) — patch 0017 ✓ PRESENT: emulator recognises mode but reports perman |
 | `kittyKbdQuery` | **PRESENT** | Response: "[?0u" (A1b SUPPORTED ✓) |
 | `OSC9progress` | **PRESENT** | state=set progress=50 — A1b said PARTIAL; CORRECTED: vendor fires progressReport (PRESENT); app already routes 9;4 to Sw |

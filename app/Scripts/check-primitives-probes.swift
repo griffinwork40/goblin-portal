@@ -94,23 +94,33 @@ func probeModifyOtherKeys() -> Row {
                note: "DECRQM ?1036 → \"\(asStr.prefix(40))\" status=0(unknown) → ABSENT (A1b MISSING ✓)")
 }
 
-/// P5 Alternate scroll mode 1007 — DECRQM CSI ?1007 $p.
-/// A1b: MISSING. Mode 1007 absent from cmdDecRqm switch (Terminal.swift:3277-3430).
+/// P5 Alternate scroll mode 1007 — DECRQM CSI ?1007 $p, as a ROUND TRIP.
+/// PRESENT requires: default reads SET (1), ?1007l then reads RESET (2), ?1007h reads SET
+/// again. The default is pinned ON because SwiftTerm's scrollWheel has always sent arrow
+/// keys in the alt buffer (patch 0017); a default of OFF would make DECRQM contradict the
+/// wheel. The scrollWheel gate itself is AppKit and stays daily-drive. FALSIFY mutant C
+/// flips the default and must turn this row ABSENT.
 func probeAltScroll1007() -> Row {
     let (t, d) = makeTerminal()
-    feedStr(t, "\u{1b}[?1007$p")
-    let resp = d.sent
-    let asStr = String(bytes: resp, encoding: .isoLatin1) ?? ""
-    let isKnown = asStr.contains("1007") &&
-        (asStr.contains(";1$y") || asStr.contains(";2$y") ||
-         asStr.contains(";1 $y") || asStr.contains(";2 $y"))
+    func query() -> String {
+        d.sent = []
+        feedStr(t, "\u{1b}[?1007$p")
+        return String(bytes: d.sent, encoding: .isoLatin1) ?? ""
+    }
+    let initial = query()
+    feedStr(t, "\u{1b}[?1007l"); let afterReset = query()
+    feedStr(t, "\u{1b}[?1007h"); let afterSet = query()
+    let ok = initial.contains("?1007;1$y") && afterReset.contains("?1007;2$y")
+        && afterSet.contains("?1007;1$y")
+    func status(_ s: String) -> String {
+        s.contains(";1$y") ? "1" : s.contains(";2$y") ? "2" : "?"
+    }
+    let trail = "default=\(status(initial)) after-l=\(status(afterReset)) after-h=\(status(afterSet))"
     return Row(id: "altScroll1007",
-               description: "DECRQM ?1007 — alternate scroll mode (scroll -> cursor keys in alt-screen)",
-               verdict: isKnown ? .PRESENT : .ABSENT,
-               rawResponse: describe(resp),
-               note: isKnown
-                   ? "DECRQM ?1007 -> \"\(asStr.prefix(40))\" (patch 0017 ✓ PRESENT)"
-                   : "DECRQM ?1007 -> \"\(asStr.prefix(40))\" status=0(unknown) -> ABSENT")
+               description: "DECRQM ?1007 — alternate scroll (default SET, switchable)",
+               verdict: ok ? .PRESENT : .ABSENT,
+               rawResponse: describe(Array(initial.utf8)),
+               note: ok ? "\(trail) (patch 0017 ✓ PRESENT)" : "\(trail) -> ABSENT (want 1/2/1)")
 }
 
 /// P6 Mode 2027 Unicode grapheme clustering — DECRQM CSI ?2027 $p.
