@@ -9,6 +9,12 @@ extension TerminalPane {
             guard let self, case let .notification(title, body) = parsed else { return }
             self.signalAttention(kind: kind, title: title, body: body)
         }
+        // Wire the OSC 9;4 progress callback so +Notify.swift can forward decoded
+        // 9;4 payloads here after feeding the progressDecoder for the native bar.
+        // Defined in GoblinPortalTerminalView+Progress.swift.
+        view.progressCallback = { [weak self] code, pct in
+            self?.applyProgressReport(stateCode: code, progress: pct)
+        }
     }
 
     func signalAttention(kind: DockAttention.SignalKind, title: String = "", body: String = "") {

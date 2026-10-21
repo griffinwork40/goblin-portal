@@ -47,6 +47,9 @@ extension TerminalPane {
         // covers shells without the integration script). If absent, nil is stored and the
         // restart falls back to resolvedWorkingDirectory() (TerminalPane+Launch.swift).
         let lastDirectory = lastKnownDirectoryPath
+        // Clear any in-flight OSC 9;4 progress so a shell that exits without
+        // sending 9;4;0 does not leave the bar stuck on the tab or Dock tile.
+        progressShellExited()
         enterKeptState(waitStatus: waitStatus, directory: lastDirectory)
     }
 
