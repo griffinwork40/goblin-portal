@@ -98,11 +98,13 @@ extension DocumentTabStrip {
         // Appended to the existing label rather than vended as a new child element:
         // the tree this joins is already the NSTabView shape VoiceOver knows how to
         // narrate, and a parallel status element would be a second thing to walk past.
-        if let spoken = item(index).status.accessibilityDescription {
-            element.setAccessibilityLabel("\(item(index).title), \(spoken)")
-        } else {
-            element.setAccessibilityLabel(item(index).title)
-        }
+        // Build the spoken label from title + status + progress so neither channel
+        // is colour-only information.  Progress rides after status when both are
+        // present; the two are orthogonal and both deserve to be spoken.
+        var label = item(index).title
+        if let s = item(index).status.accessibilityDescription { label += ", \(s)" }
+        if let p = item(index).progress.accessibilityDescription  { label += ", \(p)" }
+        element.setAccessibilityLabel(label)
         // Value carries selection because that is where AXRadioButton publishes it;
         // `setAccessibilitySelected` alone is not narrated on this role.
         element.setAccessibilityValue(index == activeIndex ? 1 : 0)

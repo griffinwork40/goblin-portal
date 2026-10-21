@@ -308,11 +308,10 @@ final class SpaceViewController: NSSplitViewController {
     func syncDocumentChrome() {
         documentArea.setStripVisible(documents.count > 1)
         documentArea.strip.reload(
-            items: documents.map {
-                .init(
-                    title: $0.documentTitle, symbolName: $0.documentSymbolName,
-                    isEdited: $0.documentIsEdited, status: $0.documentStatus)
-            },
+            items: documents.map { .init(
+                title: $0.documentTitle, symbolName: $0.documentSymbolName,
+                isEdited: $0.documentIsEdited, status: $0.documentStatus,
+                progress: progressAggregation(for: $0)) },
             activeIndex: activeIndex)
 
         // The unsaved dot lives *in* the strip, hidden at a single document by design
@@ -324,6 +323,7 @@ final class SpaceViewController: NSSplitViewController {
         // re-syncs, so the early no-op is harmless.
         view.window?.isDocumentEdited = hasEditedDocuments
         syncDockAttention()
+        syncDockProgress()  // OSC 9;4 Dock progress — SpaceViewController+Progress.swift
     }
 
     // MARK: - Config reload

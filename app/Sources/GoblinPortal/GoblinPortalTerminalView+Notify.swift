@@ -29,11 +29,21 @@ extension GoblinPortalTerminalView {
         // SwiftTerm vendor updates. Re-evaluate if Terminal's init cost becomes
         // measurable (e.g. if pane count scales significantly).
         let progressDecoder = Terminal(delegate: self)
-        getTerminal().registerOscHandler(code: 9) { data in
+        getTerminal().registerOscHandler(code: 9) { [weak self] data in
             MainActor.assumeIsolated {
                 let parsed = NotificationEscape.parseOsc9(data)
                 if parsed == .progressPayload {
                     progressDecoder.feed(byteArray: [27, 93, 57, 59] + Array(data) + [7])
+                    // Forward the raw payload to the pane's progress policy in parallel.
+                    // ProgressPayload.parse decodes `<state>[;<pct>]` from the bytes
+                    // after the leading `4;` prefix (already confirmed by parseOsc9).
+                    // The slice starts at index 2 to skip the "4;" prefix characters.
+                    if let self, let cb = self.progressCallback {
+                        let inner = data.dropFirst(2)  // skip "4;"
+                        if let decoded = ProgressPayload.parse(inner) {
+                            cb(decoded.stateCode, decoded.progress)
+                        }
+                    }
                 } else {
                     receive(parsed, .osc9)
                 }

@@ -41,6 +41,10 @@ final class DocumentTabStrip: NSView {
         /// What this document wants the user to know. Drawn in the same box as the
         /// unsaved dot, with the same hover-reveals-× rule — see `drawStatusDot`.
         var status: DocumentStatus = .idle
+        /// OSC 9;4 progress for this tab (aggregated across splits).
+        /// Drawn as a 2pt bar at the bottom of the pill — see `DocumentTabStrip+Progress.swift`.
+        /// Additive to `status`; the two occupy different visual zones.
+        var progress: ProgressAggregation = .hidden
     }
 
     /// Matches the visual weight of a Safari/Ghostty tab rail. Anything taller

@@ -145,6 +145,10 @@ extension TerminalPane {
                     isActiveDocument: self.isActiveDocument
                 )
                 self.applyCommandOutcome(outcome)
+                // OSC 133 D: clear any in-flight OSC 9;4 progress so a program
+                // that dies without sending 9;4;0 does not leave the bar stuck.
+                // Defined in TerminalPane+Progress.swift.
+                self.progressCommandFinished()
                 // Fire a desktop notification for long commands that finish in the
                 // background. `postIfNeeded` applies its own guards (background tab,
                 // minimum duration) so the call is unconditional here — the policy

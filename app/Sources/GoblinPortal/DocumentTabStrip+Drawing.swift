@@ -220,5 +220,10 @@ extension DocumentTabStrip {
         } else if isActive || hoveredTab == index {
             drawCloseGlyph(in: closeRect(rect), emphasised: hoveredClose == index)
         }
+
+        // OSC 9;4 progress bar — 2pt strip at the bottom of the pill, drawn last
+        // so it sits above the accent line and other content.  Clipped to the pill
+        // by drawProgressBar (DocumentTabStrip+Progress.swift).
+        drawProgressBar(in: rect, progress: item(index).progress, isActive: isActive)
     }
 }
