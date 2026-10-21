@@ -21,7 +21,14 @@
 #   T8  explicit .shellPrompt title is suppressed → derived title used
 #   T9  long name truncated to ≤ 28 chars + ellipsis
 #   T10 known shell (nested bash) → nested shell's cwd basename
-#   FALSIFY  sed-mutant copy: changing "~" sentinel → gate must fail T2
+#   T11 program title set while running → shown
+#   T12 program title dropped after the command ends (no precmd title follows)
+#   T13 precmd title after a command ends → suppressed
+#   T14 title with no shell integration (never running) → suppressed
+#   FALSIFY  two sed mutants on COPIES, each must fail ITS declared case:
+#            m1 "~" sentinel → "HOME"            (must fail T2)
+#            m2 commandEnded keeps the title      (must fail T12)
+#            a mutant whose pattern no longer applies exits 2 (environmental)
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -48,16 +55,7 @@ FALSIFY=0
 TMPDIR_BASE="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_BASE"' EXIT
 
-# When falsifying, sed-mutate a COPY so the shipped source is never touched.
-if [[ $FALSIFY -eq 1 ]]; then
-    MUTANT_POLICY="$TMPDIR_BASE/TabTitlePolicy_mutant.swift"
-    # Mutant: change the home-sentinel "~" to "HOME" — T2 must now fail
-    sed 's/return "~"/return "HOME"/' "$POLICY_SRC" > "$MUTANT_POLICY"
-    POLICY_TO_USE="$MUTANT_POLICY"
-    echo "==> FALSIFY mode: mutated copy at $MUTANT_POLICY"
-else
-    POLICY_TO_USE="$POLICY_SRC"
-fi
+POLICY_TO_USE="$POLICY_SRC"
 
 # ── harness source ────────────────────────────────────────────────────────────
 HARNESS="$TMPDIR_BASE/main.swift"
@@ -154,44 +152,76 @@ check("T10-known-shell-cwd",
                          homeURL: home, explicitTitle: "", explicitKind: .none, tmuxTitle: nil),
     "goblin-portal")
 
+// ── T11-T14: the explicit-title TRANSITIONS (TabTitleTracker) ──────────────
+func titled(_ t: TabTitleTracker) -> String {
+    TabTitlePolicy.title(foreground: .command(name: "vim"), cwdURL: proj, homeURL: home,
+                         explicitTitle: t.explicitTitle, explicitKind: t.explicitKind,
+                         tmuxTitle: nil)
+}
+var tr = TabTitleTracker()
+tr.commandStarted(); tr.titleSet("vim: main.swift", running: true)
+check("T11-program-title-while-running", titled(tr), "vim: main.swift")
+tr.commandEnded()
+check("T12-program-title-dropped-at-end", titled(tr), "vim \u{2014} goblin-portal")
+tr.titleSet("alice@mac: ~/Projects/goblin-portal", running: false)
+check("T13-precmd-title-suppressed", titled(tr), "vim \u{2014} goblin-portal")
+var noInt = TabTitleTracker()
+noInt.titleSet("alice@mac: ~", running: false)
+check("T14-no-integration-suppressed", titled(noInt), "vim \u{2014} goblin-portal")
+
 // ── summary ───────────────────────────────────────────────────────────────
 print("\n\(passed) passed, \(failed) failed")
 if failed > 0 { exit(1) }
 SWIFT_EOF
 
-# ── compile ───────────────────────────────────────────────────────────────────
-BINARY="$TMPDIR_BASE/check-tab-title"
-
+# ── compile + run one policy source; prints harness output, returns its status ──
 # ForegroundProcess.swift is Foundation+Darwin only — safe for standalone compile.
 # TabTitlePolicy.swift depends on ForegroundKind from ForegroundProcess.swift.
-if ! swiftc -O -module-name GoblinPortal \
-    "$POLICY_TO_USE" \
-    "$FOREGROUND_SRC" \
-    "$HARNESS" \
-    -o "$BINARY" 2>"$TMPDIR_BASE/compile.log"; then
-    echo "COMPILE ERROR:" >&2
-    cat "$TMPDIR_BASE/compile.log" >&2
-    exit 2
-fi
-
-# ── run ───────────────────────────────────────────────────────────────────────
-echo "==> check-tab-title.sh (TabTitlePolicy truth table)"
-# Disable set -e for this one invocation so a failing harness (exit 1) does not
-# abort the script before we can inspect STATUS — that would break the FALSIFY
-# path, which expects exit 1 from the mutant and must report FALSIFY PASSED.
-set +e
-"$BINARY"
-STATUS=$?
-set -e
-
-if [[ $FALSIFY -eq 1 ]]; then
-    if [[ $STATUS -eq 1 ]]; then
-        echo "==> FALSIFY PASSED: mutant correctly failed (exit 1)"
-        exit 0
-    else
-        echo "==> FALSIFY FAILED: mutant should have exited 1 but got $STATUS" >&2
-        exit 1
+run_policy() {  # $1 = policy source, $2 = output log
+    local bin="$TMPDIR_BASE/check-tab-title-$RANDOM"
+    if ! swiftc -O -module-name GoblinPortal "$1" "$FOREGROUND_SRC" "$HARNESS" \
+        -o "$bin" 2>"$TMPDIR_BASE/compile.log"; then
+        echo "COMPILE ERROR:" >&2; cat "$TMPDIR_BASE/compile.log" >&2
+        return 2
     fi
+    # `|| st=$?` rather than toggling set -e here: re-enabling errexit inside the
+    # function made its own nonzero `return` abort the caller (found by tracing).
+    local st=0; "$bin" >"$2" 2>&1 || st=$?
+    return $st
+}
+
+if [[ $FALSIFY -eq 0 ]]; then
+    echo "==> check-tab-title.sh (TabTitlePolicy truth table + TabTitleTracker transitions)"
+    STATUS=0; run_policy "$POLICY_TO_USE" "$TMPDIR_BASE/out.log" || STATUS=$?
+    cat "$TMPDIR_BASE/out.log"
+    exit $STATUS
 fi
 
-exit $STATUS
+# ── falsification: each mutant must fail ITS declared case, nothing else counts ──
+# m1 targets the home sentinel; m2 deletes BOTH resets in commandEnded() that drop a
+# finished program's title (the stuck-title bug found in review).
+caught=0; ran=0
+falsify() {  # $1 name, $2 declared case, $3 sed expression
+    local mut="$TMPDIR_BASE/TabTitlePolicy_$1.swift" out="$TMPDIR_BASE/$1.log"
+    sed "$3" "$POLICY_SRC" > "$mut"
+    if cmp -s "$mut" "$POLICY_SRC"; then
+        echo "==> $1: pattern no longer applies to the shipped policy (environmental)" >&2
+        exit 2
+    fi
+    local st=0; run_policy "$mut" "$out" || st=$?
+    ran=$((ran+1))
+    if [[ $st -eq 2 ]]; then echo "==> $1: mutant did not compile (environmental)" >&2; exit 2; fi
+    if [[ $st -eq 1 ]] && grep -q "^FAIL  $2" "$out"; then
+        echo "==> $1: CAUGHT by $2"; caught=$((caught+1))
+    elif [[ $st -eq 1 ]]; then
+        echo "==> $1: WRONG-CASE (exit 1, but $2 did not fail) — counts as missed" >&2
+    else
+        echo "==> $1: MISSED (gate stayed green)" >&2
+    fi
+}
+falsify m1-home-sentinel T2- 's/return "~"/return "HOME"/'
+falsify m2-keep-program-title T12- '/^        explicitTitle = ""$/d; /^        explicitKind = .none$/d'
+[[ $ran -eq 0 ]] && { echo "==> no mutant ran" >&2; exit 2; }
+if [[ $caught -eq $ran ]]; then echo "==> FALSIFY PASSED: $caught/$ran mutants caught by their declared case"; exit 0; fi
+echo "==> FALSIFY FAILED: $caught/$ran caught" >&2
+exit 1

@@ -166,3 +166,48 @@ enum TabTitlePolicy {
         return String(s.prefix(maxLength - 1)) + "\u{2026}"
     }
 }
+
+// MARK: - TabTitleTracker
+
+/// The explicit-title state machine: which OSC 0/2 title, if any, the policy may see.
+///
+/// Pure and value-typed so `check-tab-title.sh` gates the TRANSITIONS, not only the
+/// final mapping. It was AppKit-side state until review found a stuck-title bug the
+/// mapping gate could not see: a program title ("vim: main.swift") set while running
+/// survived the command's end, and because stock macOS zsh sets NO precmd title,
+/// nothing ever replaced it — the tab kept naming vim after vim had exited.
+/// `commandEnded()` now drops the program's title (cases T11-T14).
+struct TabTitleTracker: Equatable {
+    private(set) var explicitTitle: String = ""
+    private(set) var explicitKind: ExplicitTitleKind = .none
+    /// True between a command's end / prompt start and the next title: that title is
+    /// the shell's own precmd `user@host` form and must be suppressed.
+    private(set) var nextTitleIsShellPrompt: Bool = false
+
+    /// OSC 133 A, when it is surfaced. The next title is the prompt's.
+    mutating func promptStarted() { nextTitleIsShellPrompt = true }
+
+    /// OSC 133 C: a title from here on belongs to the running program.
+    mutating func commandStarted() { nextTitleIsShellPrompt = false }
+
+    /// OSC 133 D: the program is gone, so is its title. The shell's next title (if it
+    /// sets one at all) is precmd noise.
+    mutating func commandEnded() {
+        explicitTitle = ""
+        explicitKind = .none
+        nextTitleIsShellPrompt = true
+    }
+
+    /// OSC 0/2 arrived. `running` is whether OSC 133 says a command is in flight;
+    /// without shell integration it is never true, so every title is treated as
+    /// prompt noise and the derived title wins (never `user@host`).
+    mutating func titleSet(_ title: String, running: Bool) {
+        if nextTitleIsShellPrompt {
+            explicitKind = .shellPrompt
+            nextTitleIsShellPrompt = false
+        } else {
+            explicitKind = running ? .program : .shellPrompt
+        }
+        explicitTitle = title
+    }
+}

@@ -37,17 +37,14 @@ import SwiftTerm
 
 // MARK: - Stored state for tab-title tracking
 
-/// Lightweight state added to each pane via an associated object.
+/// Lightweight state added to each pane via an associated object. The explicit-title
+/// TRANSITIONS live in the pure, gated `TabTitleTracker` (`TabTitlePolicy.swift`);
+/// this class only holds it plus the last label reported, for redraw suppression.
 @MainActor
 final class PaneTabTitleState {
     /// The last derived title we reported.  Guards against redundant redraws.
     var lastReportedTitle: String = ""
-    /// Whether the next OSC 0/2 was triggered at the shell prompt.
-    /// Set to `true` on OSC 133 A (prompt start), cleared on any other event.
-    var nextTitleIsShellPrompt: Bool = false
-    /// The explicit title set by the running program, and its kind.
-    var explicitTitle: String = ""
-    var explicitKind: ExplicitTitleKind = .none
+    var tracker = TabTitleTracker()
 }
 
 // MARK: - TerminalPane tab-title extension
@@ -79,8 +76,8 @@ extension TerminalPane {
     var derivedDocumentTitle: String {
         let context = shellContext        // cheap: reads cached state, no subprocess
         let state = tabTitleState
-        let ts = state.explicitTitle
-        let tk = state.explicitKind
+        let ts = state.tracker.explicitTitle
+        let tk = state.tracker.explicitKind
 
         // When inside tmux, surface the active pane's title if tmux gave us one.
         // `TmuxPaneState` does not carry a pane title today; fall back to nil so
@@ -119,7 +116,7 @@ extension TerminalPane {
     /// Called when OSC 133 A (prompt start) arrives, marking the shell is at a prompt.
     /// The next OSC 0/2 from the default zsh precmd should be ignored (`.shellPrompt`).
     func handlePromptStart() {
-        tabTitleState.nextTitleIsShellPrompt = true
+        tabTitleState.tracker.promptStarted()
     }
 
     // MARK: - OSC 0/2 intercept
@@ -132,16 +129,7 @@ extension TerminalPane {
     /// We keep `currentTitle` updated as before (close-confirmation reads it), but
     /// also update `explicitTitle`/`explicitKind` and fire `notifyTitleChanged`.
     func handleExplicitTitle(_ title: String) {
-        let ts = tabTitleState
-        if ts.nextTitleIsShellPrompt {
-            ts.explicitKind = .shellPrompt
-            ts.nextTitleIsShellPrompt = false
-        } else if ts.explicitKind == .none && title.isEmpty {
-            ts.explicitKind = .none
-        } else {
-            ts.explicitKind = (status == .running) ? .program : .shellPrompt
-        }
-        ts.explicitTitle = title
+        tabTitleState.tracker.titleSet(title, running: status == .running)
         notifyTitleChanged()
     }
 
@@ -159,15 +147,17 @@ extension TerminalPane {
     /// Called on OSC 133 C (command started).  Switches to `.program` mode so the
     /// next OSC 0/2 from the running program is honoured.
     func handleCommandStartForTitle() {
-        tabTitleState.nextTitleIsShellPrompt = false
+        tabTitleState.tracker.commandStarted()
         notifyTitleChanged()
     }
 
     /// Called on OSC 133 D (command ended).  After a command finishes, the shell
-    /// will emit OSC 133 A then its precmd OSC 0/2 — mark that next title as a
-    /// shell-prompt title so it is suppressed.
+    /// may emit OSC 133 A then its precmd OSC 0/2 — mark that next title as a
+    /// shell-prompt title so it is suppressed, and DROP the finished program's own
+    /// title (`TabTitleTracker.commandEnded`): a shell that sets no precmd title
+    /// would otherwise leave "vim: …" on the tab after vim exited.
     func handleCommandEndForTitle() {
-        tabTitleState.nextTitleIsShellPrompt = true
+        tabTitleState.tracker.commandEnded()
         notifyTitleChanged()
     }
 }
