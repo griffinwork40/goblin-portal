@@ -1,5 +1,5 @@
 # Sourced by verify-vendor.sh — never run on its own. The VIEW-LAYER half of the vendor
-# verdict: every check on the files patches 0006-0016 touch (MacTerminalView.swift,
+# verdict: every check on the files patches 0006-0017 touch (MacTerminalView.swift,
 # AppleTerminalView.swift, TerminalViewSearch.swift, MacDisplayLinkPacer.swift,
 # Apple/Metal/MetalTerminalRenderer.swift, Apple/Metal/CoreTextGlyphRasterizer.swift).
 #

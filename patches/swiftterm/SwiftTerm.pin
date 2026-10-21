@@ -25,14 +25,15 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-10-18 the tree differs from upstream in TWELVE files (SIXTEEN patches):
-# Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005),
-# PtmuxDcsHandler.swift (0005, new file), MacTerminalView.swift (0006/0008/0009/0010/0014),
+# As of 2026-10-21 the tree differs from upstream in FOURTEEN files (SEVENTEEN patches):
+# Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005/0017),
+# PtmuxDcsHandler.swift (0005, new file), XtVersionDcsHandler.swift (0017, new file),
+# MacTerminalView.swift (0006/0008/0009/0010/0014/0017),
 # AppleTerminalView.swift (0007/0010/0013/0014/0015), TerminalViewSearch.swift (0009),
-# MacDisplayLinkPacer.swift (0010, new file; 0016), MetalTerminalRenderer.swift (0011/0012/0013/0014), and
-# CoreTextGlyphRasterizer.swift (0012). File count and patch count are not the same number
-# and have not been since 0003; do not infer one from the other. For the history of how
-# the patch set grew, see git log patches/swiftterm/SwiftTerm.pin.
+# MacDisplayLinkPacer.swift (0010, new file; 0016), MetalTerminalRenderer.swift (0011/0012/0013/0014),
+# CoreTextGlyphRasterizer.swift (0012), and Terminal.swift (0017). File count and patch count
+# are not the same number and have not been since 0003; do not infer one from the other.
+# For the history of how the patch set grew, see git log patches/swiftterm/SwiftTerm.pin.
 #
 # Regenerate the hashes below with:
 #   shasum -a 256 vendor/SwiftTerm/Package.swift
@@ -152,7 +153,13 @@ upstream_buffer_swift = 7b65f2b9ce21c95b124848b76856e727fd8a407cb7354a1dc19ab82f
 # Terminal.swift is still a pure version tripwire — unmodified upstream, no patch. The
 # reflow read-back API check-reflow.sh depends on lives here
 # (getBufferAsData, Terminal.swift:5947), so a change means re-checking that gate.
-terminal_swift = 7d29fe260ff9561ac827e3e145838005c1ad5306f5ca0d087fec2b813520ede9
+# Terminal.swift AFTER applying 0017-xtversion-altscroll-mode2027.patch.
+# 0017 adds: altScrollMode property, xtVersion property, mode 1007 in cmdDecRqm/
+# cmdSetMode/cmdResetMode, mode 2027 in cmdDecRqm (permanently reset -- honest),
+# and the xtVersion public property for the host app to set at launch. altScrollMode
+# DEFAULTS ON (and RIS restores it): upstream's scrollWheel has always sent arrow keys
+# in the alt buffer, so OFF would make DECRQM contradict the wheel.
+terminal_swift = 9ae0e4758957b49864a38a12ffa0a84555fc068257b83409b0f8bddc2bee3d65
 # EscapeSequenceParser.swift AFTER applying 0005-add-dcs-ptmux-passthrough.patch.
 # This is the hash verify-vendor.sh requires.
 #
@@ -181,8 +188,10 @@ terminal_swift = 7d29fe260ff9561ac827e3e145838005c1ad5306f5ca0d087fec2b813520ede
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift
-#   # then update patched_escape_seq_parser below
-patched_escape_seq_parser  = 5f1a11eb0d2523e4bd92b057f7293a3f1fa0f3f2be86efe714a9616668bd46ae
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/XtVersionDcsHandler.swift
+#   # then update patched_escape_seq_parser, terminal_swift, xtversion_dcs_handler below
+patched_escape_seq_parser  = 29ede1e45873a363fad61a64bde27903c4dba0f32de8ecebc5dde470223f6e39
 
 # EscapeSequenceParser.swift as shipped upstream at v1.15.0.
 upstream_escape_seq_parser = ee651a9ffaa1adaaa106d89121c17903227d3c4a38312c42a3aa2f34058e937a
@@ -192,11 +201,19 @@ upstream_escape_seq_parser = ee651a9ffaa1adaaa106d89121c17903227d3c4a38312c42a3a
 # but a modified file would pass the existence check silently without this pin.
 ptmux_dcs_handler = 78c20efe0b206162b6a771fa2f089474aeba2102508e29f1b83efcf293492b89
 
+# XtVersionDcsHandler.swift -- added by 0017-xtversion-altscroll-mode2027.patch, no
+# upstream counterpart.  Handles DCS > q ST (XTVERSION query): responds with
+# DCS > | <xtVersion> ST.  The host app sets Terminal.xtVersion at launch.
+# A missing file is a compile error; a modified file would pass the existence check
+# silently without this pin.
+xtversion_dcs_handler = 8519ec73025f98c0e34d092851fbf8c214b5181321676edccc2a35646c647f21
+
 # MacTerminalView.swift AFTER applying 0006-gate-linefeed-selection-clear-on-mouse-mode.patch,
 # 0008-make-draw-open-for-subclass-override.patch,
 # 0009-expose-search-state-changed-hook.patch,
-# 0010-pace-redraws-on-display-link.patch, and
-# 0014-disable-ligatures-both-renderers.patch.
+# 0010-pace-redraws-on-display-link.patch,
+# 0014-disable-ligatures-both-renderers.patch, and
+# 0017-xtversion-altscroll-mode2027.patch.
 #
 # 0006 gates linefeed's selection-clear on mouseMode; 0008 makes draw() `open`;
 # 0009 adds the `searchStateDidChange(term:options:)` callback and fires it from
@@ -205,11 +222,12 @@ ptmux_dcs_handler = 78c20efe0b206162b6a771fa2f089474aeba2102508e29f1b83efcf29349
 # `displayPacer` property, re-binds it in viewDidMoveToWindow, and invalidates it in deinit;
 # 0014 adds `var _disableLigatures: Bool = false` — the backing store for the open
 # property declared in the AppleTerminalView extension (stored properties cannot
-# live in extensions, so the Bool lives here).
+# live in extensions, so the Bool lives here); 0017 gates scrollWheel's alt-buffer
+# arrow-key branch on `terminal.altScrollMode` (DEC 1007), so ?1007l really stops it.
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
-patched_mac_terminal_view  = 40790937a69e73528750f70c91fdb64d07721869822986f5000821be6044c2f2
+patched_mac_terminal_view  = bcdf2ee7b4812f2905dcc3e5bb74a92bc705f3c347058462d6fd0c5dba660697
 
 # MacTerminalView.swift as shipped upstream at v1.15.0.
 upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac60417864168cded4041

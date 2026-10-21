@@ -55,6 +55,7 @@ PATCH_COLORGLYPH="$REPO_ROOT/patches/swiftterm/0012-rasterize-color-glyphs-at-lo
 PATCH_COMBINING="$REPO_ROOT/patches/swiftterm/0013-fix-combining-mark-after-wide-char.patch"
 PATCH_THUMB="$REPO_ROOT/patches/swiftterm/0015-proportional-scrollbar-thumb.patch"
 PATCH_SLOWPAUSE="$REPO_ROOT/patches/swiftterm/0016-pause-sooner-for-slow-producers.patch"
+PATCH_0017="$REPO_ROOT/patches/swiftterm/0017-xtversion-altscroll-mode2027.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -68,7 +69,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH" "$PATCH_COMBINING" "$PATCH_THUMB" "$PATCH_SLOWPAUSE"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH" "$PATCH_COMBINING" "$PATCH_THUMB" "$PATCH_SLOWPAUSE" "$PATCH_0017"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -86,6 +87,8 @@ WANT_BUFFER_UPSTREAM="$(pin_value upstream_buffer_swift)"
 WANT_PARSER="$(pin_value patched_escape_seq_parser)"
 WANT_PARSER_UPSTREAM="$(pin_value upstream_escape_seq_parser)"
 WANT_PTMUX="$(pin_value ptmux_dcs_handler)"
+WANT_TERMINAL="$(pin_value terminal_swift)"
+WANT_XTVER="$(pin_value xtversion_dcs_handler)"
 WANT_ATV="$(pin_value patched_apple_terminal_view)"
 WANT_ATV_UPSTREAM="$(pin_value upstream_apple_terminal_view)"
 
@@ -96,11 +99,11 @@ if [[ ! -d "$VENDOR" ]]; then
   err "Recreate it:"
   err "  ./Scripts/bootstrap-vendor.sh"
   err ""
-  err "That clones $UPSTREAM_TAG, applies all sixteen patches in order, and re-runs this"
+  err "That clones $UPSTREAM_TAG, applies all seventeen patches in order, and re-runs this"
   err "check for the verdict. app/README.md documents the manual equivalent if you"
   err "would rather see the steps than trust a script."
   err ""
-  err "ALL SIXTEEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
+  err "ALL SEVENTEEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
   err "narrowing), 0003 fixes the alt-buffer resize defect (stale cells bleeding across tmux"
   err "panes on widening), 0004 stops an upstream release-build abort() on every resize, 0005"
   err "adds DCS Ptmux passthrough, 0006 keeps the selection alive during linefeed at a plain"
@@ -277,11 +280,57 @@ if [[ "$GOT_PTMUX" != "$WANT_PTMUX" ]]; then
   exit 3
 fi
 
-# --- view-layer checks (0006-0013) live in a sibling -----------------------------
+# --- third-c check: 0017 Terminal.swift and XtVersionDcsHandler.swift -------------
+# 0017 adds altScrollMode, xtVersion, mode 1007 (altScroll), mode 2027 (honest
+# permanently-reset), and wires DCS>q to XtVersionDcsHandler.
+TERMINAL_FILE="$VENDOR/Sources/SwiftTerm/Terminal.swift"
+if [[ ! -f "$TERMINAL_FILE" ]]; then
+  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Terminal.swift -- incomplete checkout."
+  exit 1
+fi
+GOT_TERMINAL="$(sha256_of "$TERMINAL_FILE")"
+if [[ "$GOT_TERMINAL" != "$WANT_TERMINAL" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift does not match"
+  err "       the pinned hash (covers patch 0017: altScrollMode, xtVersion, modes 1007/2027)."
+  err ""
+  err "  expected: $WANT_TERMINAL"
+  err "  found:    $GOT_TERMINAL"
+  err ""
+  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
+  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift"
+  err "  # then update terminal_swift in patches/swiftterm/SwiftTerm.pin"
+  exit 3
+fi
+
+XTVER_FILE="$VENDOR/Sources/SwiftTerm/XtVersionDcsHandler.swift"
+if [[ ! -f "$XTVER_FILE" ]]; then
+  err "error: vendor/SwiftTerm is missing Sources/SwiftTerm/XtVersionDcsHandler.swift."
+  err ""
+  err "Patch 0017 is not applied. Without it DCS>q (XTVERSION) returns nothing."
+  err ""
+  err "Apply the patch:"
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0017-xtversion-altscroll-mode2027.patch"
+  exit 2
+fi
+GOT_XTVER="$(sha256_of "$XTVER_FILE")"
+if [[ "$GOT_XTVER" != "$WANT_XTVER" ]]; then
+  err "error: vendor/SwiftTerm/Sources/SwiftTerm/XtVersionDcsHandler.swift does not match"
+  err "       the pinned hash."
+  err ""
+  err "  expected: $WANT_XTVER"
+  err "  found:    $GOT_XTVER"
+  err ""
+  err "If you deliberately edited the patch, regenerate the pin:"
+  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/XtVersionDcsHandler.swift"
+  err "  # then update xtversion_dcs_handler in patches/swiftterm/SwiftTerm.pin"
+  exit 3
+fi
+
+# --- view-layer checks (0006-0016) live in a sibling -----------------------------
 # MacTerminalView.swift, AppleTerminalView.swift, TerminalViewSearch.swift, 0010's
 # MacDisplayLinkPacer.swift, 0011/0012/0013's MetalTerminalRenderer.swift, 0012's
 # CoreTextGlyphRasterizer.swift, and 0013's AppleTerminalView.swift hunk.
 # Sourced, not executed, so its exits are this script's.
 . "$APP_ROOT/Scripts/verify-vendor-views.sh"
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 16 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 17 local patches"
