@@ -51,6 +51,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-tree-refresh.sh       # async setRoot/refresh()/refreshSynchronously(): 15 cases (adds NO-EMPTY-FRAME, REVEAL-IN-FLIGHT, SYNC-ADOPT, NO-MAIN-LISTING, SELECTION-SURVIVES, SUBFOLDER-REFRESH, EXPAND-IN-FLIGHT) — offscreen GUI; --falsify 16 mutants (~3 min)
 ./Scripts/check-shell-integration.sh  # OSC 133 A/C/D state machine + 15 OSC 7 host-check cases (Osc7Directory) — fast, headless; --falsify 3 mutants (compile-fail or stale-pattern exits 2)
 ./Scripts/check-git-status.sh    # porcelain-v2 parsing + repo discovery, on real repos — headless
+./Scripts/check-input-latency.sh # key-to-echo via the app's pty write path vs a bare write(2) floor, + paste/keys ordering — release, load-guarded, local only (T3.1)
 ./Scripts/check-reflow.sh        # does narrowing corrupt scrollback? (#494) — headless
 ./Scripts/check-altbuffer-resize.sh # does an alt-buffer resize resurrect stale cells? — headless
 ./Scripts/check-metal-renderer.sh # does the GPU renderer actually ship AND come up? — offscreen GUI
