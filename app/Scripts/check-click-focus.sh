@@ -18,11 +18,16 @@
 # FALSIFICATION (AFK.md Conventions: mutate a COPY of shipped source)
 #
 # app/ is APFS-cloned into $TMP once per mutant, the mutant applied to the CLONE, the clone
-# rebuilt and the same harness linked against it. Two mutants, one per half of the fix:
+# rebuilt and the same harness linked against it. Three mutants, covering both halves of the
+# fix and the 3-pane per-leaf path:
 #   M1  subscribeToFirstResponderChanges(in:) removed from +WindowLifecycle.swift's
 #       viewDidAppear → must fail C1-CUE with C1-FR still green (focus moves, cue stays)
 #   M2  the makeFirstResponder line removed from GoblinPortalTerminalView+SmoothScroll.swift's
 #       mouseDown → must fail C1-FR (the click no longer takes focus — the original bug)
+#   M5  peerSubSplit leaf removed from gatherLeaves in +SplitFocus.swift:100 → must
+#       fail C3-CUE with C1/C2 still green (no sub-split in C1/C2 so those leaves are
+#       unaffected; sub-peer never enters the leaves array so updateFocusCue never moves
+#       the border to it; exercises the leaves.count > 2 path in +SplitPresentation.swift)
 # A mutant counts only if its declared case fails; failing some other way is WRONG-CASE
 # (exit 1). A mutation that did not apply, or a clone that would not build, is exit 2.
 #
@@ -121,6 +126,14 @@ run_mutant M1 "Sources/GoblinPortal/SpaceViewController+WindowLifecycle.swift" \
 run_mutant M2 "Sources/GoblinPortal/GoblinPortalTerminalView+SmoothScroll.swift" \
     "if window?.firstResponder !== self { window?.makeFirstResponder(self) }" C1-FR
 
+# M5: remove the peerSubSplit leaf from gatherLeaves
+# (SpaceViewController+SplitFocus.swift:100). Without it the sub-peer is never included
+# in the leaves array, updateFocusCue never sees it, the border is never moved to it,
+# and C3-CUE fails. C1/C2 have no peerSubSplit so they are unaffected — this is the
+# only path that exercises the leaves.count > 2 branch in +SplitPresentation.swift:64-79.
+run_mutant M5 "Sources/GoblinPortal/SpaceViewController+SplitFocus.swift" \
+    "if let sub = entry.peerSubSplit { addLeaf(sub.document) }" C3-CUE C1-CUE
+
 say ""
-say "all click-focus cases passed (C0, C1, C2) and both mutants were caught (M1, M2)"
+say "all click-focus cases passed (C0, C1, C2, C3) and all mutants were caught (M1, M2, M5)"
 exit 0
