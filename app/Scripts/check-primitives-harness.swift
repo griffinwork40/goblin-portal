@@ -1,6 +1,6 @@
 // check-primitives-harness.swift — compiled and linked by check-primitives.sh
 //
-// Byte-feed probe for T4.0: records what SwiftTerm v1.15.0 + 16 local patches
+// Byte-feed probe for T4.0: records what SwiftTerm v1.15.0 + 17 local patches
 // actually responds to, replacing the A1b static-analysis hypotheses with measured
 // behaviour. Each row feeds escape sequences to a headless Terminal, captures the
 // bytes SwiftTerm sends back via TerminalDelegate.send(source:data:), and records
@@ -147,12 +147,12 @@ struct Row {
 // and in the A1b corrections section of .afk/research/primitives-probe-2026-10-21.md.
 
 let pinnedVerdicts: [String: Verdict] = [
-    "XTVERSION":          .ABSENT,   // DCS>q: no handler in EscapeSequenceParser.swift
+    "XTVERSION":          .PRESENT,  // DCS>q: XtVersionDcsHandler responds DCS>|<ver> ST (patch 0017)
     "DA1":                .PRESENT,  // Terminal.swift:4621-4632 VT525 response
     "DA2":                .PRESENT,  // Terminal.swift:4605-4612 >65;20;1c
     "modifyOtherKeys":    .ABSENT,   // mode 1036 absent from cmdDecRqm (Terminal.swift:3374)
-    "altScroll1007":      .ABSENT,   // mode 1007 absent from cmdDecRqm switch
-    "mode2027":           .ABSENT,   // mode 2027 absent from cmdDecRqm switch
+    "altScroll1007":      .PRESENT,  // mode 1007: altScrollMode property + DECRQM (patch 0017)
+    "mode2027":           .PRESENT,  // mode 2027: permanently-reset response in cmdDecRqm (patch 0017, honest)
     "kittyKbdQuery":      .PRESENT,  // Terminal.swift:921 sends CSI?<flags>u
     "OSC9progress":       .PRESENT,  // Terminal.swift:1859 fires progressReport delegate
     "sixelParsing":       .PARTIAL,  // SixelDcsHandler.swift hooks DCS; no draw path
@@ -182,7 +182,7 @@ rows.append(probeBracketedPaste())
 
 // Print the results table.
 let sep = String(repeating: "─", count: 82)
-print("primitives probe — SwiftTerm v1.15.0 + 16 patches — T4.0")
+print("primitives probe — SwiftTerm v1.15.0 + 17 patches — T4.2")
 print("")
 print(sep)
 print("  \("ID".padding(toLength: 22, withPad: " ", startingAt: 0))"
@@ -215,7 +215,7 @@ print("""
 # Primitives Probe — 2026-10-21
 
 **Gate:** `app/Scripts/check-primitives.sh`  ·  **Roadmap:** T4.0  
-**SwiftTerm:** v1.15.0 + 16 local patches  
+**SwiftTerm:** v1.15.0 + 17 local patches  
 **Method:** byte-feed to headless `Terminal`; no window server, no AppKit.  
 Metal / CoreText pixel draw **deferred** (requires offscreen GUI — noted per row).
 

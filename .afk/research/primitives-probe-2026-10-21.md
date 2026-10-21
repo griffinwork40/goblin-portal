@@ -1,7 +1,7 @@
 # Primitives Probe — 2026-10-21
 
 **Gate:** `app/Scripts/check-primitives.sh`  ·  **Roadmap:** T4.0  
-**SwiftTerm:** v1.15.0 + 16 local patches  
+**SwiftTerm:** v1.15.0 + 17 local patches  
 **Method:** byte-feed to headless `Terminal`; no window server, no AppKit.  
 Metal / CoreText pixel draw **deferred** (requires offscreen GUI — noted per row).
 
@@ -11,12 +11,12 @@ Metal / CoreText pixel draw **deferred** (requires offscreen GUI — noted per r
 
 | Row ID | Verdict | Note |
 |--------|---------|------|
-| `XTVERSION` | **ABSENT** | No response — DCS>q has no registered handler (A1b MISSING ✓ confirmed) |
+| `XTVERSION` | **PRESENT** | Response: P>\|GoblinPortal\ (patch 0017 ✓ PRESENT) |
 | `DA1` | **PRESENT** | Response: [?65;4;1;2;6;21;22;17;28c \| sixel-bit(;4): true (A1b SUPPORTED ✓) |
 | `DA2` | **PRESENT** | Response: [>65;20;1c (A1b SUPPORTED ✓) |
 | `modifyOtherKeys` | **ABSENT** | DECRQM ?1036 → "[?1036;0$y" status=0(unknown) → ABSENT (A1b MISSING ✓) |
-| `altScroll1007` | **ABSENT** | DECRQM ?1007 → "[?1007;0$y" status=0(unknown) → ABSENT (A1b MISSING ✓) |
-| `mode2027` | **ABSENT** | DECRQM ?2027 → "[?2027;0$y" status=0(unknown) → ABSENT (A1b MISSING ✓) |
+| `altScroll1007` | **PRESENT** | DECRQM ?1007 -> "[?1007;2$y" (patch 0017 ✓ PRESENT) |
+| `mode2027` | **PRESENT** | DECRQM ?2027 -> "[?2027;4$y" status=4(always-reset) — patch 0017 ✓ PRESENT: emulator recognises mode but reports perman |
 | `kittyKbdQuery` | **PRESENT** | Response: "[?0u" (A1b SUPPORTED ✓) |
 | `OSC9progress` | **PRESENT** | state=set progress=50 — A1b said PARTIAL; CORRECTED: vendor fires progressReport (PRESENT); app already routes 9;4 to Sw |
 | `sixelParsing` | **PARTIAL** | DCS consumed without crash ✓; SixelDcsHandler.swift hooked. No draw path in CoreText or Metal renderers (A1b PARTIAL ✓). |

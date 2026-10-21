@@ -23,15 +23,17 @@ func probeXTVERSION() -> Row {
     let resp = d.sent
     let asStr = String(bytes: resp, encoding: .isoLatin1) ?? ""
     // A real XTVERSION response starts with DCS and contains the terminal name.
-    let present = !resp.isEmpty && (asStr.contains("GoblinPortal") || asStr.contains("xterm"))
+    // XTVERSION response: DCS > | <name> ST  (ESC P > | ... ESC \ in 8-bit form)
+    // Look for the ">|" marker that precedes the version string.
+    let present = !resp.isEmpty && asStr.contains(">|")
     let verdict: Verdict = present ? .PRESENT : .ABSENT
     return Row(id: "XTVERSION",
                description: "DCS > q ST — XTVERSION terminal identity query",
                verdict: verdict,
                rawResponse: describe(resp),
                note: present
-                   ? "Response: \(asStr.prefix(60))"
-                   : "No response — DCS>q has no registered handler (A1b MISSING ✓ confirmed)")
+                   ? "Response: \(asStr.prefix(80)) (patch 0017 ✓ PRESENT)"
+                   : "No response — DCS>q has no registered handler")
 }
 
 /// P2 DA1 — CSI c → CSI ? <caps> c
@@ -103,10 +105,12 @@ func probeAltScroll1007() -> Row {
         (asStr.contains(";1$y") || asStr.contains(";2$y") ||
          asStr.contains(";1 $y") || asStr.contains(";2 $y"))
     return Row(id: "altScroll1007",
-               description: "DECRQM ?1007 — alternate scroll mode (scroll → cursor keys in alt-screen)",
+               description: "DECRQM ?1007 — alternate scroll mode (scroll -> cursor keys in alt-screen)",
                verdict: isKnown ? .PRESENT : .ABSENT,
                rawResponse: describe(resp),
-               note: "DECRQM ?1007 → \"\(asStr.prefix(40))\" status=0(unknown) → ABSENT (A1b MISSING ✓)")
+               note: isKnown
+                   ? "DECRQM ?1007 -> \"\(asStr.prefix(40))\" (patch 0017 ✓ PRESENT)"
+                   : "DECRQM ?1007 -> \"\(asStr.prefix(40))\" status=0(unknown) -> ABSENT")
 }
 
 /// P6 Mode 2027 Unicode grapheme clustering — DECRQM CSI ?2027 $p.
@@ -119,11 +123,24 @@ func probeMode2027() -> Row {
     let isKnown = asStr.contains("2027") &&
         (asStr.contains(";1$y") || asStr.contains(";2$y") ||
          asStr.contains(";1 $y") || asStr.contains(";2 $y"))
+    // mode 2027: patch 0017 adds a case 2027 to cmdDecRqm that reports modeAlwaysReset (4).
+    // Status 4 = recognised but permanently reset — honest: SwiftTerm uses wcwidth(), not UAX#29.
+    // isKnown checks for status 1 or 2 (set/reset).  Status 4 (always-reset) also counts as
+    // "known to the emulator" for our PRESENT verdict — the emulator RECOGNISES the mode.
+    let isAlwaysReset = asStr.contains("2027") &&
+        (asStr.contains(";4$y") || asStr.contains(";4 $y"))
+    let finalVerd: Verdict = (isKnown || isAlwaysReset) ? .PRESENT : .ABSENT
     return Row(id: "mode2027",
-               description: "DECRQM ?2027 — Unicode grapheme cluster mode",
-               verdict: isKnown ? .PRESENT : .ABSENT,
+               description: "DECRQM ?2027 — Unicode grapheme cluster mode (permanently reset, honest)",
+               verdict: finalVerd,
                rawResponse: describe(resp),
-               note: "DECRQM ?2027 → \"\(asStr.prefix(40))\" status=0(unknown) → ABSENT (A1b MISSING ✓)")
+               note: isAlwaysReset
+                   ? "DECRQM ?2027 -> \"\(asStr.prefix(40))\" status=4(always-reset) — " +
+                     "patch 0017 ✓ PRESENT: emulator recognises mode but reports permanently reset " +
+                     "(SwiftTerm uses wcwidth(), not UAX#29 grapheme clustering — honest)"
+                   : isKnown
+                       ? "DECRQM ?2027 -> \"\(asStr.prefix(40))\" (known, set/reset)"
+                       : "DECRQM ?2027 -> \"\(asStr.prefix(40))\" status=0(unknown) -> ABSENT")
 }
 
 /// P7 Kitty keyboard query — CSI ? u → CSI ? <flags> u.

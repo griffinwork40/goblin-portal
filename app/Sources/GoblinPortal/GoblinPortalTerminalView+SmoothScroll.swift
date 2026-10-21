@@ -78,6 +78,28 @@ extension GoblinPortalTerminalView {
                 // The path flipped ineligible mid-gesture (an app entered the alt buffer or
                 // turned mouse mode on while momentum ran). Land on the grid and hand over.
                 if self.smoothScroll.isMidGesture { self.smoothScroll.snapToGrid(reason: "ineligible") }
+                // T4.2 — alternate scroll mode 1007: when in the alt buffer with mouse
+                // reporting off and altScrollMode set, translate discrete wheel ticks into
+                // cursor-up/down key bytes so apps like less(1) and fzf scroll correctly.
+                // Only fires for non-momentum, non-trackpad-kinetic phases (i.e. real wheel
+                // ticks) so it does not double-fire the smooth-scroll momentum path.
+                let t = self.getTerminal()
+                if t.isCurrentBufferAlternate && t.mouseMode == .off && t.altScrollMode
+                    && event.phase == .none && event.momentumPhase == .none {
+                    let dy = event.scrollingDeltaY
+                    if dy != 0 {
+                        // CSI A (up) or CSI B (down); application-cursor uses SS3 A/B.
+                        let csi: [UInt8] = t.applicationCursor
+                            ? [0x1b, 0x4f] : [0x1b, 0x5b]  // ESC O or ESC [
+                        let key: UInt8 = dy > 0 ? 0x41 : 0x42  // A or B
+                        let lines = max(1, Int(abs(dy)))
+                        let seq = csi + [key]
+                        for _ in 0..<lines {
+                            self.send(data: seq[...])
+                        }
+                        return nil  // consumed
+                    }
+                }
                 return event
             }
             // `isHiddenOrHasHiddenAncestor` covers a pane that is still in the window but

@@ -121,6 +121,13 @@ final class TerminalPane: NSObject, @preconcurrency LocalProcessTerminalViewDele
         // triggering a palette rebuild altogether (`Terminal.swift:523`).
         view.getTerminal().ansi256PaletteStrategy = .xterm
 
+        // T4.2 XTVERSION: tell the emulator what to report for DCS>q.
+        // The response names Goblin Portal (not SwiftTerm) so shell tools like
+        // wezterm-mux and neovim can identify the host terminal correctly.
+        let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        view.getTerminal().xtVersion = "GoblinPortal \(ver)"
+
+
         // A nil theme means "install nothing", leaving SwiftTerm's own defaults
         // in place — which is the default configuration. Setting a background or
         // foreground is not free (see above), so we only pay for it on request.
