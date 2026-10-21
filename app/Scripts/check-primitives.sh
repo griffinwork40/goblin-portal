@@ -146,95 +146,51 @@ fi
 # A run where no mutation was found/applied exits 2 (not 0) so a vacuous
 # falsification cannot silently report success.
 
-say "FALSIFY=1: applying kittyKbdQuery mutant to a COPY of vendor source…"
+say "FALSIFY=1: applying kittyKbdQuery mutant to a COPY of app/ + vendor/…"
 
-MUTANT_VENDOR="$TMP/mutant-vendor"
-cp -cR "$VENDOR" "$MUTANT_VENDOR"
-chmod -R u+w "$MUTANT_VENDOR"
+# WHY A WHOLE-TREE COPY. Package.swift resolves SwiftTerm as `../vendor/SwiftTerm`
+# (relative), so building against a mutated vendor needs that relative layout.
+# Cloning app/ and vendor/ SIDE BY SIDE under $TMP reproduces it, and the real tree
+# is never written. An earlier version of this block mutated the real vendor's
+# Terminal.swift in place behind an EXIT trap: a SIGKILL or a crash between the
+# mutation and the trap left the operator's emulator silently broken, and AFK.md
+# ("Falsification must mutate a copy of SHIPPED source") forbids exactly that.
+# `cp -c` is an APFS clone, so the copy is cheap; .build/ and build/ are skipped
+# because SwiftPM's build directory holds absolute paths and is rebuilt anyway.
+# Physical path: $TMP is under /var, a symlink to /private/var, and SwiftPM reports
+# the resolved form — the containment check below compares like with like.
+MROOT="$(cd "$TMP" && pwd -P)/mutant-root"
+mkdir -p "$MROOT/app"
+for entry in "$APP_ROOT"/* "$APP_ROOT"/.[!.]*; do
+    [[ -e "$entry" ]] || continue
+    case "$(basename "$entry")" in .build|build) continue ;; esac
+    cp -cR "$entry" "$MROOT/app/"
+done
+cp -cR "$REPO_ROOT/vendor" "$MROOT/vendor"
+chmod -R u+w "$MROOT/vendor"
+MUTANT_SRC="$MROOT/vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift"
 
-TERMINAL_SRC="$MUTANT_VENDOR/Sources/SwiftTerm/Terminal.swift"
-
-# Confirm the mutation target is present before patching.
-if ! grep -q 'sendResponse(cc.CSI, "?\\\\(keyboardEnhancementFlags.rawValue)u")' "$TERMINAL_SRC" 2>/dev/null && \
-   ! grep -q 'sendResponse(cc\.CSI.*keyboardEnhancementFlags' "$TERMINAL_SRC" 2>/dev/null; then
-    echo "error: mutation target not found in $TERMINAL_SRC — source may have moved." >&2
-    echo "       Pattern: sendResponse(cc.CSI, \"?\\(keyboardEnhancementFlags.rawValue)u\")" >&2
-    echo "       Grep the file and update the mutant sed expression." >&2
+# Exactly one substitution, or the mutant is stale and the run is environmental.
+HITS="$(perl -i -ne '
+    $n += s{sendResponse\(cc\.CSI, "\?\\\(keyboardEnhancementFlags\.rawValue\)u"\)}{// MUTANT: kitty query suppressed};
+    print; END { print STDERR $n+0 }' "$MUTANT_SRC" 2>&1 >/dev/null)"
+if [[ "$HITS" != "1" ]]; then
+    echo "error: kitty-query mutant matched $HITS time(s) in the COPY of Terminal.swift (want 1) —" >&2
+    echo "       the source moved; update the pattern. No mutant ran." >&2
     exit 2
 fi
+say "  mutant applied to the copy (kitty query response suppressed)"
 
-# Apply: comment out the sendResponse line for the kitty query case.
-# Use a temp copy to check the sed worked before committing.
-sed 's/sendResponse(cc\.CSI, "?\\(keyboardEnhancementFlags\.rawValue)u")/\/\/ MUTANT: suppressed kitty query response/' \
-    "$TERMINAL_SRC" > "$TMP/Terminal.swift.mutated"
+say "  building SwiftTerm in the copy…"
+# Same helper, same backend selection and exit-2 contract as the normal path, run
+# from the copied app/ so `../vendor` is the mutated vendor.
+(cd "$MROOT/app" && resolve_vendored_module && echo "$PRODUCTS" > "$TMP/mutant-products") || exit 2
+MUTANT_PRODUCTS="$(cat "$TMP/mutant-products")"
+case "$MUTANT_PRODUCTS" in
+    "$MROOT"/*) ;;
+    *) echo "error: mutant build resolved to $MUTANT_PRODUCTS, outside the copy — refusing." >&2; exit 2 ;;
+esac
 
-if ! diff -q "$TERMINAL_SRC" "$TMP/Terminal.swift.mutated" >/dev/null 2>&1; then
-    cp "$TMP/Terminal.swift.mutated" "$TERMINAL_SRC"
-    say "  mutant applied: kitty keyboard query response suppressed"
-else
-    # sed made no change — the exact string did not match; try broader pattern.
-    # The line in Terminal.swift:921 is:
-    #   sendResponse(cc.CSI, "?\(keyboardEnhancementFlags.rawValue)u")
-    # with Swift string interpolation. The sed above uses literal backslash which
-    # matches the source character. If that failed try Perl for robustness.
-    if ! perl -i -pe \
-        's/sendResponse\(cc\.CSI, "\?\\\(keyboardEnhancementFlags\.rawValue\)u"\)/\/\/ MUTANT: suppressed/g' \
-        "$TERMINAL_SRC" 2>/dev/null; then
-        echo "error: mutant sed+perl both failed — cannot apply mutation." >&2
-        exit 2
-    fi
-    if ! grep -q "MUTANT" "$TERMINAL_SRC"; then
-        echo "error: mutation target not found after perl pass — exits 2 (no mutant ran)." >&2
-        exit 2
-    fi
-    say "  mutant applied via perl fallback"
-fi
-
-# Rebuild: mutate the real vendor tree IN PLACE, save/restore via cp.
-# Package.swift uses `../vendor/SwiftTerm` (relative), so the build must run
-# from APP_ROOT against the real vendor path — a symlinked mirror can't work.
-# Restore is guaranteed by the trap set at the top of the script (rm -rf TMP
-# doesn't help here; we need an explicit restore of the single mutated file).
-TERMINAL_SRC="$VENDOR/Sources/SwiftTerm/Terminal.swift"
-TERMINAL_BACKUP="$TMP/Terminal.swift.orig"
-cp "$TERMINAL_SRC" "$TERMINAL_BACKUP"
-
-# Restore on exit regardless of outcome.
-restore_terminal() { cp "$TERMINAL_BACKUP" "$TERMINAL_SRC" 2>/dev/null || true; }
-trap restore_terminal EXIT
-
-say "  mutating vendor Terminal.swift in place…"
-perl -i -pe \
-    's{sendResponse\(cc\.CSI, "\?\\\(keyboardEnhancementFlags\.rawValue\)u"\)}{// MUTANT: kitty query suppressed — falsification}g' \
-    "$TERMINAL_SRC"
-
-if ! grep -q "MUTANT" "$TERMINAL_SRC"; then
-    echo "error: mutation target not found in Terminal.swift — pattern may have moved." >&2
-    echo "       Expected: sendResponse(cc.CSI, \"?\\(keyboardEnhancementFlags.rawValue)u\")" >&2
-    echo "       Grep Terminal.swift:921 and update the perl expression." >&2
-    restore_terminal
-    exit 2
-fi
-say "  mutant applied (Terminal.swift:921 kitty query suppressed)"
-
-# Rebuild SwiftTerm against the mutated source.
-say "  rebuilding SwiftTerm with mutant source…"
-MUTANT_FLAGS=()
-if swift build --help 2>&1 | grep -q -- '--build-system'; then
-    MUTANT_FLAGS=(--build-system swiftbuild)
-fi
-if ! swift build "${MUTANT_FLAGS[@]}" >/dev/null 2>&1; then
-    echo "error: mutant build failed — environment failure." >&2
-    exit 2
-fi
-MUTANT_PRODUCTS="$(swift build "${MUTANT_FLAGS[@]}" --show-bin-path 2>/dev/null)"
-
-if [[ ! -f "$MUTANT_PRODUCTS/SwiftTerm.o" ]]; then
-    echo "error: mutant SwiftTerm.o absent after build." >&2
-    exit 2
-fi
-
-# Compile harness against the mutant .o.
 say "  compiling harness against mutant…"
 if ! swiftc -O \
     -o "$TMP/primitivesprobe_mutant" \
@@ -247,27 +203,23 @@ if ! swiftc -O \
     exit 2
 fi
 
-# Restore the original Terminal.swift before running — the harness binary is
-# already linked against the mutant .o, so restoring source does not affect it.
-restore_terminal
-
 say "  running probe against mutant binary…"
 MUTANT_EXIT=0
-"$TMP/primitivesprobe_mutant" 2>&1 | grep -E "✗|REGRESSION|kittyKbdQuery" || true
-"$TMP/primitivesprobe_mutant" >/dev/null 2>&1 || MUTANT_EXIT=$?
+"$TMP/primitivesprobe_mutant" >"$TMP/mutant.out" 2>&1 || MUTANT_EXIT=$?
+grep -E "✗|REGRESSION|kittyKbdQuery" "$TMP/mutant.out" || true
 
-# Rebuild clean SwiftTerm so the worktree is left in a usable state.
-say "  restoring clean SwiftTerm build…"
-swift build "${MUTANT_FLAGS[@]}" >/dev/null 2>&1 || true
-
-if [[ "$MUTANT_EXIT" -eq 1 ]]; then
+# Caught only when kittyKbdQuery itself is the case that flipped.
+if [[ "$MUTANT_EXIT" -eq 1 ]] && grep -E "kittyKbdQuery" "$TMP/mutant.out" | grep -qE "✗|REGRESSION"; then
     say ""
     say "FALSIFY: mutant CAUGHT — kittyKbdQuery changed PRESENT→ABSENT, gate exited 1 ✓"
     exit 0
+elif [[ "$MUTANT_EXIT" -eq 1 ]]; then
+    echo "FALSIFY: gate exited 1 but NOT on kittyKbdQuery — WRONG-CASE, counted as missed." >&2
+    exit 1
 elif [[ "$MUTANT_EXIT" -eq 0 ]]; then
     echo "FALSIFY: mutant NOT caught — gate passed against broken source; gate is BLIND." >&2
     exit 1
 else
-    echo "FALSIFY: probe exited 2 against mutant — environment failure, verdict unknown." >&2
+    echo "FALSIFY: probe exited $MUTANT_EXIT against mutant — environment failure, verdict unknown." >&2
     exit 2
 fi

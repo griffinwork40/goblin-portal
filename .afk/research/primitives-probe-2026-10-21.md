@@ -18,7 +18,7 @@ Metal / CoreText pixel draw **deferred** (requires offscreen GUI — noted per r
 | `altScroll1007` | **ABSENT** | DECRQM ?1007 → "[?1007;0$y" status=0(unknown) → ABSENT (A1b MISSING ✓) |
 | `mode2027` | **ABSENT** | DECRQM ?2027 → "[?2027;0$y" status=0(unknown) → ABSENT (A1b MISSING ✓) |
 | `kittyKbdQuery` | **PRESENT** | Response: "[?0u" (A1b SUPPORTED ✓) |
-| `OSC9progress` | **PRESENT** | state=set progress=50 — A1b said PARTIAL; CORRECTED: vendor fires progressReport (PRESENT); app TerminalPane stub empty  |
+| `OSC9progress` | **PRESENT** | state=set progress=50 — A1b said PARTIAL; CORRECTED: vendor fires progressReport (PRESENT); app already routes 9;4 to Sw |
 | `sixelParsing` | **PARTIAL** | DCS consumed without crash ✓; SixelDcsHandler.swift hooked. No draw path in CoreText or Metal renderers (A1b PARTIAL ✓). |
 | `OSC1337` | **PARTIAL** | SwiftTerm calls createImage ✓ (Terminal.swift:1966 inline=1 path). A1b said MISSING(app): CORRECTED to PARTIAL — vendor  |
 | `kittyGraphics` | **PARTIAL** | APC G consumed without crash ✓; KittyGraphics.swift hooked. Metal render path exists (MetalTerminalRenderer.swift:660-70 |
@@ -34,7 +34,7 @@ This probe records all corrections found:
 
 | A1b claim | A1b verdict | Probe verdict | Correction |
 |-----------|-------------|---------------|------------|
-| OSC 9;4 progress — vendor layer | PARTIAL (app stub empty) | **PRESENT** | A1b conflated the app stub with the vendor delegate. `Terminal.swift:1859` fires `progressReport(source:report:)` with parsed state and progress. T4.3 needs only a `TerminalPane` override — no vendor patch. |
+| OSC 9;4 progress — vendor layer | PARTIAL | **PRESENT** | `Terminal.swift:1859` fires `progressReport(source:report:)` with parsed state and progress, and the app already uses it: `GoblinPortalTerminalView+Notify.swift:16-36` feeds 9;4 to `MacTerminalView.progressReport` (`:2908`, SwiftTerm's in-view progress bar). `Terminal.swift:6841` is only the protocol's default stub. What T4.3 still lacks is tab-strip / Dock progress; no vendor patch needed. |
 | OSC 1337 iTerm2 images — vendor layer | MISSING (app drops) | **PARTIAL** | A1b correct that the app drops images; but labelled the whole row MISSING. `Terminal.swift:1905` fires `iTermContent` reliably. T4.4 needs only a `TerminalPane.iTermContent` override — no vendor patch. |
 | All other rows (11 of 13) | — | ✓ confirmed | XTVERSION ABSENT, DA1/DA2 PRESENT, modifyOtherKeys ABSENT, altScroll1007 ABSENT, mode2027 ABSENT, kittyKbdQuery PRESENT, sixelParsing PARTIAL, kittyGraphics PARTIAL, syncOutput2026 PARTIAL, bracketedPaste2004 PRESENT — all match A1b static analysis. |
 
@@ -60,7 +60,7 @@ pipeline; a kitty-image fixture would extend `check-render-parity.sh` (Gap 11 in
 | T4.2 modifyOtherKeys | ABSENT — mode 1036 not in `cmdDecRqm` | Vendor patch: add 1036 to DECSET/DECRST + key encoder in `MacTerminalView.swift` |
 | T4.2 altScroll 1007 | ABSENT — mode 1007 not in `cmdDecRqm` | Vendor patch: add 1007 + scroll-event → cursor-key synthesis in `MacTerminalView.swift` |
 | T4.2 mode 2027 | ABSENT — mode 2027 not in `cmdDecRqm` | Vendor patch: large UAX#29 change to hot path; defer |
-| T4.3 OSC 9;4 progress | PRESENT at vendor; app stub empty | App-only: `TerminalPane` override of `progressReport`, update `NSDockTile` |
+| T4.3 OSC 9;4 progress | PRESENT at vendor; in-view bar already wired | App-only: surface the same report on the tab strip and `NSDockTile` (hook beside the existing `+Notify` decoder) |
 | T4.4 sixel render | PARTIAL — parsed, not rendered | Vendor patch: draw path in `AppleTerminalView.swift` / `MetalTerminalRenderer.swift` |
 | T4.4 kitty graphics render | PARTIAL — Metal path exists; pixel test deferred | Extend `check-render-parity.sh` with kitty-image fixture |
 | T4.4 OSC 1337 iTerm2 | PARTIAL — vendor fires delegate; app drops | App-only: `TerminalPane.iTermContent` override |

@@ -145,7 +145,9 @@ func probeKittyKeyboardQuery() -> Row {
 }
 
 /// P8 OSC 9;4 progress — feed OSC 9;4;50 BEL, check progressReport delegate fires.
-/// A1b: PARTIAL (SwiftTerm parses + fires delegate; app TerminalPane stub is empty).
+/// A1b: PARTIAL. The app layer is NOT a stub: `Terminal.swift:6841` is only the protocol's
+/// default; `MacTerminalView.swift:2908` implements it (-> handleProgressReport, SwiftTerm's
+/// in-view progress bar), and GoblinPortalTerminalView+Notify.swift:16-36 feeds 9;4 into it.
 /// This probe checks the VENDOR LAYER ONLY — delegate fires = PRESENT at vendor layer.
 /// The app layer remaining ABSENT is documented in the note.
 func probeOSC9Progress() -> Row {
@@ -166,7 +168,8 @@ func probeOSC9Progress() -> Row {
                verdict: fired ? .PRESENT : .ABSENT,
                rawResponse: "<delegate call>",
                note: "\(detail) — A1b said PARTIAL; CORRECTED: vendor fires progressReport (PRESENT); "
-                   + "app TerminalPane stub empty (MacTerminalView.swift:6841) → app layer ABSENT")
+                   + "app already routes 9;4 to SwiftTerm's view progress bar (MacTerminalView.swift:2908, "
+                   + "GoblinPortalTerminalView+Notify.swift); tab/Dock progress is the open T4.3 part")
 }
 
 /// P9 Sixel DCS — feed minimal sixel sequence, confirm DCS is consumed (no crash).
