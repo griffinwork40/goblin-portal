@@ -102,8 +102,15 @@ extension SpaceViewController {
             // Re-resolve the accent colour and repaint the focus border.
             // `activeDocument` is nil when no split is open, and `updateSplitDimming`
             // is a no-op when there is no split entry, so this is safe to call
-            // unconditionally. MainActor isolation is guaranteed because the observer
-            // is delivered on `.main` (queue: .main above).
+            // unconditionally.
+            //
+            // `MainActor.assumeIsolated` is safe here because `queue: .main` (above)
+            // guarantees this closure is always delivered on the main thread —
+            // the same guarantee `AppearanceObserver.swift:70-76` relies on for its
+            // NSApp KVO callback. We do not use `DispatchQueue.main.async` because
+            // `assumeIsolated` applies the accent colour synchronously in the same
+            // run-loop iteration, preventing a frame where the old colour is still
+            // painted after the system notification has fired.
             MainActor.assumeIsolated {
                 if let active = self.activeDocument {
                     self.updateSplitDimming(for: active)
