@@ -12,8 +12,10 @@
 # Keyboard focus moved on click; the visible cue stayed on the old pane.
 #
 # The cases live in check-click-focus-harness.swift (split harness, same pattern as
-# check-focus-cue-k4.swift): a real ⌘⇧\ split and synthesized clicks through
-# NSWindow.sendEvent, with each case split into a first-responder half and a cue half.
+# check-focus-cue-k4.swift): a real ⌘⇧\ split and synthesized clicks by
+# hit-testing each pane and calling mouseDown on the hit view directly (sendEvent
+# delivers nothing in a never-key offscreen window), with each case split into a
+# first-responder half and a cue half.
 #
 # FALSIFICATION (AFK.md Conventions: mutate a COPY of shipped source)
 #

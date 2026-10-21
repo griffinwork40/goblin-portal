@@ -43,8 +43,7 @@
 //  LIFECYCLE
 //
 //  `subscribeToFirstResponderChanges(in:)` is called from `viewDidAppear` (the first
-//  moment `view.window` is non-nil for the Space's window), and from the window-change
-//  notification so a Space moved to a new native window stays wired.
+//  moment `view.window` is non-nil for the Space's window).
 //  `unsubscribeFromFirstResponderChanges()` is called from `tearDownAllDocuments()` and
 //  from `viewWillDisappear`.  The KVO token is stored in `firstResponderObserver`
 //  (declared in `SpaceViewController.swift` alongside `systemColorObserver`).
