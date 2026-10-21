@@ -81,22 +81,35 @@ extension TerminalPane {
 
     // MARK: Environment
 
-    /// Append `GOBLIN_PORTAL_INTEGRATION=<path>` to `env` when the bundled script is locatable.
+    /// Append one path variable per bundled integration script that is locatable:
+    /// `GOBLIN_PORTAL_INTEGRATION` (zsh — the name predates the others and existing
+    /// .zshrc lines source it), `GOBLIN_PORTAL_INTEGRATION_BASH`, `GOBLIN_PORTAL_INTEGRATION_FISH`.
+    ///
+    /// One variable PER SHELL rather than one pointing at "the launched shell's script":
+    /// every variable is inherited by every child, so `bash` started from zsh would
+    /// otherwise read a path to the zsh script and source zsh syntax into bash.
     ///
     /// Called from `TerminalPane.start()` before `startProcess` so the shell can read
-    /// the variable during rc-file evaluation. Set unconditionally — the zsh script
+    /// the variables during rc-file evaluation. Set unconditionally — each script
     /// guards on `TERM_PROGRAM==GoblinPortal`, so sourcing it in another terminal is a no-op.
     /// `Bundle.main` is empty during the gate script run (no app bundle), so this is
-    /// silent when the script is absent rather than crashing.
+    /// silent when a script is absent rather than crashing. The scripts' own behaviour
+    /// is gated by `check-shell-scripts.sh`.
     ///
-    /// `UMBER_INTEGRATION` is set to the same path as a backward-compatibility alias.
+    /// `UMBER_INTEGRATION` is set to the zsh path as a backward-compatibility alias.
     /// Users with `[[ -n "$UMBER_INTEGRATION" ]] && source "$UMBER_INTEGRATION"` in their
     /// .zshrc continue to get shell integration after the rename. Remove after one release.
     func appendShellIntegrationEnv(_ env: inout [String]) {
-        guard let path = Bundle.main.path(forResource: "shell-integration", ofType: "zsh")
-        else { return }
-        env.append("GOBLIN_PORTAL_INTEGRATION=\(path)")
-        env.append("UMBER_INTEGRATION=\(path)")  // backward-compat alias -- remove after one release
+        for (ext, name) in [("zsh", "GOBLIN_PORTAL_INTEGRATION"),
+                            ("bash", "GOBLIN_PORTAL_INTEGRATION_BASH"),
+                            ("fish", "GOBLIN_PORTAL_INTEGRATION_FISH")] {
+            guard let path = Bundle.main.path(forResource: "shell-integration", ofType: ext)
+            else { continue }
+            env.append("\(name)=\(path)")
+            if ext == "zsh" {
+                env.append("UMBER_INTEGRATION=\(path)")  // backward-compat alias -- remove after one release
+            }
+        }
     }
 
     // MARK: OSC 133 setup

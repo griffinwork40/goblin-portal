@@ -50,9 +50,22 @@ config line away, and `classic` installs nothing at all.
 split state not persisted across launches) · syntax-highlighting in the editor
 (14 languages, regex-based; no tree-sitter, no code intelligence).
 
-**Shell integration.** Set `GOBLIN_PORTAL_INTEGRATION` in your shell environment;
-`shell-integration.zsh` (bundled with the app) sources automatically and emits
-OSC 7 on every `precmd` and OSC 133 A/C/D around commands.
+**Shell integration** (zsh, bash, fish). Goblin Portal exports the path of a bundled
+script for each shell; source the one for yours and every prompt reports its directory
+(OSC 7) and every command its exit status (OSC 133 A/C/D), which drive the tab's status
+dot and long-command notifications:
+
+```sh
+# ~/.zshrc
+[[ -n "$GOBLIN_PORTAL_INTEGRATION" ]] && source "$GOBLIN_PORTAL_INTEGRATION"
+# ~/.bashrc — the LAST line (works with macOS's /bin/bash 3.2 and with bash-preexec)
+[[ -n "$GOBLIN_PORTAL_INTEGRATION_BASH" ]] && source "$GOBLIN_PORTAL_INTEGRATION_BASH"
+# ~/.config/fish/config.fish
+set -q GOBLIN_PORTAL_INTEGRATION_FISH; and source $GOBLIN_PORTAL_INTEGRATION_FISH
+```
+
+Each line is a no-op in any other terminal. fish 4.0+ already marks commands itself;
+its script adds only the directory report (and the command marks on fish 3.x).
 
 ## Install
 

@@ -28,15 +28,17 @@ let package = Package(
             name: "GoblinPortal",
             dependencies: ["SwiftTerm"],
             path: "Sources/GoblinPortal",
-            // `shell-integration.zsh` must be declared here so SwiftPM copies it into
+            // The `shell-integration.*` scripts must be declared here so SwiftPM copies them into
             // the product bundle and `Bundle.main.path(forResource:ofType:)` returns a
             // non-nil path. Without this, `swift run GoblinPortal` and the release bundle
-            // both silently skip GOBLIN_PORTAL_INTEGRATION, and the zsh integration is
-            // never sourced. The path is relative to the target's `path`
+            // both silently skip GOBLIN_PORTAL_INTEGRATION{,_BASH,_FISH}, and no shell's
+            // integration is ever sourced. The path is relative to the target's `path`
             // ("Sources/GoblinPortal"), so two levels up to the package root, then into
             // Resources/.
             resources: [
                 .copy("../../Resources/shell-integration.zsh"),
+                .copy("../../Resources/shell-integration.bash"),
+                .copy("../../Resources/shell-integration.fish"),
                 .copy("../../Resources/install-update.sh"),
             ]
         ),
