@@ -78,6 +78,9 @@ extension GoblinPortalTerminalView {
                 // The path flipped ineligible mid-gesture (an app entered the alt buffer or
                 // turned mouse mode on while momentum ran). Land on the grid and hand over.
                 if self.smoothScroll.isMidGesture { self.smoothScroll.snapToGrid(reason: "ineligible") }
+                // DEC 1007 (alternate scroll) needs nothing here: returning the event hands
+                // it to SwiftTerm's scrollWheel, which turns wheel AND trackpad deltas into
+                // arrow keys in the alt buffer while `altScrollMode` is set (patch 0017).
                 return event
             }
             // `isHiddenOrHasHiddenAncestor` covers a pane that is still in the window but
