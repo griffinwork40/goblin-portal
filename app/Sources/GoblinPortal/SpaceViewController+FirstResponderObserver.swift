@@ -16,11 +16,13 @@
 //  calling `super`.  The responder-chain walk stops there; `SplitContainerView.mouseDown`
 //  is never reached on a terminal click.
 //
-//  AppKit still calls `makeFirstResponder` on the clicked view independently (because
-//  `acceptsFirstResponder` returns `true` on `GoblinPortalTerminalView`), so the
-//  window's `firstResponder` DOES change to the clicked terminal — the visual state
-//  (dimming, accent border) just never follows because `updateSplitDimming` is never
-//  triggered.
+//  And nothing in SwiftTerm's mouseDown or Goblin Portal called `makeFirstResponder` on
+//  click: with the click dispatched as hit-test → mouseDown, firstResponder stayed on the
+//  old pane (check-click-focus.sh, mutant M2). Whether AppKit's own key-window sendEvent
+//  would have moved it anyway cannot be observed offscreen, so the click now takes focus
+//  explicitly in `GoblinPortalTerminalView+SmoothScroll.swift` mouseDown, independent of it;
+//  this file makes the cue follow ANY first-responder change — click, ⌘⇧H/J/K/L, Tab,
+//  closing the find bar.
 //
 //  WHY NOT PATCH SwiftTerm
 //
@@ -49,21 +51,18 @@
 //
 //  WHY DEFER ONE RUN-LOOP TURN
 //
-//  KVO on `firstResponder` fires synchronously inside `makeFirstResponder`, before the
-//  write commits to `NSWindow.firstResponder`.  Reading `window?.firstResponder` inside
-//  the notification body would still return the *old* value.  A single
-//  `RunLoop.main.perform` defers the check to the next cycle, where the new value is
-//  settled — the same pattern AppKit uses for `becomeFirstResponder` / `resignFirstResponder`
-//  notifications.
+//  The observer fires from inside `makeFirstResponder`, while AppKit may still be
+//  mid-way through a chain of responder changes (resign, become, field-editor swaps).
+//  Reading `window.firstResponder` one `RunLoop.main.perform` later reads the settled
+//  value rather than an intermediate one. Not measured to be required; it is the
+//  conservative choice, and `updateSplitDimming` is idempotent so a late run is harmless.
 //
 //  WHY KEEP didReceiveClickInChild
 //
-//  The `SplitContainerView.didReceiveClickInChild` callback is kept with a
-//  `// WHY KEPT` comment in `+SplitPresentation.swift:installClickCallback`.  It still
-//  correctly identifies *which* child was clicked (important for nested 3-4 pane layouts
-//  where the KVO path must also fire `updateSplitDimming`), and it costs nothing when
-//  the responder chain does reach `SplitContainerView` (e.g. on a click that lands on
-//  the divider strip itself).  The visual update is now driven exclusively by this file.
+//  `SplitContainerView.didReceiveClickInChild` is left wired (see the WHY KEPT note on
+//  `installClickCallback` in `+SplitPresentation.swift`): it is harmless, and
+//  SplitContainerView.swift sits at the 350-LOC ceiling, so removing its half is a
+//  separate cleanup. The visual update no longer depends on it.
 //
 
 import AppKit
@@ -91,9 +90,8 @@ extension SpaceViewController {
             // satisfy Swift 6 isolation checks without adding a runtime dispatch.
             MainActor.assumeIsolated {
                 guard let self else { return }
-                // Defer one run-loop turn: KVO fires synchronously *inside*
-                // makeFirstResponder, before the write to firstResponder commits.
-                // Reading window.firstResponder here would return the old value.
+                // Defer one run-loop turn so a chain of responder changes settles
+                // before we read firstResponder (see WHY DEFER in the header).
                 RunLoop.main.perform {
                     MainActor.assumeIsolated {
                         self.handleFirstResponderChange(in: observedWindow)

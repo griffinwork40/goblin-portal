@@ -106,19 +106,13 @@ extension SpaceViewController {
 
     /// Install the click callback on the outer container and any nested containers.
     ///
-    /// WHY KEPT (even though the KVO observer in +FirstResponderObserver.swift now drives
-    /// the visual update): `SplitContainerView.mouseDown` still fires `didReceiveClickInChild`
-    /// correctly for clicks that DO reach the container level — specifically, a click that
-    /// lands precisely on the 1px divider strip, which is not inside any terminal view and
-    /// therefore does travel up the responder chain normally. The callback is a no-op when
-    /// `didReceiveClickInChild` is nil, so keeping it wired costs nothing and avoids a
-    /// future regression if SwiftTerm's mouseDown call chain changes.
-    ///
-    /// The primary visual-update path for terminal clicks is now KVO on
-    /// NSWindow.firstResponder (SpaceViewController+FirstResponderObserver.swift): AppKit
-    /// calls makeFirstResponder on the clicked terminal view independently of the responder
-    /// chain walk, so firstResponder always changes correctly on click even though
-    /// SplitContainerView.mouseDown is never reached.
+    /// WHY KEPT, though it never fires for a terminal click: SwiftTerm's mouseDown
+    /// (MacTerminalView.swift:2496) consumes the event without calling super, so
+    /// `SplitContainerView.mouseDown` is never reached from inside a pane. Focus-on-click
+    /// is now taken in `GoblinPortalTerminalView+SmoothScroll.swift` mouseDown and the cue
+    /// follows via `SpaceViewController+FirstResponderObserver.swift`; gated by
+    /// check-click-focus.sh. This callback is kept because it is harmless and removing the
+    /// container's half touches a file at the 350-LOC ceiling.
     func installClickCallback(primary: SpaceDocument) {
         let capturedPrimary = primary
         let handler: (NSView) -> Void = { [weak self] _ in
