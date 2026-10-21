@@ -25,13 +25,13 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-10-21 the tree differs from upstream in FOURTEEN files (SEVENTEEN patches):
-# Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005/0017),
+# As of 2026-10-21 the tree differs from upstream in FOURTEEN files (EIGHTEEN patches):
+# Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005/0017/0018),
 # PtmuxDcsHandler.swift (0005, new file), XtVersionDcsHandler.swift (0017, new file),
 # MacTerminalView.swift (0006/0008/0009/0010/0014/0017),
-# AppleTerminalView.swift (0007/0010/0013/0014/0015), TerminalViewSearch.swift (0009),
+# AppleTerminalView.swift (0007/0010/0013/0014/0015/0018), TerminalViewSearch.swift (0009),
 # MacDisplayLinkPacer.swift (0010, new file; 0016), MetalTerminalRenderer.swift (0011/0012/0013/0014),
-# CoreTextGlyphRasterizer.swift (0012), and Terminal.swift (0017). File count and patch count
+# CoreTextGlyphRasterizer.swift (0012), and Terminal.swift (0017/0018). File count and patch count
 # are not the same number and have not been since 0003; do not infer one from the other.
 # For the history of how the patch set grew, see git log patches/swiftterm/SwiftTerm.pin.
 #
@@ -159,7 +159,11 @@ upstream_buffer_swift = 7b65f2b9ce21c95b124848b76856e727fd8a407cb7354a1dc19ab82f
 # and the xtVersion public property for the host app to set at launch. altScrollMode
 # DEFAULTS ON (and RIS restores it): upstream's scrollWheel has always sent arrow keys
 # in the alt buffer, so OFF would make DECRQM contradict the wheel.
-terminal_swift = 9ae0e4758957b49864a38a12ffa0a84555fc068257b83409b0f8bddc2bee3d65
+# 0018-bound-inline-image-payloads.patch ALSO touches Terminal.swift (32 MiB encoded cap
+# before base64 decode in osciTerm2), EscapeSequenceParser.swift (65 MiB OSC accumulation
+# cap) and AppleTerminalView.swift (ImageIO header type allowlist + 8192 px side cap in
+# createImage; sixel side cap). One combined hash per file. Gate: check-image-decode.sh.
+terminal_swift = fa3e11effbbda69307f72d3dc689651cad2f0c290b0daaec22264bcb4a4f6e31
 # EscapeSequenceParser.swift AFTER applying 0005-add-dcs-ptmux-passthrough.patch.
 # This is the hash verify-vendor.sh requires.
 #
@@ -191,7 +195,7 @@ terminal_swift = 9ae0e4758957b49864a38a12ffa0a84555fc068257b83409b0f8bddc2bee3d6
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/XtVersionDcsHandler.swift
 #   # then update patched_escape_seq_parser, terminal_swift, xtversion_dcs_handler below
-patched_escape_seq_parser  = 29ede1e45873a363fad61a64bde27903c4dba0f32de8ecebc5dde470223f6e39
+patched_escape_seq_parser  = f4b94e3e0b8812efd85b9fa58877a9840a4ef117a45afd267c3ea28b2b940522
 
 # EscapeSequenceParser.swift as shipped upstream at v1.15.0.
 upstream_escape_seq_parser = ee651a9ffaa1adaaa106d89121c17903227d3c4a38312c42a3aa2f34058e937a
@@ -270,7 +274,7 @@ upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac604178
 #
 # Regenerate with:
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-patched_apple_terminal_view  = 48c4becc0e2e32e785dd4aefdd2a21a7948561b6bfda7763438ba8b378c6d501
+patched_apple_terminal_view  = b3239cd92cd593f7a876d9e9ba706112332557e554db22b7705841d9b0456821
 
 # AppleTerminalView.swift as shipped upstream at v1.15.0.
 upstream_apple_terminal_view = d28360034441f9a4573debcfe8ac5f86b3c57b3059da5f94ba2549838714e45e

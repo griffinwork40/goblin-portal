@@ -86,6 +86,8 @@ pin_value() {
 # config.json functional in both renderers; 0015 floors the scrollbar thumb at 1/rows; 0016
 # pauses the display link sooner for slow producers; 0017 adds XTVERSION, DEC 1007
 # (alternate scroll, default ON and now actually switchable) and an honest 2027 DECRQM.
+# 0018 bounds OSC accumulation, the OSC 1337
+# encoded payload, and inline-image type/dimensions before decode (check-image-decode.sh).
 # 0017 was missing from this list when its PR first opened, so CI's fresh bootstrap
 # built a tree without it and the pin rejected it. A tree missing any
 # one of them is not the tree this project is tested against, which is the whole
@@ -108,6 +110,7 @@ PATCHES=(
   "0015-proportional-scrollbar-thumb.patch"
   "0016-pause-sooner-for-slow-producers.patch"
   "0017-xtversion-altscroll-mode2027.patch"
+  "0018-bound-inline-image-payloads.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then

@@ -186,3 +186,17 @@ if [ "$GOT_MTR" != "$(pin_value patched_metal_terminal_renderer)" ]; then
   err "  Regenerate: shasum -a 256 $MTR  # then update patched_metal_terminal_renderer"
   exit 3
 fi
+
+# --- 0018: hard-fail if the inline-image guards are missing ----------------------
+# The hashes above already cover 0018 (Terminal.swift, the parser, AppleTerminalView.swift),
+# but a re-derived pin could silently bless a tree without it. These markers are the
+# guards themselves; a tree missing any one decodes unbounded remote image payloads.
+for marker in "Terminal.swift:maximumInlineImageEncodedBytes" \
+              "EscapeSequenceParser.swift:_oscLimitExceeded" \
+              "Apple/AppleTerminalView.swift:inlineImageTypes.contains"; do
+  if ! grep -q "${marker#*:}" "$VENDOR/Sources/SwiftTerm/${marker%%:*}"; then
+    err "error: patch 0018 is not applied (${marker%%:*} lacks ${marker#*:})."
+    err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0018-bound-inline-image-payloads.patch"
+    exit 2
+  fi
+done

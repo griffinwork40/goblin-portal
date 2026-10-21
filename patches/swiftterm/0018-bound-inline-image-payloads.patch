@@ -1,0 +1,210 @@
+# 0018 — bound inline-image payloads (T4.4 hardening)
+#
+# WHY: OSC 1337 File=;inline=1 is rendered BY THE VENDOR (Terminal.swift osciTerm2 ->
+# TerminalView.createImage), and createImage is `public` in an extension, not `open`, so
+# the app cannot guard it. Upstream v1.15.0 had no bound anywhere on that path:
+#   (a) EscapeSequenceParser accumulated an OSC without limit (unterminated payload =
+#       unbounded memory). Now capped at 65 MiB, upstream main's own number and name
+#       (_oscLimitExceeded); an over-limit OSC is consumed to its terminator and dropped,
+#       so the parser stays in sync and the next sequence works.
+#   (b) osciTerm2 base64-decoded any size. Now rejects > 32 MiB encoded BEFORE decode.
+#   (c) createImage ran NSImage(data:) on anything, incl. PDF/EPS and decompression
+#       bombs. Now reads type + pixel size from the ImageIO header first: raster
+#       allowlist (png/jpeg/gif/tiff/bmp/heic/webp) and max side 8192 px.
+#   (d) createImageFromBitmap (sixel) refuses sides > 8192 or a short buffer.
+# Every rejection is a silent drop: no crash, no partial insert, no log.
+# Gate: app/Scripts/check-image-decode.sh (falsified by removing each guard).
+--- a/Sources/SwiftTerm/EscapeSequenceParser.swift
++++ b/Sources/SwiftTerm/EscapeSequenceParser.swift
+@@ -334,6 +334,10 @@
+     
+     // buffers over several calls
+     var _osc: cstring
++    // PATCH 0018: true once the current OSC overflowed maximumOscBytes; the sequence is
++    // then consumed to its terminator and dropped. Name mirrors upstream main's
++    // `_oscLimitExceeded` so a re-vendor converges.
++    var _oscLimitExceeded = false
+     var _apc: cstring
+     var _pars: [Int]
+     var _parsTxt: [UInt8]
+@@ -342,7 +346,16 @@
+     var printStateReset: () -> () = {  }
+     
+     var table: TransitionTable
+-    
++
++    // PATCH 0018: cap on one accumulated OSC payload. Upstream SwiftTerm main uses the
++    // same 65 MiB (EscapeSequenceParser.maximumOscBytes). WHY THIS NUMBER: it must hold
++    // the largest OSC anyone legitimately sends, which is OSC 1337 File= (base64, 4/3
++    // overhead) — Terminal.maximumInlineImageEncodedBytes (32 MiB) fits with room — and
++    // OSC 52 clipboard writes, which are base64 text far smaller than that. OSC 7/8/133/
++    // 9/777 are tiny. Before 0018 this buffer grew without bound: an unterminated
++    // `ESC ] 1337;File=:AAAA...` from `cat`-ing a hostile file pinned memory forever.
++    static let maximumOscBytes = 65 * 1024 * 1024
++
+     init (terminal: Terminal? = nil)
+     {
+         self.terminal = terminal
+@@ -608,6 +621,7 @@
+     {
+         currentState = initialState
+         _osc = []
++        _oscLimitExceeded = false
+         _apc = []
+         _pars = [0]
+         _collect = []
+@@ -650,6 +664,7 @@
+         var print = -1
+         var dcs = -1
+         var osc = self._osc
++        var oscLimitExceeded = self._oscLimitExceeded
+         var apc = self._apc
+         var collect = self._collect
+         var pars = self._pars
+@@ -775,6 +790,7 @@
+                     print = -1
+                 }
+                 osc = []
++                oscLimitExceeded = false  // PATCH 0018
+                 apc = []
+                 pars = [0]
+                 parsTxt = []
+@@ -800,6 +816,7 @@
+                     transition |= ParserState.escape.rawValue
+                 }
+                 osc = []
++                oscLimitExceeded = false  // PATCH 0018
+                 apc = []
+                 pars = [0]
+                 parsTxt = []
+@@ -816,6 +833,7 @@
+                     apc = []
+                 } else {
+                     osc = []
++                    oscLimitExceeded = false  // PATCH 0018
+                 }
+             case .oscPut:
+                 var j = i
+@@ -826,8 +844,13 @@
+                     } else if c >= 0x20 {
+                         if currentState == .apcString {
+                             apc.append (c)
+-                        } else {
++                        } else if osc.count < EscapeSequenceParser.maximumOscBytes {
+                             osc.append (c)
++                        } else {
++                            // PATCH 0018: keep consuming to the terminator (so the
++                            // parser stays in sync and the next sequence works) but
++                            // stop storing, and remember to drop the whole OSC.
++                            oscLimitExceeded = true
+                         }
+                     }
+                     j += 1
+@@ -841,7 +864,7 @@
+                         dispatchApc(command: command, content: content)
+                     }
+                 } else {
+-                    if osc.count != 0 && code != ControlCodes.CAN && code != ControlCodes.SUB {
++                    if osc.count != 0 && !oscLimitExceeded && code != ControlCodes.CAN && code != ControlCodes.SUB {
+                         var oscCode: Int
+                         var content: ArraySlice<UInt8>
+                         let semiColonAscii = 59 // ';'
+@@ -860,6 +883,7 @@
+                     transition |= ParserState.escape.rawValue
+                 }
+                 osc = []
++                oscLimitExceeded = false  // PATCH 0018
+                 apc = []
+                 pars = [0]
+                 parsTxt = []
+@@ -878,6 +902,7 @@
+         }
+         // save non pushable buffers
+         _osc = osc
++        _oscLimitExceeded = oscLimitExceeded
+         _apc = apc
+         _collect = collect
+         _pars = pars
+--- a/Sources/SwiftTerm/Terminal.swift
++++ b/Sources/SwiftTerm/Terminal.swift
+@@ -1919,6 +1919,12 @@
+     // Options
+     // ESC ] 1337 ; File = [arguments] : base-64 encoded file contents ^G
+     //
++    /// PATCH 0018: largest base64 payload accepted for OSC 1337 File=;inline=1.
++    /// 32 MiB encoded is ~24 MiB of image file: a full-resolution 5K PNG screenshot is
++    /// 10-20 MiB, and industry practice is a 10-50 MiB cap. Must stay below
++    /// EscapeSequenceParser.maximumOscBytes (65 MiB) or the parser drops it first.
++    public static let maximumInlineImageEncodedBytes = 32 * 1024 * 1024
++
+     func osciTerm2 (_ data: ArraySlice<UInt8>) {
+         // Parses the key-value pairs separated by ";"
+         func parseKeyValues (_ data: ArraySlice<UInt8>) -> [String:String] {
+@@ -1983,7 +1989,14 @@
+             if kv["inline"] != "1" {
+                 break
+             }
+-            
++            // PATCH 0018: bound the ENCODED payload before base64-decoding it. Decoding
++            // allocates ~3/4 of this up front and createImage then hands it to ImageIO;
++            // kitty already caps at kittyMaxImageBytes (KittyGraphics.swift:145), inline
++            // images had nothing. Silent drop, same as a malformed payload below.
++            guard data.endIndex - (colonIdx+1) <= Terminal.maximumInlineImageEncodedBytes else {
++                return
++            }
++
+             guard let imgData = Data(base64Encoded: Data(data [colonIdx+1..<data.endIndex])) else {
+                 return
+             }
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+@@ -2418,7 +2418,30 @@
+                 rows: Int ((size.height+cellDimension.height-1)/cellDimension.height))
+     }
+     
++    /// PATCH 0018: largest decoded side, in pixels, for an inline (OSC 1337) or sixel
++    /// image. 8192 matches the common decode cap (8192^2) and is above any real display
++    /// (6K = 6016 wide); at 8192x8192 RGBA a decode is 256 MiB, under kitty's 400 MiB
++    /// per-image cap (KittyGraphics.swift:145). A 60-byte PNG can claim 100000^2 in its
++    /// header, which is why this is read from the header BEFORE decoding.
++    public static let maximumInlineImageSide = 8192
++
++    /// PATCH 0018: raster types an inline image may be. An ALLOWLIST, because NSImage
++    /// (TTImage) happily decodes PDF/EPS (vector, multi-page, renders at any size) and
++    /// ImageIO knows ~20 exotic formats (EXR, PSD, KTX, ...) — each one more parser
++    /// exposed to bytes a remote host chose.
++    public static let inlineImageTypes: Set<String> = [
++        "public.png", "public.jpeg", "com.compuserve.gif", "public.tiff",
++        "com.microsoft.bmp", "public.heic", "org.webmproject.webp",
++    ]
++
+     public func createImageFromBitmap(source: Terminal, bytes: inout [UInt8], width: Int, height: Int) {
++        // PATCH 0018: the sixel handler sizes `bytes` itself (SixelDcsHandler.swift:117,
++        // already allocated by the time we get here), so this bounds what is INSERTED
++        // into scrollback, and refuses a buffer that does not match the claimed size.
++        guard width > 0, height > 0, max(width, height) <= TerminalView.maximumInlineImageSide,
++              bytes.count >= width * height * 4 else {
++            return
++        }
+         let rgbColorSpace = CGColorSpaceCreateDeviceRGB()
+         let bitmapInfo: CGBitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+         let pixelData = NSData(bytes: bytes, length: bytes.count)
+@@ -2443,6 +2466,18 @@
+    
+     public func createImage (source: Terminal, data: Data, width widthRequest: ImageSizeRequest, height heightRequest: ImageSizeRequest, preserveAspectRatio: Bool)
+     {
++        // PATCH 0018: inspect the header (type + pixel size) through ImageIO BEFORE the
++        // full decode. CGImageSourceCopyPropertiesAtIndex reads metadata only; nothing
++        // here allocates pixels. Any failure is a silent drop — no partial insert.
++        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
++              let type = CGImageSourceGetType(src) as String?,
++              TerminalView.inlineImageTypes.contains(type),
++              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
++              let w = props[kCGImagePropertyPixelWidth] as? Int,
++              let h = props[kCGImagePropertyPixelHeight] as? Int,
++              w > 0, h > 0, max(w, h) <= TerminalView.maximumInlineImageSide else {
++            return
++        }
+         guard let img = TTImage(data: data) else {
+             return
+         }
