@@ -20,10 +20,12 @@ extension TerminalPane: SpaceDocument {
     /// is what keeps smooth scrolling's sub-cell shift inside the pane (TerminalClipView.swift).
     var documentView: NSView { clipView }
 
-    /// Falls back rather than rendering an empty tab: `currentTitle` stays empty
-    /// until the shell emits OSC 0/2, which does not happen until the first prompt
-    /// paints — so a brand-new tab would otherwise be a blank sliver.
-    var documentTitle: String { currentTitle.isEmpty ? "Terminal" : currentTitle }
+    /// Tab label derived from the pane's actual state (cwd + foreground kind),
+    /// not from OSC 0/2.  See `TabTitlePolicy` and `TerminalPane+TabTitle.swift`.
+    ///
+    /// Falls back to "Terminal" only when the policy cannot determine anything
+    /// (shell just launched, no directory yet).
+    var documentTitle: String { derivedDocumentTitle }
 
     var documentSymbolName: String { "terminal" }
 
