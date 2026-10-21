@@ -176,6 +176,10 @@ extension TerminalPane {
                 guard let self else { return }
                 self.status = .running
                 termDiag("OSC 133 C — command started, status = .running")
+                // T5.3: switch to .program mode so the next OSC 0/2 from the
+                // running TUI/REPL is honoured, and refresh the tab title now
+                // so the "command — cwd" form appears immediately.
+                self.handleCommandStartForTitle()
             }
         }
         // Retain the state for the pane's lifetime. The handler closure already holds
@@ -205,6 +209,9 @@ extension TerminalPane {
         case .noChange:
             break
         }
+        // T5.3: mark that the next OSC 0/2 will be the shell's precmd title
+        // (user@host form) and refresh the tab back to "cwd basename".
+        handleCommandEndForTitle()
     }
 
     // MARK: OSC 7 — current directory
