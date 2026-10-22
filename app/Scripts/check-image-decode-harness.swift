@@ -1,5 +1,6 @@
 // check-image-decode-harness.swift — the assertions for check-image-decode.sh (patch 0018;
-// the 0019 multipart cases live in check-image-decode-multipart.swift).
+// the 0019 multipart cases live in check-image-decode-multipart.swift, the 0020 sixel
+// cases in check-image-decode-sixel.swift).
 //
 // Owns: feeding OSC 1337 / sixel / plain OSC bytes into a real, WINDOWLESS SwiftTerm
 // TerminalView (AppKit NSView, never put on screen — no window server needed, the same
@@ -176,10 +177,7 @@ func check(_ name: String, _ ok: Bool, _ why: @autoclosure () -> String) {
         check("dimension-cap", decodable && images(v).isEmpty,
               "NSImage decodes=\(decodable) images=\(images(v).count)")
     }
-    // NOT a case: sixel. Feeding `ESC P q #0;2;100;0;0 #0 !N~ ESC \\` traps inside the
-    // vendored SixelDcsHandler (Index out of range) BEFORE createImageFromBitmap is reached,
-    // independent of 0018 — a pre-existing upstream parser bug, recorded for a follow-up.
-    // 0018's sixel side bound is therefore unexercised here.
+    runSixel(want)  // patch 0020 cases (#280): check-image-decode-sixel.swift
     if want("osc-overlimit") {
         // Case 9: a non-1337 OSC (title) over the 65 MiB accumulation cap is dropped, and
         // the very next OSC still works — the parser consumed to the terminator in sync.
