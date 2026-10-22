@@ -90,6 +90,7 @@ pin_value() {
 # encoded payload, and inline-image type/dimensions before decode (check-image-decode.sh).
 # 0019 adds OSC 1337 MultipartFile/FilePart/FileEnd (modern imgcat's default), routed
 # through 0018's caps with the encoded cap applied cumulatively (check-image-decode.sh).
+# 0020 bounds SixelDcsHandler parsing so malformed sixel drops instead of trapping (#280).
 # 0017 was missing from this list when its PR first opened, so CI's fresh bootstrap
 # built a tree without it and the pin rejected it. A tree missing any
 # one of them is not the tree this project is tested against, which is the whole
@@ -114,6 +115,7 @@ PATCHES=(
   "0017-xtversion-altscroll-mode2027.patch"
   "0018-bound-inline-image-payloads.patch"
   "0019-osc1337-multipart-file.patch"
+  "0020-bound-sixel-parsing.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then

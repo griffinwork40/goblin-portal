@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# check-image-decode.sh — patches 0018/0019: are inline-image payloads bounded, and does
+# check-image-decode.sh — patches 0018/0019/0020: are inline-image payloads (incl. sixel) bounded, and does
 # OSC 1337 multipart (modern imgcat) render through the same bounded path?
 #
 # Headless-ish: links the vendored SwiftTerm.o and drives a real TerminalView (an NSView
@@ -12,12 +12,18 @@
 # case. A mutant counts only when that case fails (exit 1). Pattern miss / compile
 # failure => exit 2. Zero mutants run => exit 2.
 #
+# A trap (e.g. SixelDcsHandler Index out of range, #280) kills the harness. The 0020 cases
+# print "BEGIN <case>" before running, so a death whose last marker is a BEGIN is a
+# real failure in that named case (exit 1; under --falsify it counts only for the
+# mutant's declared case). A death with no marker as its last line stays environmental.
+#
 # Exit: 0 pass, 1 assertion failure (or a mutant survived), 2 environmental.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 APP_ROOT="$(pwd)"; REPO_ROOT="$(cd .. && pwd)"
 HARNESS="$APP_ROOT/Scripts/check-image-decode-harness.swift"
 MULTIPART="$APP_ROOT/Scripts/check-image-decode-multipart.swift"
+SIXEL="$APP_ROOT/Scripts/check-image-decode-sixel.swift"
 # Verbatim stdout of the real modern imgcat (iterm2.com/utilities/imgcat) on a 16x16 PNG.
 export IMAGE_DECODE_FIXTURE="$APP_ROOT/Scripts/fixtures/imgcat-multipart-16x16.bin"
 say() { echo "$@"; }
@@ -30,15 +36,23 @@ build_bin() {
   local dir="$1" bin="$2"
   (cd "$dir" && . Scripts/vendored-module.sh && resolve_vendored_module >/dev/null && echo "$PRODUCTS" >"$TMP/products") || return 2
   local P; P="$(cat "$TMP/products")"
-  cp "$HARNESS" "$TMP/main.swift"; cp "$MULTIPART" "$TMP/multipart.swift"
-  swiftc -O -o "$bin" "$TMP/main.swift" "$TMP/multipart.swift" -I "$P" -L "$P" "$P/SwiftTerm.o" -framework AppKit \
+  cp "$HARNESS" "$TMP/main.swift"; cp "$MULTIPART" "$TMP/multipart.swift"; cp "$SIXEL" "$TMP/sixel.swift"
+  swiftc -O -o "$bin" "$TMP/main.swift" "$TMP/multipart.swift" "$TMP/sixel.swift" -I "$P" -L "$P" "$P/SwiftTerm.o" -framework AppKit \
     2>"$TMP/compile.log" || { sed 's/^/  /' "$TMP/compile.log" >&2; return 2; }
 }
 
+# crashed_case <out>: the case name when the last BEGIN/PASS/FAIL line is a BEGIN marker
+# (that case started and never reported), else "". The runtime's own trap message lands
+# after it on stderr, so the marker is not necessarily the very last line.
+crashed_case() { local l; l="$(grep -E '^(BEGIN|PASS|FAIL) ' "$1" | tail -n 1)"; [[ "$l" == "BEGIN "* ]] && echo "${l#BEGIN }"; true; }
+
 if [[ "${1:-}" != "--falsify" ]]; then
   build_bin "$APP_ROOT" "$TMP/imgdecode" || { echo "error: build/compile failed (environmental)" >&2; exit 2; }
-  "$TMP/imgdecode"; rc=$?
-  case "$rc" in 0) say "check-image-decode: all cases PASS";; 1) say "check-image-decode: FAIL"; exit 1;; *) echo "error: harness crashed (rc=$rc)" >&2; exit 2;; esac
+  "$TMP/imgdecode" | tee "$TMP/out"; rc=${PIPESTATUS[0]}
+  case "$rc" in 0) say "check-image-decode: all cases PASS";; 1) say "check-image-decode: FAIL"; exit 1;;
+    *) died="$(crashed_case "$TMP/out")"
+       if [[ -n "$died" ]]; then say "FAIL $died: harness died inside this case (rc=$rc)"; exit 1; fi
+       echo "error: harness crashed outside any marked case (rc=$rc)" >&2; exit 2;; esac
   exit 0
 fi
 
@@ -58,6 +72,12 @@ MUTANTS=(
   # #283 inactivity release: the watchdog never armed / FilePart never refreshes the stamp
   "no-stale-watchdog|Terminal.swift|s{if iTermMultipart != nil \\{ armITermMultipartWatchdog \\(after: iTermMultipartInactivitySeconds\\) \\}}{}|multipart-stale"
   "part-not-stamped|Terminal.swift|s{transfer.lastActivity = DispatchTime.now\\(\\)  // #283}{// #283}|multipart-slow-alive"
+  # 0020 mutants (#280). The first two restore upstream's TRAP: caught only as a death in
+  # the declared case. sixel-short-buffer has no mutant: removing 0018's bytes.count guard
+  # is equivalent (CGImage itself rejects a short provider) — see the case comment.
+  "open-band-fold|SixelDcsHandler.swift|s{maxX = max\\(maxX, x\\)\\n\\s*guard !oversize, maxX > 0, maxY > 0 else}{guard !oversize else}|sixel-unclosed"
+  "number-saturate|SixelDcsHandler.swift|s{min\\(10 \\* existing \\+ digit, SixelDcsHandler.maximumSide \\+ 1\\)}{10 * existing + digit}|sixel-overflow"
+  "side-bound|SixelDcsHandler.swift|s{guard reps <= SixelDcsHandler.maximumSide - x, y <= SixelDcsHandler.maximumSide - 6 else}{guard true else}|sixel-oversize"
 )
 RAN=0; CAUGHT=0; MISSED=0
 for m in "${MUTANTS[@]}"; do
@@ -74,6 +94,8 @@ for m in "${MUTANTS[@]}"; do
   RAN=$((RAN+1))
   IMAGE_DECODE_ONLY="$kase" "$R/bin" >"$R/out" 2>&1; rc=$?
   if [[ $rc -eq 1 ]] && grep -q "^FAIL $kase" "$R/out"; then say "    CAUGHT ($(grep "^FAIL" "$R/out"))"; CAUGHT=$((CAUGHT+1))
+  elif [[ $rc -gt 1 && "$(crashed_case "$R/out")" == "$kase" ]]; then
+    say "    CAUGHT (died inside declared case $kase, rc=$rc)"; CAUGHT=$((CAUGHT+1))
   else say "    MISSED (rc=$rc)"; sed 's/^/      /' "$R/out"; MISSED=$((MISSED+1)); fi
   rm -rf "$R"
 done

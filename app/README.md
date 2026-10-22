@@ -36,7 +36,7 @@ of pure logic would have caught. So the checks are the `check-*.sh` scripts, a v
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all sixteen patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all twenty patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-info-plist.sh    # every privacy usage-description key (incl. Local Network) is in the shipped Info.plist — headless
 ./Scripts/check-afk-loc.sh      # every `| \`X.swift\` | N |` row in AFK.md equals wc -l — headless (#178)
@@ -428,7 +428,7 @@ existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **sixteen** local patches:
+Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **twenty** local patches:
 
 1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
    shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
@@ -539,8 +539,17 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **sixteen** local
     restores the fixed window. Gated by `check-display-link.sh` case 9, falsified with that
     switch. Diagnosis: `../.afk/research/metal-idle-encode-2026-10-18.md` (#143).
 
+17-19. `0017` (XTVERSION, alternate scroll 1007, mode 2027), `0018` (inline-image input
+    bounds) and `0019` (OSC 1337 multipart) are described in `../AFK.md`'s vendor row.
+
+20. `0020-bound-sixel-parsing.patch` — malformed sixel (untrusted output) trapped
+    `SixelDcsHandler` with Index out of range, debug and release (#280): a band not closed
+    by `$`/`-` sized a 0-byte bitmap. Folds the open band, saturates numbers, and drops an
+    image whose side would pass 8192 before allocating it. Gated by
+    `check-image-decode.sh`'s `sixel-*` cases, each guard falsified.
+
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0016` (sixteen patches) in `../patches/swiftterm/`, all pinned by
+`0001` through `0020` (twenty patches) in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -567,7 +576,7 @@ patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-f
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
 patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
 for p in patches/swiftterm/00{06,07,08,09,10,11,12,13,14,15,16}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all sixteen patches)
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all twenty patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader

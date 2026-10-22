@@ -211,3 +211,20 @@ for marker in "case \"MultipartFile\":" "case \"FilePart\":" "iTermMultipart = n
     exit 2
   fi
 done
+
+# --- 0020: SixelDcsHandler.swift bounds sixel parsing (#280) -----------------------------
+# Severity: CRASH. Upstream v1.15.0 traps (Index out of range / Int overflow) on malformed
+# sixel, which is untrusted terminal output; a trap in release kills the whole app.
+SIXEL_FILE="$VENDOR/Sources/SwiftTerm/SixelDcsHandler.swift"
+if [ ! -f "$SIXEL_FILE" ]; then err "error: SixelDcsHandler.swift missing."; exit 1; fi
+GOT_SIXEL="$(sha256_of "$SIXEL_FILE")"
+if [ "$GOT_SIXEL" = "$(pin_value upstream_sixel_dcs_handler)" ]; then
+  err "error: SixelDcsHandler.swift is UNPATCHED upstream $UPSTREAM_TAG — malformed sixel traps."
+  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0020-bound-sixel-parsing.patch"
+  exit 2
+fi
+if [ "$GOT_SIXEL" != "$(pin_value patched_sixel_dcs_handler)" ]; then
+  err "error: SixelDcsHandler.swift hash mismatch (got $GOT_SIXEL)."
+  err "  Regenerate: shasum -a 256 $SIXEL_FILE  # then update patched_sixel_dcs_handler"
+  exit 3
+fi

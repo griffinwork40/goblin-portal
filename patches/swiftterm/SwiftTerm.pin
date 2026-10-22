@@ -25,14 +25,14 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-10-21 the tree differs from upstream in FOURTEEN files (NINETEEN patches):
+# As of 2026-10-22 the tree differs from upstream in FIFTEEN files (TWENTY patches):
 # Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005/0017/0018),
 # PtmuxDcsHandler.swift (0005, new file), XtVersionDcsHandler.swift (0017, new file),
 # MacTerminalView.swift (0006/0008/0009/0010/0014/0017),
 # AppleTerminalView.swift (0007/0010/0013/0014/0015/0018), TerminalViewSearch.swift (0009),
 # MacDisplayLinkPacer.swift (0010, new file; 0016), MetalTerminalRenderer.swift (0011/0012/0013/0014),
-# CoreTextGlyphRasterizer.swift (0012), and Terminal.swift (0017/0018/0019). File count and patch count
-# are not the same number and have not been since 0003; do not infer one from the other.
+# CoreTextGlyphRasterizer.swift (0012), Terminal.swift (0017/0018/0019), and
+# SixelDcsHandler.swift (0020). File count and patch count are not the same number and have not been since 0003; do not infer one from the other.
 # For the history of how the patch set grew, see git log patches/swiftterm/SwiftTerm.pin.
 #
 # Regenerate the hashes below with:
@@ -381,3 +381,16 @@ upstream_metal_terminal_renderer = 916d4e1cb0ecf36bcb3dcd8d8b0d9cb79b2c5b5653c0f
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
 patched_core_text_glyph_rasterizer  = fb2d4d84d983b866360f3554bb0944aa3df27f918c101090608b73dcf325aa8f
 upstream_core_text_glyph_rasterizer = 004b090d29af185136598aeed372dee4ad2d5611018441b64e0e57f39723082c
+
+# SixelDcsHandler.swift AFTER 0020-bound-sixel-parsing.patch (#280), and the pristine
+# v1.15.0 file (no earlier patch touches it). Checked in verify-vendor-views.sh.
+# What 0020 fixes: upstream trapped on malformed sixel BEFORE createImageFromBitmap (and
+# 0018's side cap) ran — a band not closed by `$`/`-` sized a 0-byte bitmap and the second
+# pass indexed into it (Index out of range, debug AND release); a number past Int.max
+# overflowed. 0020 folds the open band, saturates numbers, and drops any image whose side
+# would pass 8192 BEFORE the bitmap is allocated. Severity: CRASH (untrusted output).
+# Gate: check-image-decode.sh sixel-* cases, falsified by removing each bound.
+# Regenerate with:
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/SixelDcsHandler.swift
+patched_sixel_dcs_handler  = 9c851f8d54b89f55199557692b0ba03f78331418e42855b0b626061cc3e560e6
+upstream_sixel_dcs_handler = ef21a5c4a323490699d55006be4aa33cad5cc9667e07cb8d1e80615fec594a32
