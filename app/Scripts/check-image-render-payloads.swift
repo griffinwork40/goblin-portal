@@ -47,6 +47,9 @@ func osc1337(cols: Int = 4, rows: Int = 2, inline: Int = 1) -> String {
 /// At 2x an `auto`-sized sixel image of N px occupies exactly N device px (insertImage's
 /// getPixels .auto divides by the display scale), so its expected rect needs no cell maths.
 func sixel(w: Int, bands: Int) -> String {
+    // pct(): sixel colour registers are integer percent (0–100). Rounding a channel value
+    // to the nearest integer introduces up to ~0.5/255*100 ≈ 0.2 units of error per channel,
+    // so a round-trip decode may shift each channel by up to ~1.3 units of the 0–255 range.
     func pct(_ v: Int) -> Int { Int((Double(v) * 100 / 255).rounded()) }
     let band = "#1!\(w)~"
     let body = Array(repeating: band, count: bands).joined(separator: "-")

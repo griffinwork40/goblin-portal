@@ -70,11 +70,31 @@ MainActor.assumeIsolated {
             check(s.ok, "osc1337-\(k)", s.detail)
         }
         // C2 sixel, 40 x 24 px auto-sized: at 2x it is 40 x 24 DEVICE px from the cell origin.
+        // (40 x 24 is deliberately sub-cell to verify sub-cell placement; C2b covers a full-cell span.)
         do {
             let (img, g) = r.render(at(imgRow, imgCol) + sixel(w: 40, bands: 4), with: kind)
             let o = cells(g, row: imgRow, col: imgCol, rows: 1, cols: 1)
             let s = solid(img, g, Region(x0: o.x0, y0: o.y0, x1: o.x0 + 40, y1: o.y0 + 24), paint)
             check(s.ok, "sixel-\(k)", s.detail)
+        }
+        // C2b cell-aligned sixel: 4 x 2 cells wide/tall, sized from the actual cell dimensions
+        // captured in C1's render. sixelBands = ceil(2*cellH / 6) ensures the sixel height is a
+        // multiple of 6 (sixel's band unit). If 2*cellH is not a multiple of 6 the image overshoots
+        // by up to 5 device px; we assert only over the 2*cellH px the image must cover (not the
+        // overshoot), so the ring check is not tripped by the harmless extra band.
+        do {
+            let (_, g0) = r.render(at(imgRow, imgCol) + osc1337(), with: kind)
+            let sixelW = 4 * g0.cellW
+            let sixelBands = (2 * g0.cellH + 5) / 6   // ceil(2*cellH / 6)
+            let (img, g) = r.render(at(imgRow, imgCol) + sixel(w: sixelW, bands: sixelBands), with: kind)
+            let o = cells(g, row: imgRow, col: imgCol, rows: 1, cols: 1)
+            // Assert over sixelBands*6 px (the actual painted extent), not 2*cellH: if 2*cellH
+            // is not a multiple of 6 the image overshoots by up to 5 device px and those extra
+            // pixels would appear in the ring. The overshoot is harmless; we just assert what
+            // the renderer actually painted rather than the ideal cell boundary.
+            let assertH = sixelBands * 6
+            let s = solid(img, g, Region(x0: o.x0, y0: o.y0, x1: o.x0 + sixelW, y1: o.y0 + assertH), paint)
+            check(s.ok, "sixel-cell-aligned-\(k)", s.detail)
         }
         // C3 kitty APC G a=T c=4 r=2 -> the 4 x 2 cell rectangle.
         do {
@@ -96,12 +116,19 @@ MainActor.assumeIsolated {
         // C5 cursor advance: insertImage linefeeds once per stripe and restores x
         // (AppleTerminalView.swift insertImage), so text after a 2-row image lands at
         // (imgRow + 2, imgCol) -- and the image is still there.
+        // ESC[4C moves the cursor right 4 cols (past the image's column span) *relatively*,
+        // so the row is still determined by the image's own cursor advance: if the image
+        // fails to advance 2 rows the marker will land on the wrong row and the probe fails.
         do {
-            let (img, g) = r.render(at(imgRow, imgCol) + osc1337() + marker, with: kind)
-            let m = cells(g, row: imgRow + 2, col: imgCol, rows: 1, cols: 1)
+            let cursorRight4 = "\(imgESC)[4C"
+            let (img, g) = r.render(at(imgRow, imgCol) + osc1337() + cursorRight4 + marker, with: kind)
+            let m = cells(g, row: imgRow + 2, col: imgCol + 4, rows: 1, cols: 1)
             var ok = true, bad = 0
             for y in (m.y0 + 2)..<(m.y1 - 2) { for x in (m.x0 + 2)..<(m.x1 - 2) where !near(img, x, y, markerRGB, tol: 6) { bad += 1 } }
             ok = bad == 0
+            // ring: 0 because the marker lands at col imgCol+4, immediately right of the image's
+            // 4-col span; a 6px ring would reach the marker's ink and trip a false leak alarm.
+            // The cursor-advance assertion is carried by the row probe (bad == 0), not the ring.
             let s = solid(img, g, cells(g, row: imgRow, col: imgCol, rows: 2, cols: 4), paint, ring: 0)
             check(ok && s.ok, "cursor-advance-\(k)",
                   "marker cell \(m): \(bad) off-colour px (want 0); image \(s.ok ? "intact" : s.detail)")

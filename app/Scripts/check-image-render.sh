@@ -30,8 +30,8 @@ command -v swiftc >/dev/null 2>&1 || { echo "error: swiftc not found" >&2; exit 
 if [[ "${1:-}" == "--falsify" ]]; then
   VEN="Sources/SwiftTerm/Apple"
   MUTANTS=(
-    "m1|$VEN/Metal/MetalTerminalRenderer.swift|s/otherImageDraws\.append\(draw\)/_ = draw/|osc1337-metal|osc1337-coretext"
-    "m2|$VEN/AppleTerminalView.swift|s/if !otherImages\.isEmpty \{/if false, !otherImages.isEmpty {/|osc1337-coretext|"
+    "m1|$VEN/Metal/MetalTerminalRenderer.swift|s/otherImageDraws\.append(draw)/_ = draw/|osc1337-metal|osc1337-coretext"
+    "m2|$VEN/AppleTerminalView.swift|s/if !otherImages\.isEmpty {/if false, !otherImages.isEmpty {/|osc1337-coretext|"
     "m3|both|BLANK|osc1337-coretext osc1337-metal|"
   )
   ran=0; caught=0; envfail=0
@@ -42,12 +42,15 @@ if [[ "${1:-}" == "--falsify" ]]; then
     chmod -R u+w "$dest/vendor/SwiftTerm/Sources"
     if [[ "$file" == "both" ]]; then
       files=("$VEN/Metal/MetalTerminalRenderer.swift" "$VEN/AppleTerminalView.swift")
-      substs=('s/otherImageDraws\.append\(draw\)/_ = draw/' 's/if !otherImages\.isEmpty \{/if false, !otherImages.isEmpty {/')
+      # { is literal in BRE (unescaped); \{ would start an interval expression and fail on macOS sed.
+      substs=('s/otherImageDraws\.append(draw)/_ = draw/' 's/if !otherImages\.isEmpty {/if false, !otherImages.isEmpty {/')
     else files=("$file"); substs=("$subst"); fi
     applied=1
     for i in "${!files[@]}"; do
       t="$dest/vendor/SwiftTerm/${files[$i]}"; before="$(cksum <"$t")"
-      perl -0pi -e "${substs[$i]}" "$t"
+      # sed -i '' works here: both patterns are single-line (no cross-line slurp needed).
+      # check-titlebar-layout.sh still uses perl -0pi; siblings are mixed -- alignment is best-effort.
+      sed -i '' -e "${substs[$i]}" "$t"
       [[ "$(cksum <"$t")" == "$before" ]] && applied=0
     done
     if [[ $applied -eq 0 ]]; then echo "  ENV  $label: pattern no longer applies -- mutant cannot be judged"; envfail=1; continue; fi
