@@ -87,6 +87,10 @@ extension SpaceViewController {
             // always set from the main thread (AppKit guarantee), so this closure is
             // main-thread, but we still route through MainActor.assumeIsolated to
             // satisfy Swift 6 isolation checks without adding a runtime dispatch.
+            assert(Thread.isMainThread,
+                   "KVO on firstResponder fired off the main thread — AppKit guarantee violated")
+            // R1.8 (SpaceViewController+FirstResponderObserver.swift): named assert so
+            // debug builds surface a thread violation before assumeIsolated traps.
             MainActor.assumeIsolated {
                 guard let self else { return }
                 // Defer one run-loop turn so a chain of responder changes settles
@@ -110,17 +114,38 @@ extension SpaceViewController {
 
     /// Called one run-loop turn after `NSWindow.firstResponder` changes.
     ///
-    /// If the new first responder is a descendant of a split pane in the active tab,
-    /// `updateSplitDimming` is re-run so dimming and the accent border follow the click.
+    /// Re-runs `updateSplitDimming` only when the new first responder lives inside
+    /// one of the split leaves (pane view hierarchies gathered by `gatherLeaves`).
+    /// Focus moving to the sidebar, file tree outline, or filter field leaves the
+    /// dimming and accent border exactly as they were — the last-focused pane stays lit.
+    ///
+    /// WHY NARROW TO LEAF DESCENDANTS (R1.1 fix, #269)
+    ///
+    /// The old guard checked `fr.isDescendant(of: view)`, where `view` is the Space's
+    /// root view and includes the sidebar/file tree.  Clicking the file tree outline
+    /// passed that guard, called `updateSplitDimming`, found no leaf that owned the
+    /// new first responder, resolved `focusedView == nil`, and passed nil to
+    /// `setFocusedChild` — dimming both panes and removing the accent border from
+    /// every leaf.  Narrowing to leaf descendants keeps the cue on the pane that held
+    /// focus before the sidebar click.
+    ///
+    /// FIND BAR: SwiftTerm mounts its find bar inside the terminal pane's own view
+    /// hierarchy (it is a child of `MacTerminalView`, confirmed by checking that
+    /// `findBarView.isDescendant(of: terminalView)` holds).  Focusing the find bar
+    /// therefore satisfies `isDescendant(fr, of: leaf.view)` for that pane's leaf,
+    /// so the pane stays lit — exactly the desired behaviour.
+    ///
     /// If there is no active split, this is a fast no-op (splitPeers lookup returns nil).
     private func handleFirstResponderChange(in window: NSWindow) {
         guard let primary = activeDocument,
-              splitPeers[ObjectIdentifier(primary)] != nil else { return }
-        // Guard: the new first responder must live inside our view hierarchy.
-        // (Other responders — menus, panels, the command palette — should not
-        // trigger a pane-focus change.)
-        guard let fr = window.firstResponder as? NSView,
-              fr.isDescendant(of: view) else { return }
+              let entry = splitPeers[ObjectIdentifier(primary)] else { return }
+        // Guard: the new first responder must live inside one of the split leaf
+        // views.  Responders in the sidebar, file tree, filter field, menus, panels,
+        // or the command palette do not qualify and leave dimming unchanged.
+        // (R1.1 fix, #269: was `fr.isDescendant(of: view)` which matched the sidebar.)
+        guard let fr = window.firstResponder else { return }
+        let leaves = gatherLeaves(primary: primary, entry: entry)
+        guard leaves.contains(where: { isDescendant(fr, of: $0.view) }) else { return }
         updateSplitDimming(for: primary)
     }
 }

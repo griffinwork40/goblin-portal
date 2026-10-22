@@ -222,9 +222,14 @@ func probeSixelParsing() -> Row {
                    : "Terminal unresponsive after sixel DCS — handler may not be hooked")
 }
 
-/// P10 OSC 1337 iTerm2 inline images — feed minimal OSC 1337, check iTermContent fires.
-/// A1b: MISSING(app). Vendor fires iTermContent; app TerminalPane does not override.
-/// CORRECTED: vendor layer is PARTIAL (fires delegate); app silently drops images.
+/// P10 OSC 1337 iTerm2 inline images — feed minimal OSC 1337, check createImage fires.
+/// CORRECTION 2026-10-21 (T4.4): an earlier note here said "the app silently drops images".
+/// False: this probe's delegate is a headless STUB, so it measured the stub, not the app. In
+/// the app `tdel` is the vendored TerminalView, which implements createImage
+/// (AppleTerminalView.swift:2444 -> insertImage) and PAINTS the image under Core Text and Metal
+/// (proved by check-image-render.sh). Verdict stays PARTIAL only because this headless probe
+/// sees dispatch, not pixels; multipart (MultipartFile/FilePart/FileEnd) is unsupported
+/// pending vendor patch 0019.
 func probeOSC1337() -> Row {
     let (t, d) = makeTerminal()
     // OSC 1337 ; File=inline=1:<base64> BEL  (Terminal.swift:1905 osciTerm2)
@@ -242,9 +247,9 @@ func probeOSC1337() -> Row {
                rawResponse: "<createImage delegate call>",
                note: fired
                    ? "SwiftTerm calls createImage ✓ (Terminal.swift:1966 inline=1 path). "
-                   + "A1b said MISSING(app): CORRECTED to PARTIAL — vendor dispatches; "
-                   + "app TerminalPane does not override createImage → images silently dropped. "
-                   + "T4.4 needs TerminalPane.createImage override — no vendor patch required."
+                   + "In the app tdel is TerminalView, whose createImage paints the image "
+                   + "(AppleTerminalView.swift:2444; pixels gated by check-image-render.sh). "
+                   + "inline=0/other keys reach iTermContent; multipart unsupported (patch 0019)."
                    : "createImage NOT called — osciTerm2 did not dispatch or base64 parse failed")
 }
 

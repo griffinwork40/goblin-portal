@@ -25,6 +25,13 @@
 //    C1-CUE CLICK      ... and the focus border moves to the primary and off the peer
 //    C2-FR  CLICK-BACK clicking the peer makes the peer's terminal first responder
 //    C2-CUE CLICK-BACK ... and the border moves back
+//    C3-FR  SUB-SPLIT  clicking the sub-peer (peerSubSplit) makes it first responder
+//    C3-CUE SUB-SPLIT  ... and the focus border moves to the sub-peer
+//                      (exercises the leaves.count > 2 per-leaf path in
+//                      SpaceViewController+SplitPresentation.swift:64-79)
+//    C4-CUE SIDEBAR    focus to file tree outline leaves the last-focused pane lit (#269)
+//    C4-FR  SIDEBAR    file tree outline is actually first responder (control)
+//    C5-CUE FINDBAR    focus to in-pane text field (find bar stand-in) keeps that pane lit
 //
 //  The FR halves are what makes the CUE halves worth believing: the falsification mutant
 //  (observer never subscribed) must keep C1-FR green and fail C1-CUE. If C1-FR failed too,
@@ -154,6 +161,119 @@ MainActor.assumeIsolated {
     } else {
         fail("C2-CUE CLICK-BACK: border peer=\(c2a) primary=\(c2b) — expected true/false")
     }
+
+    // C3 — sub-split the peer half (second ⌘⇧- inside the peer), then click the new
+    // sub-peer. This exercises the leaves.count > 2 per-leaf dimming path in
+    // SpaceViewController+SplitPresentation.swift:64-79 — the path C1/C2 never reach.
+    //
+    // Setup: peer currently holds focus (C2 left it there). splitVertical splits the
+    // FOCUSED pane, which is the peer, producing a peerSubSplit leaf (sub-peer).
+    // We then click the sub-peer and assert it takes focus AND the border.
+    svc.splitVertical(nil as Any?)
+    pump(0.5)
+    guard let subPeer = svc.splitPeers[ObjectIdentifier(primary)]?.peerSubSplit?.document
+              as? TerminalPane else {
+        print("error: C3 SETUP — peerSubSplit was not created — setup failed"); exit(2)
+    }
+    // Establish a clean starting state: primary focused, border on primary.
+    win.makeFirstResponder(primary.view)
+    svc.updateSplitDimming(for: primary)
+    pump(0.4, until: { hasBorder(primary.clipView) && !hasBorder(subPeer.clipView) })
+    guard isFirstResponder(primary.view, in: win), hasBorder(primary.clipView),
+          !hasBorder(subPeer.clipView) else {
+        print("error: C3 SETUP — expected primary focused before sub-peer click " +
+              "(fr-primary=\(isFirstResponder(primary.view, in: win)) " +
+              "border primary=\(hasBorder(primary.clipView)) subpeer=\(hasBorder(subPeer.clipView)))")
+        exit(2)
+    }
+
+    click(subPeer.view, in: win)
+    pump(0.5, until: { hasBorder(subPeer.clipView) && !hasBorder(primary.clipView) })
+    if isFirstResponder(subPeer.view, in: win) {
+        ok("C3-FR SUB-SPLIT: clicking the sub-peer made it first responder")
+    } else {
+        fail("C3-FR SUB-SPLIT: first responder after click is \(String(describing: win.firstResponder))")
+    }
+    let c3a = hasBorder(subPeer.clipView), c3b = hasBorder(primary.clipView)
+    if c3a && !c3b {
+        ok("C3-CUE SUB-SPLIT: focus border moved to the sub-peer (leaves.count > 2 path)")
+    } else {
+        fail("C3-CUE SUB-SPLIT: border subPeer=\(c3a) primary=\(c3b) — expected true/false")
+    }
+
+
+    // C4 — focus moves to the file tree outline (sidebar); the last-focused pane stays lit.
+    //
+    // WHY THIS CASE EXISTS (R1.7, #269)
+    //
+    // The old guard in handleFirstResponderChange used `fr.isDescendant(of: view)`, where
+    // `view` is the Space's whole root view including the sidebar/file tree outline.  A
+    // sidebar click therefore passed the guard, reached updateSplitDimming with no leaf
+    // owning the new first responder, and called setFocusedChild(nil, …) — dimming both
+    // panes.  The fix narrows the guard to leaf descendants only.  This case asserts the
+    // correct product decision: the last-focused pane (peer, from C2) keeps its border.
+    //
+    // The mutant (M3) reintroduces the old wide guard so C4-CUE fails while C4-FR is N/A
+    // (the file tree does NOT move terminal focus — C4 only checks the border/dimming).
+    //
+    // Setup: C3 left the sub-peer focused.  Re-establish peer as the focused pane so C4's
+    // starting state is defined independently of C3.
+    win.makeFirstResponder(peer.view)
+    svc.updateSplitDimming(for: primary)
+    pump(0.3, until: { hasBorder(peer.clipView) && !hasBorder(primary.clipView) })
+
+    // Make the file tree outline the first responder directly (the way a keyboard Tab or a
+    // sidebar click would) and confirm updateSplitDimming was NOT triggered — the peer
+    // border must stay.
+    win.makeFirstResponder(svc.fileTree.view)
+    pump(0.3)   // one run-loop turn for the deferred handler to fire (if broken, it dims)
+    let c4a = hasBorder(peer.clipView), c4b = hasBorder(primary.clipView)
+    if c4a && !c4b {
+        ok("C4-CUE SIDEBAR: focus to file tree leaves the last-focused pane (peer) lit")
+    } else {
+        fail("C4-CUE SIDEBAR: border peer=\(c4a) primary=\(c4b) — expected true/false " +
+             "(sidebar focus should NOT move the accent border)")
+    }
+    // Confirm the file tree actually is first responder so the case is testing the right thing.
+    let c4fr = win.firstResponder
+    if let frv = c4fr as? NSView, (frv === svc.fileTree.view || frv.isDescendant(of: svc.fileTree.view)) {
+        ok("C4-FR SIDEBAR: file tree outline is first responder after makeFirstResponder")
+    } else {
+        fail("C4-FR SIDEBAR: expected file tree as FR, got \(String(describing: c4fr))")
+    }
+
+    // C5 — focus moves to an NSTextField standing in for a find bar / filter field.
+    //
+    // WHY THIS CASE EXISTS (R1.7, #269)
+    //
+    // SwiftTerm mounts its find bar inside the terminal pane's own view hierarchy — it is a
+    // child of MacTerminalView.  Focusing the find bar therefore satisfies
+    // isDescendant(fr, of: leaf.view) for that pane's leaf, so updateSplitDimming fires
+    // and keeps THAT pane lit.  This case simulates that path with a synthesised NSTextField
+    // added as a child of peer.view (the same containment relationship the real find bar has),
+    // then asserts the peer border stays on — i.e. updateSplitDimming ran and correctly
+    // identified the peer as the focused leaf.
+    //
+    // After C4 the peer border is still on (asserted by C4).  Re-establish peer first
+    // responder so C5's starting state is defined independently of C4.
+    win.makeFirstResponder(peer.view)
+    svc.updateSplitDimming(for: primary)
+    pump(0.3, until: { hasBorder(peer.clipView) && !hasBorder(primary.clipView) })
+
+    // Install a stand-in text field inside peer.view (mirrors find bar containment).
+    let fakeBar = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+    peer.view.addSubview(fakeBar)
+    win.makeFirstResponder(fakeBar)
+    pump(0.3, until: { hasBorder(peer.clipView) })
+    let c5a = hasBorder(peer.clipView), c5b = hasBorder(primary.clipView)
+    if c5a && !c5b {
+        ok("C5-CUE FINDBAR: focus to in-pane text field keeps the pane (peer) lit")
+    } else {
+        fail("C5-CUE FINDBAR: border peer=\(c5a) primary=\(c5b) — expected true/false " +
+             "(find bar inside the pane should keep that pane's accent border)")
+    }
+    fakeBar.removeFromSuperview()
+    win.makeFirstResponder(peer.view)
 
     svc.tearDownAllDocuments()
     pump(0.1)
