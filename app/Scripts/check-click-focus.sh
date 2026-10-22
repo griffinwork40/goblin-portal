@@ -176,6 +176,56 @@ fi
 run_mutant M5 "Sources/GoblinPortal/SpaceViewController+SplitFocus.swift" \
     "if let sub = entry.peerSubSplit { addLeaf(sub.document) }" C3-CUE C1-CUE
 
+# M6 — skip removeFocusBorder for non-focused leaves when leaves.count > 2.
+#
+# WHY THIS MUTANT (#282)
+#
+# updateFocusCue loops over all leaves and calls removeFocusBorder on every
+# non-focused leaf.  Before #282 C3 only checked that the sub-peer gained its
+# border and that the primary lost its border; it never checked the PEER.  A
+# regression that skipped removal for exactly the peer leaf (e.g. a guard
+# conditioned on leaves.count) would leave a stale border on peer.clipView
+# while still passing the old c3a && !c3b check.
+#
+# run_mutant only does string deletion; this regression requires a replacement
+# (wrapping the removal in `if leaves.count < 3`), so it is a bespoke block.
+# The replacement leaves C1/C2 (2-pane, leaves.count == 2) unaffected — the
+# guard fires and removal still runs.  In C3 (3-pane) the guard suppresses
+# removal, leaving stale borders on primary and peer.  Only the new `!c3c`
+# assertion catches the peer staying lit; !c3b (primary) would have caught it
+# too, but the point of the mutant is that !c3c is the NEW coverage.
+say ""; say "==> falsification M6: peer-only removeFocusBorder skip (leaves.count guard) in a clone"
+M6_REL="Sources/GoblinPortal/SpaceViewController+FocusCue.swift"
+M6_OLD="                removeFocusBorder(from: leaf.view)"
+M6_NEW="                if leaves.count < 3 { removeFocusBorder(from: leaf.view) }"
+has_line "$ROOT/$M6_REL" "$M6_OLD" \
+    || { echo "error: shipped $M6_REL lacks the removeFocusBorder line — gate out of date." >&2; exit 2; }
+M6_ROOT="$TMP/clone_M6"; M6_APP="$M6_ROOT/app"
+mkdir -p "$M6_ROOT"
+cp -cR "$ROOT/" "$M6_APP/" 2>/dev/null || cp -R "$ROOT/" "$M6_APP/"
+ln -sfn "$(cd "$ROOT/.." && pwd)/vendor" "$M6_ROOT/vendor"
+python3 - "$M6_APP/$M6_REL" "$M6_OLD" "$M6_NEW" <<'PY_M6'
+import sys
+path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(path).read()
+open(path, "w").write(src.replace(old, new, 1))
+PY_M6
+has_line "$M6_APP/$M6_REL" "$M6_OLD" && { echo "error: M6 mutation did not apply." >&2; exit 2; }
+has_line "$ROOT/$M6_REL" "$M6_OLD" || { echo "error: SHIPPED $M6_REL was modified." >&2; exit 2; }
+build_and_link "$M6_APP" "$TMP/mutant_M6"
+M6OUT="$("$TMP/mutant_M6" 2>&1)"; M6STATUS=$?
+say "$M6OUT" | grep -E '^  (ok|FAIL) ' | sed 's/^/    /'
+if [[ $M6STATUS -eq 2 ]]; then
+    echo "error: M6 run was environmental (exit 2) — control inconclusive." >&2; exit 2
+elif [[ $M6STATUS -eq 0 ]]; then
+    say "  FAIL M6: mutant PASSED — the gate is blind to the peer-border regression"; exit 1
+elif ! grep -q "FAIL C3-CUE " <<<"$M6OUT"; then
+    say "  FAIL M6: WRONG-CASE — mutant failed, but C3-CUE did not"; exit 1
+elif ! grep -q "ok   C1-CUE " <<<"$M6OUT"; then
+    say "  FAIL M6: WRONG-CASE — C1-CUE should stay green under this mutant"; exit 1
+fi
+say "  ok   M6 caught by C3-CUE (with C1-CUE still green)"
+
 say ""
-say "all click-focus cases passed (C0, C1, C2, C3, C4, C5) and all mutants/checks caught (M1, M2, M3, M4-GREP, M5)"
+say "all click-focus cases passed (C0, C1, C2, C3, C4, C5) and all mutants/checks caught (M1, M2, M3, M4-GREP, M5, M6)"
 exit 0

@@ -194,11 +194,12 @@ MainActor.assumeIsolated {
     } else {
         fail("C3-FR SUB-SPLIT: first responder after click is \(String(describing: win.firstResponder))")
     }
-    let c3a = hasBorder(subPeer.clipView), c3b = hasBorder(primary.clipView)
-    if c3a && !c3b {
+    let c3a = hasBorder(subPeer.clipView), c3b = hasBorder(primary.clipView),
+        c3c = hasBorder(peer.clipView)
+    if c3a && !c3b && !c3c {
         ok("C3-CUE SUB-SPLIT: focus border moved to the sub-peer (leaves.count > 2 path)")
     } else {
-        fail("C3-CUE SUB-SPLIT: border subPeer=\(c3a) primary=\(c3b) — expected true/false")
+        fail("C3-CUE SUB-SPLIT: border subPeer=\(c3a) primary=\(c3b) peer=\(c3c) — expected true/false/false")
     }
 
 
