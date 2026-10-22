@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its sixteen local patches applied.
+# WITH its nineteen local patches applied.
 #
 # Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
 # fine while silently corrupting scrollback (0002), bleeding stale cells across
@@ -56,6 +56,8 @@ PATCH_COMBINING="$REPO_ROOT/patches/swiftterm/0013-fix-combining-mark-after-wide
 PATCH_THUMB="$REPO_ROOT/patches/swiftterm/0015-proportional-scrollbar-thumb.patch"
 PATCH_SLOWPAUSE="$REPO_ROOT/patches/swiftterm/0016-pause-sooner-for-slow-producers.patch"
 PATCH_0017="$REPO_ROOT/patches/swiftterm/0017-xtversion-altscroll-mode2027.patch"
+PATCH_0018="$REPO_ROOT/patches/swiftterm/0018-bound-inline-image-payloads.patch"
+PATCH_0019="$REPO_ROOT/patches/swiftterm/0019-osc1337-multipart-file.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
@@ -69,7 +71,7 @@ pin_value() {
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
 # --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH" "$PATCH_COMBINING" "$PATCH_THUMB" "$PATCH_SLOWPAUSE" "$PATCH_0017"; do
+for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH" "$PATCH_COMBINING" "$PATCH_THUMB" "$PATCH_SLOWPAUSE" "$PATCH_0017" "$PATCH_0018" "$PATCH_0019"; do
   if [[ ! -f "$required" ]]; then
     err "error: missing ${required#$REPO_ROOT/}"
     err "       The vendor pin is part of the build contract; do not delete it."
@@ -333,4 +335,4 @@ fi
 # Sourced, not executed, so its exits are this script's.
 . "$APP_ROOT/Scripts/verify-vendor-views.sh"
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 17 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 19 local patches"
