@@ -156,7 +156,7 @@ let pinnedVerdicts: [String: Verdict] = [
     "kittyKbdQuery":      .PRESENT,  // Terminal.swift:921 sends CSI?<flags>u
     "OSC9progress":       .PRESENT,  // Terminal.swift:1859 fires progressReport delegate
     "sixelParsing":       .PARTIAL,  // SixelDcsHandler.swift hooks DCS; no draw path
-    "OSC1337":            .PARTIAL,  // Terminal.swift:1966 inline=1 → createImage; app drops
+    "OSC1337":            .PARTIAL,  // Terminal.swift:1966 inline=1 → createImage (TerminalView paints it; multipart pending 0019)
     "kittyGraphics":      .PARTIAL,  // KittyGraphics.swift hooked; render deferred
     "syncOutput2026":     .PARTIAL,  // Terminal.swift:3380 tracks flag; suppression absent
     "bracketedPaste2004": .PRESENT,  // Terminal.swift:4217,4457 full implementation
@@ -237,7 +237,7 @@ This probe records all corrections found:
 | A1b claim | A1b verdict | Probe verdict | Correction |
 |-----------|-------------|---------------|------------|
 | OSC 9;4 progress — vendor layer | PARTIAL | **PRESENT** | `Terminal.swift:1859` fires `progressReport(source:report:)` with parsed state and progress, and the app already uses it: `GoblinPortalTerminalView+Notify.swift:16-36` feeds 9;4 to `MacTerminalView.progressReport` (`:2908`, SwiftTerm's in-view progress bar). `Terminal.swift:6841` is only the protocol's default stub. What T4.3 still lacks is tab-strip / Dock progress; no vendor patch needed. |
-| OSC 1337 iTerm2 images — vendor layer | MISSING (app drops) | **PARTIAL** | A1b correct that the app drops images; but labelled the whole row MISSING. `Terminal.swift:1905` fires `iTermContent` reliably. T4.4 needs only a `TerminalPane.iTermContent` override — no vendor patch. |
+| OSC 1337 iTerm2 images — vendor layer | MISSING (app drops) | **PARTIAL** | CORRECTED 2026-10-21 (T4.4): `inline=1` goes to `createImage`, which the vendored `TerminalView` implements (`AppleTerminalView.swift:2444`) — the app DOES paint inline images under both renderers (`check-image-render.sh`). Only `inline=0` / other keys reach `iTermContent`. This probe's stub delegate measured the stub, not the app. Gap: multipart (`MultipartFile`/`FilePart`/`FileEnd`) unsupported pending vendor patch 0019. |
 | All other rows (11 of 13) | — | ✓ confirmed | XTVERSION ABSENT, DA1/DA2 PRESENT, modifyOtherKeys ABSENT, altScroll1007 ABSENT, mode2027 ABSENT, kittyKbdQuery PRESENT, sixelParsing PARTIAL, kittyGraphics PARTIAL, syncOutput2026 PARTIAL, bracketedPaste2004 PRESENT — all match A1b static analysis. |
 
 ---
@@ -265,7 +265,7 @@ pipeline; a kitty-image fixture would extend `check-render-parity.sh` (Gap 11 in
 | T4.3 OSC 9;4 progress | PRESENT at vendor; in-view bar already wired | App-only: surface the same report on the tab strip and `NSDockTile` (hook beside the existing `+Notify` decoder) |
 | T4.4 sixel render | PARTIAL — parsed, not rendered | Vendor patch: draw path in `AppleTerminalView.swift` / `MetalTerminalRenderer.swift` |
 | T4.4 kitty graphics render | PARTIAL — Metal path exists; pixel test deferred | Extend `check-render-parity.sh` with kitty-image fixture |
-| T4.4 OSC 1337 iTerm2 | PARTIAL — vendor fires delegate; app drops | App-only: `TerminalPane.iTermContent` override |
+| T4.4 OSC 1337 iTerm2 | PARTIAL — inline=1 painted by vendored TerminalView.createImage (corrected 2026-10-21) | Vendor: caps (0018) + multipart (0019); pixels gated by `check-image-render.sh` |
 """)
 
 let summary = failures == 0
