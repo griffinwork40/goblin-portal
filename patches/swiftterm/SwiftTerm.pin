@@ -166,8 +166,10 @@ upstream_buffer_swift = 7b65f2b9ce21c95b124848b76856e727fd8a407cb7354a1dc19ab82f
 # 0019-osc1337-multipart-file.patch touches ONLY Terminal.swift: osciTerm2 gains
 # MultipartFile/FilePart/FileEnd (iTerm2 3.5+, modern imgcat's default), with the 0018
 # encoded cap applied to the CUMULATIVE size and FileEnd routed through the same
-# createImage path as File=. The hash below covers 0017 + 0018 + 0019 combined.
-terminal_swift = fc3558637b66d67734561864c80992d2ef2f98aaa5d8f7db21d9f44a893ca9a1
+# createImage path as File=; #283 added a 120 s inactivity watchdog that frees an
+# unterminated transfer and made insertInlineImage a private method on Terminal.
+# The hash below covers 0017 + 0018 + 0019 combined.
+terminal_swift = 3ceb4959c63f97d361fa1646dd7405dc7b2d7e77b71494a66dffbbf08dffd888
 # EscapeSequenceParser.swift AFTER applying 0005-add-dcs-ptmux-passthrough.patch.
 # This is the hash verify-vendor.sh requires.
 #

@@ -20,15 +20,23 @@
 #     MultipartFile;
 #   * FileEnd assembles and goes through insertInlineImage, the SAME helper single-shot
 #     File= now uses (same width/height/preserveAspectRatio parsing, same createImage,
-#     so 0018's header type/dimension checks apply unchanged);
+#     so 0018's header type/dimension checks apply unchanged). It is a private method on
+#     Terminal (#283; it was nested in osciTerm2) and takes osciTerm2's own nested
+#     parseDimension as a parameter, so upstream's parser is not moved;
 #   * stray FilePart/FileEnd with no transfer are ignored; single-shot File= and RIS
-#     (resetToInitialState) clear the state.
+#     (resetToInitialState) clear the state;
+#   * (#283) an UNTERMINATED transfer is dropped after iTermMultipartInactivitySeconds
+#     (120 s) with no FilePart: one self-rescheduling main-queue check per transfer reads
+#     a lastActivity stamp each FilePart refreshes. A timer, not a lazy check on the next
+#     event, because the unterminated case is precisely the one where nothing else arrives.
 # Every rejection is a silent drop, as in 0018.
 # Gate: app/Scripts/check-image-decode.sh (multipart cases + a captured real-imgcat
-# stream, falsified by making the cap per-part and by not routing FileEnd).
+# stream, falsified by making the cap per-part and by not routing FileEnd; #283 adds
+# multipart-stale / multipart-slow-alive, falsified by never arming the watchdog and by
+# FilePart not refreshing the stamp).
 --- a/Sources/SwiftTerm/Terminal.swift
 +++ b/Sources/SwiftTerm/Terminal.swift
-@@ -1924,6 +1924,19 @@
+@@ -1924,6 +1924,64 @@
      /// 10-20 MiB, and industry practice is a 10-50 MiB cap. Must stay below
      /// EscapeSequenceParser.maximumOscBytes (65 MiB) or the parser drops it first.
      public static let maximumInlineImageEncodedBytes = 32 * 1024 * 1024
@@ -42,31 +50,61 @@
 +        var params: [String:String]
 +        var encoded: [UInt8] = []
 +        var aborted = false
++        /// Uptime of the header or the latest FilePart; the inactivity watchdog reads it.
++        var lastActivity = DispatchTime.now()
 +    }
 +    /// PATCH 0019: nil = no transfer in flight (stray FilePart/FileEnd are ignored).
 +    var iTermMultipart: ITermMultipartTransfer? = nil
++    /// PATCH 0019 (#283): a transfer with no FilePart for this long is dropped and its bytes
++    /// freed. A `var` so a gate can shorten it; imgcat sends its parts back to back.
++    var iTermMultipartInactivitySeconds: Double = 120
++    private var iTermMultipartWatchdogArmed = false
++
++    /// PATCH 0019 (#283): WHY A TIMER and not a lazy check on the next event: an unterminated
++    /// transfer (no FileEnd/MultipartFile/File=/RIS ever follows) is exactly the case where
++    /// nothing else arrives, so a lazy check would never free the up-to-32 MiB buffer. WHY ONE
++    /// SELF-RESCHEDULING CHECK and not a timer reset per FilePart: imgcat's parts are 200 bytes,
++    /// so 32 MiB is ~168k parts; each part only stamps lastActivity and at most one check is
++    /// ever pending. Main queue, like scheduleSynchronizedOutputTimeout in this file.
++    func armITermMultipartWatchdog (after seconds: Double) {
++        guard !iTermMultipartWatchdogArmed else { return }
++        iTermMultipartWatchdogArmed = true
++        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
++            guard let self else { return }
++            self.iTermMultipartWatchdogArmed = false
++            guard let transfer = self.iTermMultipart else { return }  // finished or cleared
++            let idle = Double(DispatchTime.now().uptimeNanoseconds - transfer.lastActivity.uptimeNanoseconds) / 1e9
++            if idle >= self.iTermMultipartInactivitySeconds {
++                self.iTermMultipart = nil  // stale: free the buffer
++            } else {
++                self.armITermMultipartWatchdog (after: self.iTermMultipartInactivitySeconds - idle)
++            }
++        }
++    }
++
++    /// PATCH 0019: the single place an inline image is decoded and handed to createImage,
++    /// shared by single-shot File= and multipart FileEnd so both get the same
++    /// width/height/preserveAspectRatio parsing and the same createImage header checks
++    /// (0018). `encoded` is the base64 payload; each CALLER enforces the 0018 encoded
++    /// cap (File= on its one payload, FilePart cumulatively) before it gets here.
++    /// `dimension` is osciTerm2's nested parseDimension, passed in so it stays upstream's.
++    private func insertInlineImage (_ kv: [String:String], _ encoded: ArraySlice<UInt8>,
++                                    dimension: ([String:String], String) -> ImageSizeRequest) {
++        guard let imgData = Data(base64Encoded: Data(encoded)) else {
++            return
++        }
++        let width = dimension (kv, "width")
++        let height = dimension (kv, "height")
++
++        tdel?.createImage(source: self, data: imgData, width: width, height: height, preserveAspectRatio: (kv ["preserveAspectRatio"] ?? "1" ) == "1")
++    }
  
      func osciTerm2 (_ data: ArraySlice<UInt8>) {
          // Parses the key-value pairs separated by ";"
-@@ -1969,6 +1982,36 @@
+@@ -1969,6 +2027,21 @@
              return .auto
          }
          
-+        /// PATCH 0019: the single place an inline image is decoded and handed to createImage,
-+        /// shared by single-shot File= and multipart FileEnd so both get the same
-+        /// width/height/preserveAspectRatio parsing and the same createImage header checks
-+        /// (0018). `encoded` is the base64 payload; each CALLER enforces the 0018 encoded
-+        /// cap (File= on its one payload, FilePart cumulatively) before it gets here.
-+        func insertInlineImage (_ kv: [String:String], _ encoded: ArraySlice<UInt8>) {
-+            guard let imgData = Data(base64Encoded: Data(encoded)) else {
-+                return
-+            }
-+            let width = parseDimension (kv, key: "width")
-+            let height = parseDimension (kv, key: "height")
-+
-+            tdel?.createImage(source: self, data: imgData, width: width, height: height, preserveAspectRatio: (kv ["preserveAspectRatio"] ?? "1" ) == "1")
-+        }
-+
 +        // PATCH 0019: `FileEnd` carries no "=", so it must be matched before the key=value
 +        // split below (which returns early without one). Spec:
 +        // https://iterm2.com/documentation-images.html ("MultipartFile ... FilePart ...
@@ -77,7 +115,7 @@
 +            }
 +            iTermMultipart = nil
 +            if !transfer.aborted {
-+                insertInlineImage (transfer.params, transfer.encoded[...])
++                insertInlineImage (transfer.params, transfer.encoded[...], dimension: parseDimension)
 +            }
 +            return
 +        }
@@ -85,7 +123,7 @@
          guard let equalIdx = data.firstIndex (where: { b in b == UInt8(ascii: "=") }) else {
              return
          }
-@@ -1977,7 +2020,34 @@
+@@ -1977,7 +2050,36 @@
              return
          }
          switch key {
@@ -96,6 +134,7 @@
 +            // download) is not buffered at all: nothing here would consume it.
 +            let kv = parseKeyValues (data [equalIdx+1..<data.endIndex])
 +            iTermMultipart = kv["inline"] == "1" ? ITermMultipartTransfer(params: kv) : nil
++            if iTermMultipart != nil { armITermMultipartWatchdog (after: iTermMultipartInactivitySeconds) }
 +            return
 +        case "FilePart":
 +            // PATCH 0019: append one base64 chunk. The 0018 cap applies to the CUMULATIVE
@@ -112,6 +151,7 @@
 +            } else {
 +                transfer.encoded.append (contentsOf: part)
 +            }
++            transfer.lastActivity = DispatchTime.now()  // #283: keeps the watchdog off
 +            iTermMultipart = transfer
 +            return
          case "File":
@@ -120,7 +160,7 @@
              guard let colonIdx = data [equalIdx...].firstIndex(where: { b in b == UInt8 (ascii: ":")}) else {
                  return
              }
-@@ -1996,14 +2066,7 @@
+@@ -1996,14 +2098,7 @@
              guard data.endIndex - (colonIdx+1) <= Terminal.maximumInlineImageEncodedBytes else {
                  return
              }
@@ -132,11 +172,11 @@
 -            let height = parseDimension (kv, key: "height")
 -
 -            tdel?.createImage(source: self, data: imgData, width: width, height: height, preserveAspectRatio: (kv ["preserveAspectRatio"] ?? "1" ) == "1")
-+            insertInlineImage (kv, data [colonIdx+1..<data.endIndex])  // PATCH 0019: shared
++            insertInlineImage (kv, data [colonIdx+1..<data.endIndex], dimension: parseDimension)  // PATCH 0019: shared
              return
          default:
              break
-@@ -5252,6 +5315,7 @@
+@@ -5252,6 +5347,7 @@
          let savedCursorHidden = cursorHidden
          setup (isReset: true)
          clearAllKittyImages()
