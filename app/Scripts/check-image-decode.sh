@@ -53,7 +53,7 @@ MUTANTS=(
   # 0019 mutants
   "cap-per-part|Terminal.swift|s{if transfer.encoded.count \\+ part.count > }{if part.count > }|multipart-overcap"
   "fileend-unrouted|Terminal.swift|s{insertInlineImage \\(transfer.params, transfer.encoded\\[...\\]\\)}{_ = transfer.params}|multipart-3part"
-  "inline0-buffered|Terminal.swift|s{kv\\["inline"\\] == "1" \\? ITermMultipartTransfer\\(params: kv\\) : nil}{ITermMultipartTransfer(params: kv)}|multipart-inline0"
+  "inline0-buffered|Terminal.swift|s{kv\\[\\x22inline\\x22\\] == \\x221\\x22 \\? ITermMultipartTransfer\\(params: kv\\) : nil}{ITermMultipartTransfer(params: kv)}|multipart-inline0"
   "reset-keeps-state|Terminal.swift|s{iTermMultipart = nil  // PATCH 0019: RIS}{// RIS}|multipart-reset"
 )
 RAN=0; CAUGHT=0; MISSED=0
