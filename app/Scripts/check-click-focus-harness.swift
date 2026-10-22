@@ -25,6 +25,10 @@
 //    C1-CUE CLICK      ... and the focus border moves to the primary and off the peer
 //    C2-FR  CLICK-BACK clicking the peer makes the peer's terminal first responder
 //    C2-CUE CLICK-BACK ... and the border moves back
+//    C3-FR  SUB-SPLIT  clicking the sub-peer (peerSubSplit) makes it first responder
+//    C3-CUE SUB-SPLIT  ... and the focus border moves to the sub-peer
+//                      (exercises the leaves.count > 2 per-leaf path in
+//                      SpaceViewController+SplitPresentation.swift:64-79)
 //
 //  The FR halves are what makes the CUE halves worth believing: the falsification mutant
 //  (observer never subscribed) must keep C1-FR green and fail C1-CUE. If C1-FR failed too,
@@ -153,6 +157,45 @@ MainActor.assumeIsolated {
         ok("C2-CUE CLICK-BACK: focus border moved back to the clicked peer")
     } else {
         fail("C2-CUE CLICK-BACK: border peer=\(c2a) primary=\(c2b) — expected true/false")
+    }
+
+    // C3 — sub-split the peer half (second ⌘⇧- inside the peer), then click the new
+    // sub-peer. This exercises the leaves.count > 2 per-leaf dimming path in
+    // SpaceViewController+SplitPresentation.swift:64-79 — the path C1/C2 never reach.
+    //
+    // Setup: peer currently holds focus (C2 left it there). splitVertical splits the
+    // FOCUSED pane, which is the peer, producing a peerSubSplit leaf (sub-peer).
+    // We then click the sub-peer and assert it takes focus AND the border.
+    svc.splitVertical(nil as Any?)
+    pump(0.5)
+    guard let subPeer = svc.splitPeers[ObjectIdentifier(primary)]?.peerSubSplit?.document
+              as? TerminalPane else {
+        print("error: C3 SETUP — peerSubSplit was not created — setup failed"); exit(2)
+    }
+    // Establish a clean starting state: primary focused, border on primary.
+    win.makeFirstResponder(primary.view)
+    svc.updateSplitDimming(for: primary)
+    pump(0.4, until: { hasBorder(primary.clipView) && !hasBorder(subPeer.clipView) })
+    guard isFirstResponder(primary.view, in: win), hasBorder(primary.clipView),
+          !hasBorder(subPeer.clipView) else {
+        print("error: C3 SETUP — expected primary focused before sub-peer click " +
+              "(fr-primary=\(isFirstResponder(primary.view, in: win)) " +
+              "border primary=\(hasBorder(primary.clipView)) subpeer=\(hasBorder(subPeer.clipView)))")
+        exit(2)
+    }
+
+    click(subPeer.view, in: win)
+    pump(0.5, until: { hasBorder(subPeer.clipView) && !hasBorder(primary.clipView) })
+    if isFirstResponder(subPeer.view, in: win) {
+        ok("C3-FR SUB-SPLIT: clicking the sub-peer made it first responder")
+    } else {
+        fail("C3-FR SUB-SPLIT: first responder after click is \(String(describing: win.firstResponder))")
+    }
+    let c3a = hasBorder(subPeer.clipView), c3b = hasBorder(primary.clipView)
+    if c3a && !c3b {
+        ok("C3-CUE SUB-SPLIT: focus border moved to the sub-peer (leaves.count > 2 path)")
+    } else {
+        fail("C3-CUE SUB-SPLIT: border subPeer=\(c3a) primary=\(c3b) — expected true/false")
     }
 
     svc.tearDownAllDocuments()
