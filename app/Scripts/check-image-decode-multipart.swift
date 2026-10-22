@@ -79,6 +79,40 @@ func multipart(_ payload: Data, parts: Int, inline: Int = 1, extra: String = "")
         v.feed(text: mpHeader() + mpPart(b64[..<half]) + "\u{1b}c" + mpPart(b64[half...]) + mpEnd)
         check("multipart-reset", images(v).isEmpty, "images=\(images(v).count)")
     }
+    if want("multipart-stale") {
+        // #283: a transfer that stops getting FileParts is dropped and its buffer freed by
+        // the inactivity watchdog alone — nothing else is fed while it waits (the exact
+        // unterminated case). Window shortened from 120 s; the late parts + FileEnd that
+        // follow are stray, so no image.
+        let b64 = png4.base64EncodedString()
+        let half = b64.index(b64.startIndex, offsetBy: b64.count / 2)
+        let (v, _) = makeView(); let t = v.getTerminal()
+        t.iTermMultipartInactivitySeconds = 0.3
+        v.feed(text: mpHeader() + mpPart(b64[..<half]))
+        let held = t.iTermMultipart?.encoded.count ?? 0
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        let freed = t.iTermMultipart == nil
+        v.feed(text: mpPart(b64[half...]) + mpEnd)
+        check("multipart-stale", held > 0 && freed && images(v).isEmpty,
+              "held=\(held) freed after idle=\(freed) images=\(images(v).count) (want >0, true, 0)")
+    }
+    if want("multipart-slow-alive") {
+        // #283 control: a SLOW but live sender (a part every 0.12 s, ~0.72 s in total, window
+        // 0.5 s) must NOT be dropped — FilePart refreshes the activity stamp.
+        let b64 = png4.base64EncodedString(); let n = 6
+        let step = (b64.count + n - 1) / n
+        let (v, _) = makeView(); let t = v.getTerminal()
+        t.iTermMultipartInactivitySeconds = 0.5
+        v.feed(text: mpHeader())
+        var i = b64.startIndex
+        while i < b64.endIndex {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+            let j = b64.index(i, offsetBy: step, limitedBy: b64.endIndex) ?? b64.endIndex
+            v.feed(text: mpPart(b64[i..<j])); i = j
+        }
+        v.feed(text: mpEnd)
+        check("multipart-slow-alive", images(v).count == 1, "images=\(images(v).count) (want 1)")
+    }
     if want("imgcat-real") {
         // The captured byte stream of the real modern imgcat (see header).
         let path = ProcessInfo.processInfo.environment["IMAGE_DECODE_FIXTURE"] ?? ""

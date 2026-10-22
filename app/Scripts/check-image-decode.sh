@@ -52,9 +52,12 @@ MUTANTS=(
   "dimension-cap|Apple/AppleTerminalView.swift|s{max\\(w, h\\) <= TerminalView.maximumInlineImageSide else}{true else}|dimension-cap"
   # 0019 mutants
   "cap-per-part|Terminal.swift|s{if transfer.encoded.count \\+ part.count > }{if part.count > }|multipart-overcap"
-  "fileend-unrouted|Terminal.swift|s{insertInlineImage \\(transfer.params, transfer.encoded\\[...\\]\\)}{_ = transfer.params}|multipart-3part"
+  "fileend-unrouted|Terminal.swift|s{insertInlineImage \\(transfer.params, transfer.encoded\\[...\\], dimension: parseDimension\\)}{_ = transfer.params}|multipart-3part"
   "inline0-buffered|Terminal.swift|s{kv\\[\\x22inline\\x22\\] == \\x221\\x22 \\? ITermMultipartTransfer\\(params: kv\\) : nil}{ITermMultipartTransfer(params: kv)}|multipart-inline0"
   "reset-keeps-state|Terminal.swift|s{iTermMultipart = nil  // PATCH 0019: RIS}{// RIS}|multipart-reset"
+  # #283 inactivity release: the watchdog never armed / FilePart never refreshes the stamp
+  "no-stale-watchdog|Terminal.swift|s{if iTermMultipart != nil \\{ armITermMultipartWatchdog \\(after: iTermMultipartInactivitySeconds\\) \\}}{}|multipart-stale"
+  "part-not-stamped|Terminal.swift|s{transfer.lastActivity = DispatchTime.now\\(\\)  // #283}{// #283}|multipart-slow-alive"
 )
 RAN=0; CAUGHT=0; MISSED=0
 for m in "${MUTANTS[@]}"; do
