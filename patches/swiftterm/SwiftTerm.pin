@@ -25,13 +25,13 @@
 # source files including Buffer.swift and Terminal.swift — was byte-identical to
 # upstream.
 #
-# As of 2026-10-21 the tree differs from upstream in FOURTEEN files (EIGHTEEN patches):
+# As of 2026-10-21 the tree differs from upstream in FOURTEEN files (NINETEEN patches):
 # Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005/0017/0018),
 # PtmuxDcsHandler.swift (0005, new file), XtVersionDcsHandler.swift (0017, new file),
 # MacTerminalView.swift (0006/0008/0009/0010/0014/0017),
 # AppleTerminalView.swift (0007/0010/0013/0014/0015/0018), TerminalViewSearch.swift (0009),
 # MacDisplayLinkPacer.swift (0010, new file; 0016), MetalTerminalRenderer.swift (0011/0012/0013/0014),
-# CoreTextGlyphRasterizer.swift (0012), and Terminal.swift (0017/0018). File count and patch count
+# CoreTextGlyphRasterizer.swift (0012), and Terminal.swift (0017/0018/0019). File count and patch count
 # are not the same number and have not been since 0003; do not infer one from the other.
 # For the history of how the patch set grew, see git log patches/swiftterm/SwiftTerm.pin.
 #
@@ -163,7 +163,11 @@ upstream_buffer_swift = 7b65f2b9ce21c95b124848b76856e727fd8a407cb7354a1dc19ab82f
 # before base64 decode in osciTerm2), EscapeSequenceParser.swift (65 MiB OSC accumulation
 # cap) and AppleTerminalView.swift (ImageIO header type allowlist + 8192 px side cap in
 # createImage; sixel side cap). One combined hash per file. Gate: check-image-decode.sh.
-terminal_swift = fa3e11effbbda69307f72d3dc689651cad2f0c290b0daaec22264bcb4a4f6e31
+# 0019-osc1337-multipart-file.patch touches ONLY Terminal.swift: osciTerm2 gains
+# MultipartFile/FilePart/FileEnd (iTerm2 3.5+, modern imgcat's default), with the 0018
+# encoded cap applied to the CUMULATIVE size and FileEnd routed through the same
+# createImage path as File=. The hash below covers 0017 + 0018 + 0019 combined.
+terminal_swift = fc3558637b66d67734561864c80992d2ef2f98aaa5d8f7db21d9f44a893ca9a1
 # EscapeSequenceParser.swift AFTER applying 0005-add-dcs-ptmux-passthrough.patch.
 # This is the hash verify-vendor.sh requires.
 #

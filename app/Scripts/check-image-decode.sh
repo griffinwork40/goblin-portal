@@ -1,6 +1,7 @@
 #!/bin/bash
 #
-# check-image-decode.sh — patch 0018: are inline-image payloads bounded?
+# check-image-decode.sh — patches 0018/0019: are inline-image payloads bounded, and does
+# OSC 1337 multipart (modern imgcat) render through the same bounded path?
 #
 # Headless-ish: links the vendored SwiftTerm.o and drives a real TerminalView (an NSView
 # that is never put in a window — AppKit is linked, no window server is required).
@@ -16,6 +17,9 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 APP_ROOT="$(pwd)"; REPO_ROOT="$(cd .. && pwd)"
 HARNESS="$APP_ROOT/Scripts/check-image-decode-harness.swift"
+MULTIPART="$APP_ROOT/Scripts/check-image-decode-multipart.swift"
+# Verbatim stdout of the real modern imgcat (iterm2.com/utilities/imgcat) on a 16x16 PNG.
+export IMAGE_DECODE_FIXTURE="$APP_ROOT/Scripts/fixtures/imgcat-multipart-16x16.bin"
 say() { echo "$@"; }
 [[ -d "$REPO_ROOT/vendor/SwiftTerm" ]] || { echo "error: vendor/ missing — run bootstrap-vendor.sh" >&2; exit 2; }
 command -v swiftc >/dev/null 2>&1 || { echo "error: swiftc not found" >&2; exit 2; }
@@ -26,8 +30,8 @@ build_bin() {
   local dir="$1" bin="$2"
   (cd "$dir" && . Scripts/vendored-module.sh && resolve_vendored_module >/dev/null && echo "$PRODUCTS" >"$TMP/products") || return 2
   local P; P="$(cat "$TMP/products")"
-  cp "$HARNESS" "$TMP/main.swift"
-  swiftc -O -o "$bin" "$TMP/main.swift" -I "$P" -L "$P" "$P/SwiftTerm.o" -framework AppKit \
+  cp "$HARNESS" "$TMP/main.swift"; cp "$MULTIPART" "$TMP/multipart.swift"
+  swiftc -O -o "$bin" "$TMP/main.swift" "$TMP/multipart.swift" -I "$P" -L "$P" "$P/SwiftTerm.o" -framework AppKit \
     2>"$TMP/compile.log" || { sed 's/^/  /' "$TMP/compile.log" >&2; return 2; }
 }
 
@@ -46,6 +50,11 @@ MUTANTS=(
   "type-allowlist|Apple/AppleTerminalView.swift|s{TerminalView.inlineImageTypes.contains\\(type\\),}{type.count > 0,}|type-allowlist"
   "pdf-header|Apple/AppleTerminalView.swift|s{guard let src = CGImageSourceCreateWithData\\(data as CFData, nil\\),.*?w > 0, h > 0, max\\(w, h\\) <= TerminalView.maximumInlineImageSide else \\{\\s*return\\s*\\}}{}s|pdf-rejected"
   "dimension-cap|Apple/AppleTerminalView.swift|s{max\\(w, h\\) <= TerminalView.maximumInlineImageSide else}{true else}|dimension-cap"
+  # 0019 mutants
+  "cap-per-part|Terminal.swift|s{if transfer.encoded.count \\+ part.count > }{if part.count > }|multipart-overcap"
+  "fileend-unrouted|Terminal.swift|s{insertInlineImage \\(transfer.params, transfer.encoded\\[...\\]\\)}{_ = transfer.params}|multipart-3part"
+  "inline0-buffered|Terminal.swift|s{kv\\["inline"\\] == "1" \\? ITermMultipartTransfer\\(params: kv\\) : nil}{ITermMultipartTransfer(params: kv)}|multipart-inline0"
+  "reset-keeps-state|Terminal.swift|s{iTermMultipart = nil  // PATCH 0019: RIS}{// RIS}|multipart-reset"
 )
 RAN=0; CAUGHT=0; MISSED=0
 for m in "${MUTANTS[@]}"; do

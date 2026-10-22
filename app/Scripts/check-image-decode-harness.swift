@@ -1,4 +1,5 @@
-// check-image-decode-harness.swift — the assertions for check-image-decode.sh (patch 0018).
+// check-image-decode-harness.swift — the assertions for check-image-decode.sh (patch 0018;
+// the 0019 multipart cases live in check-image-decode-multipart.swift).
 //
 // Owns: feeding OSC 1337 / sixel / plain OSC bytes into a real, WINDOWLESS SwiftTerm
 // TerminalView (AppKit NSView, never put on screen — no window server needed, the same
@@ -190,6 +191,7 @@ func check(_ name: String, _ ok: Bool, _ why: @autoclosure () -> String) {
         check("osc-overlimit", r.titles == ["ok"],
               "titles=\(r.titles.map { $0.count > 8 ? "<\($0.count) bytes>" : $0 })")
     }
+    runMultipart(want, png4: png4)  // patch 0019 cases: check-image-decode-multipart.swift
 }
 
 MainActor.assumeIsolated { run() }
