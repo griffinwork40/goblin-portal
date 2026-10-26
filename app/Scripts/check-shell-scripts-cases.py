@@ -9,8 +9,13 @@ scripts that FEED them.
 Exit: 0 all pass, 1 a real failure, 2 environmental (a required shell missing).
 GATE_SCRIPT_DIR overrides where the scripts are read from (falsification copies).
 GATE_ONLY=<case id> runs just that case.
+
+Fish suite and tmux passthrough helpers live in check-shell-scripts-fish-cases.py
+(split at the 350-LOC ceiling; fish_mod.register(sys.modules[__name__]) binds the
+shared ran/failures/ONLY state so both files use the same case() decorator).
 """
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -19,16 +24,23 @@ import tempfile
 import urllib.parse
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import importlib.util  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location(
-    "driver", os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-shell-scripts-driver.py"))
-driver = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(driver)
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPTS_DIR)
 
-SCRIPTS = os.environ.get("GATE_SCRIPT_DIR") or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "Resources")
+
+def _load(name):
+    path = os.path.join(SCRIPTS_DIR, name)
+    spec = importlib.util.spec_from_file_location(name.replace("-", "_").replace(".py", ""), path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+driver = _load("check-shell-scripts-driver.py")
+fish_mod = _load("check-shell-scripts-fish-cases.py")
+
+SCRIPTS = os.environ.get("GATE_SCRIPT_DIR") or os.path.join(SCRIPTS_DIR, "..", "Resources")
 BASH_SCRIPT = os.path.join(SCRIPTS, "shell-integration.bash")
 ZSH_SCRIPT = os.path.join(SCRIPTS, "shell-integration.zsh")
 FISH_SCRIPT = os.path.join(SCRIPTS, "shell-integration.fish")
@@ -225,6 +237,8 @@ def bash_suite(bash):
         return [] if (p.returncode, p.stdout, p.stderr) == (0, b"ok\n", b"") else [
             "rc=%d out=%r err=%r" % (p.returncode, p.stdout, p.stderr)]
 
+    # B14/B15 registered by fish_mod.tmux_passthrough_cases() below.
+
 
 # ── zsh (parity; the shipped script had no behavioural gate before this) ─────
 
@@ -239,9 +253,10 @@ def zsh_suite():
 
     @case("Z2", "OSC 7 decodes back to $PWD")
     def _():
-        return check_deep_path(driver.run(argv, ZSH_SCRIPT, lines=["cd '%s'" % DEEP], cwd=ROOT))
+        return check_deep_path(driver.run(argv, ZSH_SCRIPT,
+                                          lines=["cd '%s'" % DEEP], cwd=ROOT))
 
-    # Zellij guard (issue #207): zsh guard verified independently from B13 so a
+    # Zellij guard (issue #207): zsh guard verified independently from B14 so a
     # zsh-specific regression in the TERM_PROGRAM check is caught separately.
     @case("Z3", "zellij: TERM_PROGRAM=zellij, sourcing is a no-op")
     def _():
@@ -251,63 +266,8 @@ def zsh_suite():
         probs = [t for t in toks if not t.startswith("M:")]
         return ["emitted %s" % probs] if probs else []
 
-
-# ── fish ──────────────────────────────────────────────────────────────────────
-
-def fish_suite(fish):
-    argv = [fish, "--no-config", "-i"]  # --no-config: the only OSC 7 is ours
-    ver = subprocess.run([fish, "--version"], capture_output=True, text=True).stdout.strip()
-    print("fish (%s, %s):" % (fish, ver))
-    legacy = {"fish_features": "no-mark-prompt"}
-
-    @case("F1", "native mark-prompt on: we add OSC 7, never a second D")
-    def _():
-        r = driver.run(argv, FISH_SCRIPT, cwd=ROOT,
-                       lines=["true", "false", "echo @@emit=$_gp_emit_133@@"])
-        probs = [] if markers(r["steps"][3]) == ["emit=0"] else [
-            "_gp_emit_133: %s, want emit=0" % markers(r["steps"][3])]
-        for i, code in ((1, "D;0"), (2, "D;1")):
-            ds = [k for k in kinds(r["steps"][i]) if k.startswith("D")]
-            if ds != [code]:
-                probs.append("step %d: D tokens %s, want exactly [%r]" % (i, ds, code))
-            if len(osc7_paths(r["steps"][i])) != 1:
-                probs.append("step %d: %d OSC 7, want 1" % (i, len(osc7_paths(r["steps"][i]))))
-        return probs
-
-    @case("F2", "mark-prompt off (fish 3.x path): our A/C/D, empty line silent")
-    def _():
-        r = driver.run(argv, FISH_SCRIPT, cwd=ROOT, extra_env=legacy,
-                       lines=["true", "false", ""])
-        return expect_steps(r, [["A"], ["C", "D;0", "A"], ["C", "D;1", "A"], ["A"]])
-
-    @case("F3", "mark-prompt off: fish_prompt still sees the command's $status")
-    def _():
-        r = driver.run(argv, FISH_SCRIPT, cwd=ROOT, extra_env=legacy, lines=[
-            "function fish_prompt; echo @@ps=$status@@; echo '> '; end", "false"])
-        return [] if "ps=1" in markers(r["steps"][2]) else [
-            "fish_prompt saw %s, want ps=1" % markers(r["steps"][2])]
-
-    @case("F4", "OSC 7 decodes back to $PWD")
-    def _():
-        return check_deep_path(driver.run(argv, FISH_SCRIPT, lines=["cd '%s'" % DEEP], cwd=ROOT))
-
-    @case("F5", "another terminal: no OSC 7, nothing installed")
-    def _():
-        r = driver.run(argv, FISH_SCRIPT, term_program="Apple_Terminal", no_prompt=True,
-                       cwd=ROOT, lines=["echo @@inst=(set -q _gp_installed; and echo yes; or echo no)@@"])
-        toks = driver.tokens(r["raw"])
-        probs = ["emitted OSC 7"] if any(t.startswith("7;") for t in toks) else []
-        return probs + ([] if markers(toks) == ["inst=no"] else ["installed: %s" % markers(toks)])
-
-    # Zellij guard (issue #207): fish guard verified independently from B13/Z3 so a
-    # fish-specific regression in the TERM_PROGRAM check is caught separately.
-    @case("F6", "zellij: TERM_PROGRAM=zellij, no OSC 7, nothing installed")
-    def _():
-        r = driver.run(argv, FISH_SCRIPT, term_program="zellij", no_prompt=True,
-                       cwd=ROOT, lines=["echo @@inst=(set -q _gp_installed; and echo yes; or echo no)@@"])
-        toks = driver.tokens(r["raw"])
-        probs = ["emitted OSC 7"] if any(t.startswith("7;") for t in toks) else []
-        return probs + ([] if markers(toks) == ["inst=no"] else ["installed: %s" % markers(toks)])
+    # Z4/Z5 registered by fish_mod.tmux_passthrough_cases() below.
+    # F6 (zellij fish guard) registered by fish_mod.fish_suite() below.
 
 
 def main():
@@ -319,11 +279,18 @@ def main():
         print("error: fish not found — install it (brew install fish) or set GATE_ALLOW_NO_FISH=1"
               " to accept an UNGATED fish script.", file=sys.stderr)
         return 2
+
+    fish_mod.register(sys.modules[__name__])
+
     for b in dict.fromkeys(bashes):
         bash_suite(b)
+        fish_mod.bash_tmux_cases([b, "--norc", "--noprofile", "-i"])
+
     zsh_suite()
+    fish_mod.zsh_tmux_cases()
+
     if fish:
-        fish_suite(fish)
+        fish_mod.fish_suite(fish)
     else:
         print("fish: NOT RUN (GATE_ALLOW_NO_FISH=1) — shell-integration.fish is ungated here")
     shutil.rmtree(ROOT, ignore_errors=True)
