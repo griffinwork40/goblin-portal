@@ -36,12 +36,43 @@
 
 [[ "$TERM_PROGRAM" == "GoblinPortal" || "$TERM_PROGRAM" == "Umber" ]] || return 0  # backward-compat alias -- remove after one release
 
+# ── multiplexer passthrough ───────────────────────────────────────────────────
+
+# GNU screen: wrap OSC sequences in a DCS passthrough envelope so they reach
+# the outer terminal rather than being consumed by screen's VT100 emulator.
+#
+# Detection: $STY is set by screen (it holds the session socket name).  We
+# also check $TERM in case $STY was cleared by a login shell.
+#
+# Format: ESC P <inner-sequence> ESC \
+#   where <inner-sequence> is the OSC verbatim (ESC ] ... BEL).
+# Unlike tmux, screen uses raw DCS with no "tmux;" prefix; the inner ESC does
+# NOT need to be doubled.
+#
+# Limitation: screen's DCS passthrough is a best-effort channel.  Some older
+# screen builds (pre-4.x) silently drop unrecognised DCS sequences.  If OSC 7
+# or 133 are not received by the outer terminal, add "mapscrn /dev/null" or
+# upgrade to screen 4.6+.  screen does not require any special .screenrc
+# setting for basic DCS forwarding.
+#
+# Cache the result at source time — $STY and $TERM don't change mid-session.
+_gp_in_screen=0
+if [[ -n "${STY:-}" || "${TERM:-}" == screen* ]]; then
+    _gp_in_screen=1
+fi
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-# Emit an OSC sequence. BEL (\a) is the terminator — shorter than ST (ESC \)
-# and universally understood by SwiftTerm.
+# Emit an OSC sequence.  Outside a multiplexer: BEL (\a) terminator, shorter
+# than ST (ESC \) and universally understood by SwiftTerm.  Inside screen:
+# wrap in DCS passthrough so the sequence reaches the outer terminal.
 _gp_osc() {
-    printf '\033]%s\a' "$1"
+    if (( _gp_in_screen )); then
+        # ESC P  OSC-payload  ESC \
+        printf '\033P\033]%s\a\033\\' "$1"
+    else
+        printf '\033]%s\a' "$1"
+    fi
 }
 
 # RFC 3986 percent-encode a path. Only the characters that are safe inside a

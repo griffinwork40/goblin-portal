@@ -35,6 +35,27 @@
 if test "$TERM_PROGRAM" = GoblinPortal; and status is-interactive; and not set -q _gp_installed
     set -g _gp_installed 1
 
+    # ── multiplexer passthrough ───────────────────────────────────────────────
+    #
+    # GNU screen: wrap OSC sequences in a DCS passthrough envelope so they reach
+    # the outer terminal rather than being consumed by screen's VT100 emulator.
+    #
+    # Detection: $STY is set by screen (session socket name). We also check $TERM
+    # in case $STY was cleared by a login shell.
+    #
+    # Format: ESC P <inner-sequence> ESC \
+    #   where <inner-sequence> is the OSC verbatim (ESC ] ... BEL).
+    # Unlike tmux (which uses ESC P tmux; ESC ESC ] ... BEL ESC \), screen uses
+    # raw DCS with no prefix string and no ESC doubling.
+    #
+    # Limitation: screen's DCS passthrough is best-effort. Some older screen
+    # builds (pre-4.x) silently drop unrecognised DCS sequences. No .screenrc
+    # setting is required for basic DCS forwarding in screen 4.6+.
+    set -g _gp_in_screen 0
+    if set -q STY; or string match -q 'screen*' -- $TERM
+        set -g _gp_in_screen 1
+    end
+
     # `status test-feature` returns 0 = on, 1 = off, 2 = no such feature (fish < 4.0).
     # Anything but "on" means fish will not mark prompts, so we do.
     set -g _gp_emit_133 0
@@ -42,19 +63,32 @@ if test "$TERM_PROGRAM" = GoblinPortal; and status is-interactive; and not set -
         set -g _gp_emit_133 1
     end
 
+    # ── OSC helper ───────────────────────────────────────────────────────────
+    #
+    # Emit an OSC sequence, wrapping in screen DCS passthrough when needed.
+    # `string escape --style=url` percent-encodes over UTF-8 bytes and leaves
+    # '/' alone: café → caf%C3%A9.
+    function _gp_osc
+        if test $_gp_in_screen = 1
+            # ESC P  OSC-payload  ESC \
+            printf '\033P\033]%s\a\033\\' $argv[1]
+        else
+            printf '\e]%s\a' $argv[1]
+        end
+    end
+
     # One handler, so the order matches zsh's precmd: A, then OSC 7. (D comes from
-    # fish_postexec, which fish fires before fish_prompt.) `string escape --style=url`
-    # percent-encodes over UTF-8 bytes and leaves '/' alone: café → caf%C3%A9.
+    # fish_postexec, which fish fires before fish_prompt.)
     function _gp_prompt --on-event fish_prompt
         if test $_gp_emit_133 = 1
-            printf '\e]133;A\a'
+            _gp_osc '133;A'
         end
-        printf '\e]7;file://%s%s\a' $hostname (string escape --style=url -- $PWD)
+        _gp_osc "7;file://$hostname"(string escape --style=url -- $PWD)
     end
 
     if test $_gp_emit_133 = 1
         function _gp_preexec --on-event fish_preexec
-            printf '\e]133;C\a'
+            _gp_osc '133;C'
             set -g _gp_cmd_running 1
         end
 
@@ -63,7 +97,7 @@ if test "$TERM_PROGRAM" = GoblinPortal; and status is-interactive; and not set -
         function _gp_postexec --on-event fish_postexec
             set -l exit_status $status
             if set -q _gp_cmd_running
-                printf '\e]133;D;%s\a' $exit_status
+                _gp_osc "133;D;$exit_status"
                 set -e _gp_cmd_running
             end
         end

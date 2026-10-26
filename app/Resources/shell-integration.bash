@@ -44,10 +44,38 @@
 [[ -n "${_gp_installed:-}" ]] && return 0
 _gp_installed=1
 
+# ── multiplexer passthrough ───────────────────────────────────────────────────
+
+# GNU screen: wrap OSC sequences in a DCS passthrough envelope so they reach
+# the outer terminal rather than being consumed by screen's VT100 emulator.
+#
+# Detection: $STY is set by screen (it holds the session socket name).
+# We also check $TERM in case $STY was cleared by a login shell.
+#
+# Format: ESC P <inner-sequence> ESC \
+#   where <inner-sequence> is the OSC verbatim (ESC ] ... BEL).
+# Unlike tmux, screen uses raw DCS with no "tmux;" prefix; the inner ESC does
+# NOT need to be doubled.
+#
+# Limitation: screen's DCS passthrough is best-effort. Some older screen builds
+# (pre-4.x) silently drop unrecognised DCS sequences. No special .screenrc
+# setting is required for basic DCS forwarding in screen 4.6+.
+#
+# Cache result at source time — $STY and $TERM don't change mid-session.
+_gp_in_screen=0
+if [[ -n "${STY:-}" || "${TERM:-}" == screen* ]]; then
+    _gp_in_screen=1
+fi
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 _gp_osc() {
-    printf '\033]%s\a' "$1"
+    if [[ "$_gp_in_screen" == "1" ]]; then
+        # ESC P  OSC-payload  ESC \
+        printf '\033P\033]%s\a\033\\' "$1"
+    else
+        printf '\033]%s\a' "$1"
+    fi
 }
 
 # RFC 3986 percent-encode a path over UTF-8 BYTES — the same walk as the zsh script.
