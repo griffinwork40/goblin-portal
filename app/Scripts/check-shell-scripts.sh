@@ -20,6 +20,18 @@
 # missing fish exits 2 rather than passing with the fish script unexercised; set
 # GATE_ALLOW_NO_FISH=1 to accept that knowingly.
 #
+# SCREEN PASSTHROUGH. The scripts wrap OSC 7 and OSC 133 in a GNU screen DCS
+# passthrough envelope (ESC P <payload> ESC \) when $STY is set or $TERM starts
+# with "screen". This cannot be exercised here: the pty harness does not run screen,
+# and screen's DCS forwarding requires a real outer terminal to receive the bytes.
+# Cases that WOULD be needed if screen were available in the pty harness:
+#   SC1  STY set: OSC 7 arrives at the outer pty wrapped in ESC P ... ESC \
+#   SC2  TERM=screen: same wrapping without STY (login-shell cleared STY)
+#   SC3  neither STY nor TERM=screen*: bare OSC (no wrapping, existing B1-B12/Z1-Z2/F1-F5)
+#   SC4  bash/zsh/fish all produce identical DCS-wrapped payloads (cross-shell parity)
+# Blocked by: screen not installed on the CI / build host; no pty-in-pty harness.
+# Track in #207 (multiplexer passthrough).
+#
 # FALSIFY (--falsify). Copies Resources/ to a temp dir, applies one mutant per copy,
 # and runs ONLY the case that mutant must break (GATE_ONLY). A mutant counts as caught
 # only when that run exits 1; exit 0 is MISSED; a pattern that no longer applies, or
