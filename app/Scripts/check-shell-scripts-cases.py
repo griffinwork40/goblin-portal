@@ -200,6 +200,23 @@ def bash_suite(bash):
         return (["emitted %s" % probs] if probs else []) + (
             [] if markers(toks) == ["pc=0"] else ["PROMPT_COMMAND changed: %s" % markers(toks)])
 
+    # Zellij guard (issue #207): zellij sets TERM_PROGRAM=zellij; the script must be
+    # a no-op there because zellij >= 0.45.0 handles OSC 133 natively (PR #5460) and
+    # main forwards OSC 7 to the parent terminal itself (PR #4867). No DCS Ptmux
+    # passthrough envelope is needed or correct -- zellij intercepts and re-emits
+    # OSC 7/133 natively, unlike tmux. $ZELLIJ env var is set by zellij since v0.5.1.
+    # NOTE: this case drives the guard via TERM_PROGRAM=zellij (same mechanism as
+    # B11/Apple_Terminal); a live zellij session is not required and is not installed
+    # in the gate environment.
+    @case("B13", "zellij: TERM_PROGRAM=zellij, sourcing is a no-op (same guard as B11)")
+    def _():
+        r = driver.run(argv, S, term_program="zellij", no_prompt=True, cwd=ROOT,
+                       lines=["true", "echo @@pc=${#PROMPT_COMMAND}@@"])
+        toks = driver.tokens(r["raw"])
+        probs = [t for t in toks if not t.startswith("M:")]
+        return (["emitted %s" % probs] if probs else []) + (
+            [] if markers(toks) == ["pc=0"] else ["PROMPT_COMMAND changed: %s" % markers(toks)])
+
     @case("B12", "non-interactive bash: silent, exit 0")
     def _():
         env = dict(os.environ, TERM_PROGRAM="GoblinPortal")
@@ -223,6 +240,16 @@ def zsh_suite():
     @case("Z2", "OSC 7 decodes back to $PWD")
     def _():
         return check_deep_path(driver.run(argv, ZSH_SCRIPT, lines=["cd '%s'" % DEEP], cwd=ROOT))
+
+    # Zellij guard (issue #207): zsh guard verified independently from B13 so a
+    # zsh-specific regression in the TERM_PROGRAM check is caught separately.
+    @case("Z3", "zellij: TERM_PROGRAM=zellij, sourcing is a no-op")
+    def _():
+        r = driver.run(argv, ZSH_SCRIPT, term_program="zellij", no_prompt=True, cwd=ROOT,
+                       lines=["true"])
+        toks = driver.tokens(r["raw"])
+        probs = [t for t in toks if not t.startswith("M:")]
+        return ["emitted %s" % probs] if probs else []
 
 
 # ── fish ──────────────────────────────────────────────────────────────────────
@@ -267,6 +294,16 @@ def fish_suite(fish):
     @case("F5", "another terminal: no OSC 7, nothing installed")
     def _():
         r = driver.run(argv, FISH_SCRIPT, term_program="Apple_Terminal", no_prompt=True,
+                       cwd=ROOT, lines=["echo @@inst=(set -q _gp_installed; and echo yes; or echo no)@@"])
+        toks = driver.tokens(r["raw"])
+        probs = ["emitted OSC 7"] if any(t.startswith("7;") for t in toks) else []
+        return probs + ([] if markers(toks) == ["inst=no"] else ["installed: %s" % markers(toks)])
+
+    # Zellij guard (issue #207): fish guard verified independently from B13/Z3 so a
+    # fish-specific regression in the TERM_PROGRAM check is caught separately.
+    @case("F6", "zellij: TERM_PROGRAM=zellij, no OSC 7, nothing installed")
+    def _():
+        r = driver.run(argv, FISH_SCRIPT, term_program="zellij", no_prompt=True,
                        cwd=ROOT, lines=["echo @@inst=(set -q _gp_installed; and echo yes; or echo no)@@"])
         toks = driver.tokens(r["raw"])
         probs = ["emitted OSC 7"] if any(t.startswith("7;") for t in toks) else []

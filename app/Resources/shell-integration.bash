@@ -28,6 +28,16 @@
 # Known gap (shared with bash-preexec): bash fires no DEBUG trap for a line that is
 # ONLY a subshell, e.g. `(make)`, so that line reports no C/D. `make` or `{ make; }` do.
 
+# Zellij note (issue #207): this script stays SILENT inside zellij
+# (TERM_PROGRAM=zellij) intentionally — no DCS Ptmux passthrough is needed:
+#   • OSC 133 A/C/D: supported natively by zellij ≥ 0.45.0 (PR #5460); zellij
+#     parses and uses the markers itself, so the outer terminal (Goblin Portal)
+#     receives them through zellij's own rendering.
+#   • OSC 7: zellij main (PR #4867, post-0.45.1) forwards the focused pane's
+#     working directory to the parent terminal automatically on every render.
+# Unlike tmux (which uses DCS Ptmux passthrough), zellij intercepts and
+# re-emits these sequences natively — the shell script has nothing to wrap.
+# Detection: $ZELLIJ env var is set by zellij since v0.5.1 (2021-04-23).
 [[ "$TERM_PROGRAM" == "GoblinPortal" ]] || return 0
 [[ $- == *i* ]] || return 0
 # Sourcing twice would prepend twice and emit every sequence twice.

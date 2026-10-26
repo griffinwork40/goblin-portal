@@ -20,6 +20,17 @@
 # Wrapped in one `if` rather than an early `return`: a top-level return in a sourced
 # file is not reliable across fish 3.x releases, and this file must be a no-op
 # everywhere except an interactive fish inside Goblin Portal.
+#
+# Zellij note (issue #207): this script stays SILENT inside zellij
+# (TERM_PROGRAM=zellij) intentionally — no DCS Ptmux passthrough is needed:
+#   • OSC 133 A/C/D: supported natively by zellij ≥ 0.45.0 (PR #5460); zellij
+#     parses and uses the markers itself, so the outer terminal (Goblin Portal)
+#     receives them through zellij's own rendering.
+#   • OSC 7: zellij main (PR #4867, post-0.45.1) forwards the focused pane's
+#     working directory to the parent terminal automatically on every render.
+# Unlike tmux (which uses DCS Ptmux passthrough), zellij intercepts and
+# re-emits these sequences natively — the shell script has nothing to wrap.
+# Detection: $ZELLIJ env var is set by zellij since v0.5.1 (2021-04-23).
 
 if test "$TERM_PROGRAM" = GoblinPortal; and status is-interactive; and not set -q _gp_installed
     set -g _gp_installed 1
