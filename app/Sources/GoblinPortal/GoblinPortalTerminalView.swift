@@ -80,6 +80,12 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     /// Internal (not private) so the `+SmoothScroll` extension file can access it.
     let smoothScroll = SmoothScroll()
 
+    // MARK: - Output timestamp
+
+    /// Updated on every draw so `AgentActivityPolicy` can detect output silence.
+    /// Read by `TerminalPane+AgentActivity.swift`; set in `draw(_:)` below.
+    var lastDrawTimestamp: CFTimeInterval = 0
+
     // MARK: - Search highlight overlay
 
     /// Transparent overlay that draws translucent rects at every search match.
@@ -104,6 +110,7 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
             CGContextSetFontSmoothingStyle(ctx, 48)  // 48 = medium dilation (Terminal.app default)
         }
         super.draw(dirtyRect)
+        lastDrawTimestamp = CACurrentMediaTime()
         // Sync overlay geometry after every terminal redraw so scrolling,
         // new output, and selection changes are reflected without needing
         // a separate `selectionChanged` override (which has concurrency

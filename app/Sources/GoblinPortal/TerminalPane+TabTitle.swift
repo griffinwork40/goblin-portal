@@ -129,7 +129,14 @@ extension TerminalPane {
     /// We keep `currentTitle` updated as before (close-confirmation reads it), but
     /// also update `explicitTitle`/`explicitKind` and fire `notifyTitleChanged`.
     func handleExplicitTitle(_ title: String) {
-        tabTitleState.tracker.titleSet(title, running: status == .running)
+        // Treat a `.command` foreground (afk, python, node) as "running" for title
+        // classification even without OSC 133 C.  Without this, an interactive CLI
+        // that sets OSC 0/2 titles would have them suppressed as `.shellPrompt`.
+        let isRunning: Bool
+        if status == .running { isRunning = true }
+        else if case .command = shellContext.foreground { isRunning = true }
+        else { isRunning = false }
+        tabTitleState.tracker.titleSet(title, running: isRunning)
         notifyTitleChanged()
     }
 
