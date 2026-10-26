@@ -80,6 +80,7 @@ extension TerminalPane: SpaceDocument {
     /// touching the pty (`Mac/MacLocalTerminalView.swift:98`). `check-pane-teardown.sh` case 2
     /// is what keeps this honest.
     func documentWillClose() {
+        stopAgentActivityTimer()  // tear down before pty cleanup
         view.smoothScroll.invalidate()
         guard view.process.running else { return }
         kill(view.process.shellPid, SIGHUP)

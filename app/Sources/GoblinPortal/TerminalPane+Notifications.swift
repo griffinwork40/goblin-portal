@@ -15,6 +15,7 @@ extension TerminalPane {
         view.progressCallback = { [weak self] code, pct in
             self?.applyProgressReport(stateCode: code, progress: pct)
         }
+        startAgentActivityTimer()  // output-activity heuristic — see TerminalPane+AgentActivity
     }
 
     func signalAttention(kind: DockAttention.SignalKind, title: String = "", body: String = "") {
