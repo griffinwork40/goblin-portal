@@ -69,10 +69,56 @@ fi
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+
+
+# ── tmux DCS passthrough detection ───────────────────────────────────────────
+#
+# When $TMUX is set and the session has `allow-passthrough on`, OSC sequences
+# must be wrapped in a DCS Ptmux envelope so the outer terminal (Goblin Portal)
+# receives them. Without wrapping, tmux consumes OSC sequences silently.
+#
+# Detection runs ONCE at shell startup (result cached in _gp_tmux_passthrough).
+# `tmux show -gqv allow-passthrough` returns "on" or "all" (tmux 3.3a+) when
+# passthrough is enabled, and empty string or "off" otherwise. On tmux < 3.2
+# the flag does not exist and the command returns empty — same code path as
+# "off", so we safely fall through to the existing silent behaviour.
+#
+# ATTRIBUTION CAVEAT: tmux delivers passthrough sequences from ANY pane to the
+# outer terminal without pane attribution. Two panes cd-ing simultaneously can
+# cross-contaminate each other's OSC 7 reports. The 750 ms poll in
+# TmuxDirectory.swift remains the attribution-correct backstop; passthrough is
+# an instant supplement, not a replacement.
+
+_gp_tmux_passthrough=0
+if [[ -n "${TMUX:-}" ]]; then
+    _gp_pt=$(tmux show -gqv allow-passthrough 2>/dev/null)
+    if [[ "$_gp_pt" == "on" || "$_gp_pt" == "all" ]]; then
+        _gp_tmux_passthrough=1
+    fi
+    unset _gp_pt
+fi
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+# Emit an OSC sequence. When tmux passthrough is enabled, wraps the sequence in
+# a DCS Ptmux envelope so the outer terminal receives it:
+#   ESC P tmux ; ESC <payload-with-doubled-ESCs> ESC \
+# The inner OSC uses ST (ESC \) not BEL as its terminator — BEL inside a DCS
+# string is not valid. Every ESC byte in the payload is doubled so tmux can
+# identify the terminating ESC \ unambiguously. Without passthrough, emits a
+# plain OSC with BEL terminator.
+#
+# bash 3.2 note: ${var//pattern/repl} with a literal ESC works when the ESC is
+# embedded via $'...' — no external tools needed, and `printf -v` keeps this
+# free of subshells.
+
 _gp_osc() {
     if [[ "$_gp_in_screen" == "1" ]]; then
         # ESC P  OSC-payload  ESC \
         printf '\033P\033]%s\a\033\\' "$1"
+    elif [[ "$_gp_tmux_passthrough" == "1" ]]; then
+        local payload="${1//$'\033'/$'\033\033'}"
+        printf '\033Ptmux;\033\033]%s\033\\\033\\' "$payload"
     else
         printf '\033]%s\a' "$1"
     fi

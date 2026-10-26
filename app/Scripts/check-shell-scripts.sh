@@ -73,6 +73,9 @@ MUTANTS=(
   'precmd-drops-status@bash@B4@    return "$exit_status"\n@'
   'no-running-guard@bash@B1@    if [[ -n "${_gp_cmd_running:-}" ]]; then\n        _gp_osc "133;D;${exit_status}"@    if true; then\n        _gp_osc "133;D;${exit_status}"'
   'fish-always-emits-133@fish@F1@if not status test-feature mark-prompt 2>/dev/null@if true'
+  'bash-no-ptmux-detection@bash@B14@    if [[ "$_gp_pt" == "on" || "$_gp_pt" == "all" ]]; then\n        _gp_tmux_passthrough=1\n    fi@    if false; then\n        _gp_tmux_passthrough=1\n    fi'
+  'bash-no-ptmux-wrap@bash@B14@        printf '"'"'\033Ptmux;\033\033]%s\033\\\033\\'"'"' "$payload"@        printf '"'"'\033]%s\a'"'"' "$payload"'
+  'zsh-no-ptmux-detection@zsh@Z4@    [[ "$_gp_pt" == "on" || "$_gp_pt" == "all" ]] && _gp_tmux_passthrough=1@    true'
 )
 
 caught=0; missed=0; ran=0

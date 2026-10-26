@@ -21,6 +21,12 @@ TOKENS. Each step is a list of strings: OSC payloads verbatim ("133;D;1",
 "7;file://host/path") and markers ("M:rc=1") printed by `echo @@...@@`. A marker's
 value class excludes `$` and `?`, so the terminal's echo of the typed command
 (`echo @@rc=$?@@`) is never mistaken for its output (`@@rc=1@@`).
+
+DCS PTMUX UNWRAPPING. When the shell runs inside a simulated tmux environment
+(TMUX set, allow-passthrough on), OSC sequences arrive wrapped in a DCS Ptmux
+envelope: ESC P tmux ; ESC <payload-with-doubled-ESCs> ESC \\ . tokens() and
+_osc7_closed() unwrap these transparently so all existing case assertions work
+unchanged regardless of whether passthrough is active.
 """
 
 import os
@@ -29,9 +35,35 @@ import re
 import select
 import time
 
-_TOKEN = re.compile(rb"\x1b\]((?:7|133);[^\x07\x1b]*)(?:\x07|\x1b\\)|@@([A-Za-z0-9_=.:/-]+)@@")
+# Raw OSC: ESC ] <payload> BEL-or-ST
+_OSC_RAW = rb"\x1b\]((?:7|133);[^\x07\x1b]*)(?:\x07|\x1b\\)"
+# DCS Ptmux envelope: ESC P tmux ; ESC <doubled-payload> ESC \
+# The inner payload has every ESC doubled; we capture the doubled run.
+_DCS_PTMUX = rb"\x1bPtmux;\x1b((?:[^\x1b]|\x1b\x1b)*)(?:\x1b\\){2}"
+_MARKER = rb"@@([A-Za-z0-9_=.:/-]+)@@"
+_TOKEN = re.compile(_OSC_RAW + rb"|" + _DCS_PTMUX + rb"|" + _MARKER)
 _DA1_QUERIES = (b"\x1b[c", b"\x1b[0c")
 _DA1_REPLY = b"\x1b[?62;22c"
+
+
+def _unwrap_dcs(doubled):
+    """Undo the ESC-doubling inside a DCS Ptmux payload: \x1b\x1b → \x1b."""
+    return doubled.replace(b"\x1b\x1b", b"\x1b")
+
+
+def _osc7_closed(b):
+    """True when b contains a complete OSC 7 sequence (raw or DCS-wrapped)."""
+    # Raw: ESC ] 7 ; ... BEL-or-ST
+    i = b.rfind(b"\x1b]7;")
+    if i >= 0 and (b.find(b"\x07", i) >= 0 or b.find(b"\x1b\\", i + 1) >= 0):
+        return True
+    # DCS-wrapped: ESC P tmux ; ESC ESC ] 7 ; ... ESC \ ESC \
+    i = b.rfind(b"\x1bPtmux;")
+    if i >= 0:
+        inner_start = b.find(b"\x1b\x1b]7;", i)
+        if inner_start >= 0 and b.find(b"\x1b\\", inner_start + 4) >= 0:
+            return True
+    return False
 
 
 class ShellRun:
@@ -71,7 +103,7 @@ class ShellRun:
         """Send `line` (None = send nothing) and collect one step."""
         if line is not None:
             self.send(line)
-        got = self._read(timeout, stop=lambda b: b"\x1b]7;" in b and _osc7_closed(b))
+        got = self._read(timeout, stop=lambda b: _osc7_closed(b))
         timed_out = not _osc7_closed(got)
         got += self._read(0.15)  # tail: native fish markers right after the prompt
         return {"tokens": tokens(got), "timed_out": timed_out}
@@ -92,18 +124,21 @@ class ShellRun:
             os.close(self.fd)
 
 
-def _osc7_closed(b):
-    i = b.rfind(b"\x1b]7;")
-    return i >= 0 and (b.find(b"\x07", i) >= 0 or b.find(b"\x1b\\", i + 1) >= 0)
-
-
 def tokens(raw):
     out = []
     for m in _TOKEN.finditer(raw):
         if m.group(1) is not None:
+            # Raw OSC payload
             out.append(m.group(1).decode("utf-8", "replace"))
+        elif m.group(2) is not None:
+            # DCS Ptmux — unwrap doubled ESCs, then extract the inner OSC payload.
+            inner = _unwrap_dcs(m.group(2))
+            # inner is now: ESC ] <payload> ESC \  (ST-terminated OSC)
+            osc_m = re.match(rb"\x1b\]((?:7|133);[^\x1b]*)(?:\x1b\\)?", inner)
+            if osc_m:
+                out.append(osc_m.group(1).decode("utf-8", "replace"))
         else:
-            out.append("M:" + m.group(2).decode())
+            out.append("M:" + m.group(3).decode())
     return out
 
 
