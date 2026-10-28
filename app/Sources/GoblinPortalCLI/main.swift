@@ -6,9 +6,11 @@
 //  agent-afk Ctrl+O, and any other POSIX tool that opens $EDITOR on a file.
 //
 //  Usage:
-//    goblin-portal <file>           Open <file> in Goblin Portal. Does not wait.
+//    goblin-portal <path>           Open <path> in Goblin Portal. A file opens as a
+//                           tab; a directory opens as a Space.
 //    goblin-portal --wait <file>    Open <file> in Goblin Portal, block until the tab is closed
 //                           or the file is saved-and-closed, then exit 0.
+//                           Not valid with directories.
 //    goblin-portal --version        Print the CLI version string.
 //    goblin-portal --help           Print usage.
 //
@@ -47,7 +49,7 @@ while let arg = argIter.next() {
         exit(1)
     default:
         if filePath != nil {
-            fputs("goblin-portal: too many file arguments\n", stderr)
+            fputs("goblin-portal: too many arguments\n", stderr)
             printUsage()
             exit(1)
         }
@@ -72,7 +74,19 @@ if rawPath.hasPrefix("/") {
 }
 
 guard FileManager.default.fileExists(atPath: resolved) else {
-    fputs("goblin-portal: file not found: \(resolved)\n", stderr)
+    fputs("goblin-portal: not found: \(resolved)\n", stderr)
+    exit(1)
+}
+
+// Detect whether the path is a directory.  A directory opens as a Space;
+// a file opens as a FileViewerPane tab.  --wait is nonsensical for a Space
+// (there is no single document to close), so reject it early.
+var isDir: ObjCBool = false
+FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir)
+let isDirectory = isDir.boolValue
+
+if isDirectory && waitMode {
+    fputs("goblin-portal: --wait is not supported for directories\n", stderr)
     exit(1)
 }
 
@@ -131,6 +145,10 @@ if !isAppRunning() {
 var socketPath: String? = nil
 var userInfo: [String: String] = ["path": resolved]
 
+if isDirectory {
+    userInfo["openAsSpace"] = "1"
+}
+
 if waitMode {
     // Unique socket per invocation: handles concurrent EDITOR calls cleanly.
     let tmp = FileManager.default.temporaryDirectory
@@ -165,9 +183,9 @@ func printUsage() {
     let name = (CommandLine.arguments.first as NSString?)?.lastPathComponent ?? "goblin-portal"
     print("""
     Usage:
-      \(name) <file>          Open <file> in Goblin Portal (no wait).
+      \(name) <path>          Open a file as a tab or a directory as a Space.
       \(name) --wait <file>   Open and block until the tab is closed. Exit 0 on
-                               save/close, 1 on error.
+                               save/close, 1 on error. Not valid with directories.
       \(name) --version       Print version.
       \(name) --help          Print this message.
     """)

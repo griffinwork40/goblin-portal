@@ -33,7 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Handles open-file requests from the `goblin-portal` CLI binary via
     /// NSDistributedNotificationCenter. Registered in applicationDidFinishLaunching.
     /// Held for the app lifetime so its observer token is never released early.
-    private let openFileHandler = OpenFileHandler()
+    // `internal` (not `private`) so `AppDelegate+OpenHandler.swift` can call
+    // `openDirectoryAsSpace`/`openInFrontmostSpace` for Dock folder drops.
+    let openFileHandler = OpenFileHandler()
 
     /// The preferences panel. Created once on first ⌘, and retained so its
     /// values survive a hide-and-re-show cycle (singleton pattern).

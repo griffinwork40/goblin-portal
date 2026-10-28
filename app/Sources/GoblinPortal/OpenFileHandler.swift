@@ -79,8 +79,14 @@ final class OpenFileHandler {
         let url = URL(fileURLWithPath: path)
 
         // Bring the app forward. The CLI user is sitting at a terminal and has
-        // just typed a git command — they expect Goblin Portal to come to the front.
+        // just typed a command — they expect Goblin Portal to come to the front.
         NSApp.activate(ignoringOtherApps: true)
+
+        // Directory → open as a Space.  File → open as a tab.
+        if info["openAsSpace"] == "1" {
+            openDirectoryAsSpace(url: url)
+            return
+        }
 
         // Open the file in the frontmost Space, or create a new Space for it.
         let pane = openInFrontmostSpace(url: url)
@@ -91,11 +97,36 @@ final class OpenFileHandler {
         }
     }
 
+    // MARK: - Directory opening
+
+    /// Open `url` as a Space, deduplicating by resolved root.
+    ///
+    /// Mirrors `AppDelegate.openFolder(_:)` logic: symlink-resolved dedup, record
+    /// `LastSpaceRoot`, join the existing tab group.  Called by the CLI notification
+    /// handler (via `openAsSpace=1`) and by `AppDelegate+OpenHandler.swift` for Dock
+    /// folder drops.
+    func openDirectoryAsSpace(url: URL) {
+        let config = (NSApp.delegate as? AppDelegate)?.config ?? AppConfig.defaults()
+        LastSpaceRoot.url = url
+
+        // resolvingSymlinksInPath so /tmp and /private/tmp do not read as two roots.
+        let target = url.resolvingSymlinksInPath()
+        if let existing = SpaceWindowController.open.first(
+            where: { $0.root.resolvingSymlinksInPath() == target })
+        {
+            existing.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let host = NSApp.keyWindow ?? SpaceWindowController.open.last?.window
+        SpaceWindowController(config: config, root: url).presentAsTab(relativeTo: host)
+    }
+
     // MARK: - File opening
 
     /// Open `url` in the frontmost Space. Creates a minimal Space if none exists.
     @discardableResult
-    private func openInFrontmostSpace(url: URL) -> FileViewerPane {
+    func openInFrontmostSpace(url: URL) -> FileViewerPane {
         let config = (NSApp.delegate as? AppDelegate)?.config ?? AppConfig.defaults()
 
         // Use the frontmost Space if one is already open.
