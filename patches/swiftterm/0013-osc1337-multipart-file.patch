@@ -7,13 +7,15 @@
 #   insertInlineImage uses terminalBase64Decode too.
 # - The FileEnd check must come before the equalIdx guard (same as v1.15.0 port).
 # - All other logic (ITermMultipartTransfer struct, watchdog, cumulative cap) is unchanged.
-
---- a/Sources/SwiftTerm/Terminal.swift	2026-10-27 21:41:53
-+++ b/Sources/SwiftTerm/Terminal.swift	2026-10-27 21:42:11
-@@ -3789,6 +3789,56 @@
-     //
-     func osciTerm2 (_ data: ArraySlice<UInt8>) {
-         if data.elementsEqual("Capabilities".utf8) {
+# - iTermMultipart and iTermMultipartWatchdogArmed use nonisolated(unsafe) to satisfy
+#   Swift 6 strict concurrency (mutated from a DispatchQueue.main.asyncAfter closure).
+--- a/Sources/SwiftTerm/Terminal.swift	2026-10-28 13:06:18
++++ b/Sources/SwiftTerm/Terminal.swift	2026-10-28 13:08:32
+@@ -3778,8 +3778,80 @@
+         }
+ 
+         return ProgressReport(state: state, progress: progress)
++    }
 +
 +    /// PATCH 0018: largest base64 payload accepted for OSC 1337 File=;inline=1.
 +    /// 32 MiB encoded is ~24 MiB of image file: a full-resolution 5K PNG screenshot is
@@ -29,28 +31,51 @@
 +        var aborted = false
 +        /// Uptime of the header or the latest FilePart; the inactivity watchdog reads it.
 +        var lastActivity = DispatchTime.now()
-+    }
+     }
 +    /// PATCH 0019: nil = no transfer in flight (stray FilePart/FileEnd are ignored).
-+    var iTermMultipart: ITermMultipartTransfer? = nil
++    nonisolated(unsafe) var iTermMultipart: ITermMultipartTransfer? = nil
 +    /// PATCH 0019 (#283): a transfer with no FilePart for this long is dropped and its bytes freed.
 +    var iTermMultipartInactivitySeconds: Double = 120
-+    private var iTermMultipartWatchdogArmed = false
-+
++    nonisolated(unsafe) private var iTermMultipartWatchdogArmed = false
+ 
 +    /// PATCH 0019 (#283): one self-rescheduling main-queue check.
 +    func armITermMultipartWatchdog (after seconds: Double) {
 +        guard !iTermMultipartWatchdogArmed else { return }
 +        iTermMultipartWatchdogArmed = true
-+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-+            guard let self else { return }
-+            self.iTermMultipartWatchdogArmed = false
-+            guard let transfer = self.iTermMultipart else { return }
++        // nonisolated(unsafe): Terminal is not @MainActor but the watchdog must
++        // fire on the main queue (it writes nonisolated(unsafe) vars).  Swift 6
++        // region isolation rejects sending `self` into the closure; the unsafe
++        // local mirrors the pattern already used by iTermMultipart* vars above.
++        nonisolated(unsafe) let weakSelf: Terminal? = self
++        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
++            guard let weakSelf else { return }
++            weakSelf.iTermMultipartWatchdogArmed = false
++            guard let transfer = weakSelf.iTermMultipart else { return }
 +            let idle = Double(DispatchTime.now().uptimeNanoseconds - transfer.lastActivity.uptimeNanoseconds) / 1e9
-+            if idle >= self.iTermMultipartInactivitySeconds {
-+                self.iTermMultipart = nil
++            if idle >= weakSelf.iTermMultipartInactivitySeconds {
++                weakSelf.iTermMultipart = nil
 +            } else {
-+                self.armITermMultipartWatchdog (after: self.iTermMultipartInactivitySeconds - idle)
++                weakSelf.armITermMultipartWatchdog (after: weakSelf.iTermMultipartInactivitySeconds - idle)
 +            }
 +        }
++    }
++
++    /// PATCH 0019: dimension parser lifted out of osciTerm2 so insertInlineImage can reach it.
++    private func parseDimension (_ kv: [String:String], key: String) -> ImageSizeRequest {
++        let artificialDimensionSizeLimit = 1024*4
++        let artificialColumnLimit = 200
++        guard let v = kv [key] else { return .auto }
++        if v == "auto" { return .auto }
++        if v.hasSuffix ("%") {
++            if let n = Int (v.dropLast(1)), n > 0, n <= 100 { return .percent (n) }
++            return .auto
++        }
++        if v.hasSuffix("px") {
++            if let n = Int (v.dropLast(2)), n > 0, n < artificialDimensionSizeLimit { return .pixels (n) }
++            return .auto
++        }
++        if let n = Int (v), n > 0, n < artificialColumnLimit { return .cells(n) }
++        return .auto
 +    }
 +
 +    /// PATCH 0019: shared decode + createImage path for single-shot File= and multipart FileEnd.
@@ -64,13 +89,13 @@
 +                          preserveAspectRatio: (kv ["preserveAspectRatio"] ?? "1") == "1")
 +    }
 +
-             guard let featureReport = options.featureReport,
-                   featureReport.utf8.allSatisfy({ byte in
-                       (byte >= 0x30 && byte <= 0x39) ||
-@@ -3845,14 +3895,46 @@
+     // OSC 1337 is used by iTerm2 for imgcat and other things:
+     //  https://iterm2.com/documentation-images.html
+     // ESC ] 1337 ; key = value ^G
+@@ -3844,6 +3916,16 @@
+             return .auto
          }
          
-         guard let equalIdx = data.firstIndex (where: { b in b == UInt8(ascii: "=") }) else {
 +        // PATCH 0019: `FileEnd` carries no "=", match before the equalIdx guard below.
 +        if data.elementsEqual ("FileEnd".utf8) {
 +            guard let transfer = iTermMultipart else { return }  // stray FileEnd
@@ -78,13 +103,13 @@
 +            if !transfer.aborted {
 +                insertInlineImage (transfer.params, transfer.encoded[...])
 +            }
-             return
-         }
-+
 +            return
 +        }
-         
-         guard let key = terminalStringUTF8(data[data.startIndex..<equalIdx]) else {
++
+         guard let equalIdx = data.firstIndex (where: { b in b == UInt8(ascii: "=") }) else {
+             return
+         }
+@@ -3852,7 +3934,29 @@
              return
          }
          switch key {
@@ -114,7 +139,7 @@
              guard let colonIdx = data [equalIdx...].firstIndex(where: { b in b == UInt8 (ascii: ":")}) else {
                  return
              }
-@@ -3865,14 +3947,11 @@
+@@ -3865,14 +3969,11 @@
                  break
              }
              
@@ -132,11 +157,11 @@
          default:
              break
          }
-@@ -4368,6 +4447,7 @@
+@@ -4368,6 +4469,7 @@
          case 2:
              eraseEntireDisplay ()
              clearAllKittyImages()
-+        iTermMultipart = nil  // PATCH 0019: RIS abandons a half-received multipart image
++            iTermMultipart = nil  // PATCH 0019: RIS abandons a half-received multipart image
          case 3:
              // Clear scrollback (everything not in viewport)
              let scrollBackSize = buffer.lines.count - rows
