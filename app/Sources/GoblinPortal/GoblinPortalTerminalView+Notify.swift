@@ -29,8 +29,15 @@ extension GoblinPortalTerminalView {
         // SwiftTerm vendor updates. Re-evaluate if Terminal's init cost becomes
         // measurable (e.g. if pane count scales significantly).
         let progressDecoder = Terminal(delegate: self)
+        // Since the re-vendor to TerminalIOPipelineWorker, registerOscHandler
+        // callbacks run on the `swiftterm-io-reader` background thread. Dispatch
+        // to main rather than asserting we are already there. Copy `data` before
+        // the async boundary — it may be borrowed from the parser's read buffer.
         getTerminal().registerOscHandler(code: 9) { [weak self] data in
-            MainActor.assumeIsolated {
+            // ArraySlice is a value type with COW — capturing it across the async
+            // boundary copies the reference and keeps the backing buffer alive.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
                 let parsed = NotificationEscape.parseOsc9(data)
                 if parsed == .progressPayload {
                     progressDecoder.feed(byteArray: [27, 93, 57, 59] + Array(data) + [7])
@@ -38,7 +45,7 @@ extension GoblinPortalTerminalView {
                     // ProgressPayload.parse decodes `<state>[;<pct>]` from the bytes
                     // after the leading `4;` prefix (already confirmed by parseOsc9).
                     // The slice starts at index 2 to skip the "4;" prefix characters.
-                    if let self, let cb = self.progressCallback {
+                    if let cb = self.progressCallback {
                         let inner = data.dropFirst(2)  // skip "4;"
                         if let decoded = ProgressPayload.parse(inner) {
                             cb(decoded.stateCode, decoded.progress)
@@ -53,7 +60,7 @@ extension GoblinPortalTerminalView {
         // parser never called by production. SwiftTerm's built-in 777 parser otherwise
         // reaches the default no-op notify witness (Terminal.swift:1837-1850,6838).
         getTerminal().registerOscHandler(code: 777) { data in
-            MainActor.assumeIsolated { receive(NotificationEscape.parseOsc777(data), .osc777) }
+            DispatchQueue.main.async { receive(NotificationEscape.parseOsc777(data), .osc777) }
         }
     }
 }

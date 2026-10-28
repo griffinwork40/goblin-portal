@@ -223,15 +223,14 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
     /// the `TerminalDelegate` method `TerminalView` declares `open`, and it is what
     /// `EscapeSequenceParser.swift:362` calls on receiving byte 0x07.
     ///
-    /// `nonisolated` + `assumeIsolated` for the same reason as the accessibility
-    /// overrides in `DocumentTabStrip`: SwiftTerm predates Swift concurrency, so the
-    /// inherited signature is non-isolated. It is safe here because SwiftTerm's own
-    /// pty reads are dispatched to `DispatchQueue.main` by default
-    /// (`LocalProcess.swift:127`), so the parse that raises this is already on the
-    /// main thread — the same runtime-check-over-compile-error trade `TerminalPane`
-    /// documents on its `@preconcurrency` conformance.
+    /// `nonisolated` because SwiftTerm predates Swift concurrency — the inherited
+    /// `TerminalDelegate` signature is non-isolated. Since the re-vendor to the
+    /// `TerminalIOPipelineWorker` architecture, the parse that triggers BEL runs on
+    /// the `swiftterm-io-reader` background thread, NOT the main thread. We dispatch
+    /// to main rather than asserting we are already there.
     override nonisolated func bell(source: Terminal) {
-        MainActor.assumeIsolated {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             // Reproduces SwiftTerm's own default rather than calling `super`: `Terminal`
             // is not `Sendable`, so `source` cannot cross into an isolated block, and
             // the default is exactly this one line — `bell(source: Terminal)` forwards
@@ -242,7 +241,7 @@ final class GoblinPortalTerminalView: LocalProcessTerminalView {
             // Kept because it is behaviour we already shipped: the strip's marker says
             // *which* tab wants you, but the sound is what makes you look at all.
             NSSound.beep()
-            bellDelegate?.terminalViewDidRingBell(self)
+            self.bellDelegate?.terminalViewDidRingBell(self)
         }
     }
 

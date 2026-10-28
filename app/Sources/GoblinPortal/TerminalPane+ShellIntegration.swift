@@ -125,7 +125,10 @@ extension TerminalPane {
         let state = ShellIntegration.register(
             on: terminal,
             onCommandStart: { [weak self] in
-                MainActor.assumeIsolated {
+                // Since the re-vendor to TerminalIOPipelineWorker, OSC 133 callbacks
+                // arrive on the `swiftterm-io-reader` background thread. Dispatch to
+                // main rather than asserting we are already there.
+                DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     guard self.status == .idle else { return }
                     self.status = .running
@@ -133,11 +136,10 @@ extension TerminalPane {
                 }
             }
         ) { [weak self] exitCode, nanos in
-            // This closure is called by SwiftTerm on the main thread (all SwiftTerm
-            // callbacks are main-thread). `MainActor.assumeIsolated` asserts that
-            // rather than hopping through a `Task`, keeping it synchronous and ordered
-            // relative to other main-thread work.
-            MainActor.assumeIsolated {
+            // Since the re-vendor to TerminalIOPipelineWorker, OSC 133 callbacks
+            // arrive on the `swiftterm-io-reader` background thread. Dispatch to
+            // main rather than asserting we are already there.
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 let outcome = CommandOutcome.of(
                     exitCode: exitCode,
@@ -172,7 +174,7 @@ extension TerminalPane {
         // non-empty command line; D clears it via applyCommandOutcome. The idle/attention
         // states are NOT set here — only the state machine advances through .running.
         state.onCommandStarted = { [weak self] in
-            MainActor.assumeIsolated {
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.status = .running
                 termDiag("OSC 133 C — command started, status = .running")
