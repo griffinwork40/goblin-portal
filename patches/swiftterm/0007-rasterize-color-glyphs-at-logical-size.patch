@@ -22,18 +22,18 @@ Port notes for c3436be:
 
 --- a/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
 +++ b/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
-@@ -12,6 +12,8 @@ enum GlyphRasterizationResult {
+@@ -12,5 +12,10 @@ enum GlyphRasterizationResult {
  final class CoreTextGlyphRasterizer {
      var fontSmoothing: Bool = true
 +    // Patch 0012: device pixels per point for the frame being built. The caller sets this
 +    // once per frame beside fontSmoothing. For colour glyphs (kCTFontTraitColorGlyphs) the
 +    // rasterizer rebuilds the logical-size font under a scaled CTM instead of drawing the
-+    // device-size font at 1:1 — Core Text's own recipe, fixing ~20% size/offset error.
++    // device-size font at 1:1 - Core Text's own recipe, fixing ~20% size/offset error.
 +    var backingScale: CGFloat = 1
  #if DEBUG
      var forceContextCreationFailureForTesting = false
  #endif
-@@ -18,8 +22,34 @@ final class CoreTextGlyphRasterizer {
+@@ -18,13 +22,33 @@ final class CoreTextGlyphRasterizer {
      func rasterize(font: CTFont, glyph: CGGlyph) -> GlyphRasterizationResult {
          rasterize(font: font, glyph: glyph,
                    metrics: GlyphMetrics.measure(font: font, glyph: glyph))
@@ -47,7 +47,7 @@ Port notes for c3436be:
          var glyphVar = glyph
 -        let rect = metrics.inkBounds
 +
-+        // Patch 0012: colour glyphs only — rasterize at LOGICAL size under a scaled CTM.
++        // Patch 0012: colour glyphs only - rasterize at LOGICAL size under a scaled CTM.
 +        // Outline glyphs keep the upstream device-size path untouched.
 +        let ctmScale: CGFloat = {
 +            guard backingScale > 1 else { return 1 }
@@ -70,7 +70,7 @@ Port notes for c3436be:
          if rect.width <= 0 || rect.height <= 0 {
              return .empty
          }
-@@ -79,8 +109,14 @@ final class CoreTextGlyphRasterizer {
+@@ -79,8 +109,15 @@ final class CoreTextGlyphRasterizer {
              context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
              context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
  

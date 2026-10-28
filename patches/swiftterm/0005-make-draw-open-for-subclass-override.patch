@@ -1,6 +1,6 @@
 --- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
 +++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
-@@ -1833,7 +1833,7 @@ open class MacTerminalView: TerminalView
+@@ -1833,6 +1833,6 @@ open class MacTerminalView: TerminalView
      }
      
 -    override public func draw (_ dirtyRect: NSRect) {

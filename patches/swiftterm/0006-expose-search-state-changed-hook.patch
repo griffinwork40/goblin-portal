@@ -1,11 +1,11 @@
 Two changes enabling all-match search highlighting from the host app:
 
-1. TerminalViewSearch.swift — adds `findAllMatchPositions(_:options:limit:)`
+1. TerminalViewSearch.swift - adds `findAllMatchPositions(_:options:limit:)`
    A public method returning match positions as [(row: Int, col: Int, size: Int)]
    tuples, exposing the data from the module-internal SearchResult type without
    crossing the module boundary.
 
-2. MacTerminalView.swift — adds `searchStateDidChange(term:options:)`
+2. MacTerminalView.swift - adds `searchStateDidChange(term:options:)`
    An `open` callback that fires whenever the find bar's search term or options
    change, or the find bar is dismissed. Called from handleFindBarSearchChanged,
    handleFindBarOptionsChanged, and hideFindBar. Also clears findBarTerm in
@@ -64,12 +64,13 @@ and findAllMatchPositions says WHERE the matches are.
      nonisolated open func selectionChanged(source: Terminal) {
 --- a/Sources/SwiftTerm/TerminalViewSearch.swift
 +++ b/Sources/SwiftTerm/TerminalViewSearch.swift
-@@ -95,6 +95,28 @@ extension TerminalView {
+@@ -90,5 +90,29 @@ extension TerminalView {
          }
      }
  
++
 +    /// Returns the buffer-absolute positions of all matches for `term`, as an
-+    /// array of `(row, col, size)` tuples — the same data `searchMatchSummary`
++    /// array of `(row, col, size)` tuples - the same data `searchMatchSummary`
 +    /// uses internally, but exposed so a host app can draw all-match highlights
 +    /// without naming the module-internal `SearchResult` type.
 +    ///
@@ -91,6 +92,5 @@ and findAllMatchPositions says WHERE the matches are.
 +                .map { (row: $0.row, col: $0.col, size: $0.size) }
 +        }
 +    }
-+
      /// Clears the current search state and selection.
      public func clearSearch () {

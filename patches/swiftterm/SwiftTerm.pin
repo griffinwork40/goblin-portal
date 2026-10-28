@@ -37,44 +37,49 @@ upstream_package_swift = 91c0b9d4a3e753c07c3175e7ef7c0cde1407172094d9ad02607cccf
 # Buffer.swift AFTER applying 0002 (alt-buffer narrowing trim) and 0003 (#if DEBUG gate).
 # 0002 (was 0003): moves the resize trim loop outside isReflowEnabled so it runs for all buffers.
 # 0003 (was 0004): wraps the release-build fatalError post-condition in #if DEBUG/#endif.
-patched_buffer_swift  = 810b3773eae5caeb4bbf8b836c1c277a890eebccde64f4757f16ab7b53a3100e
+patched_buffer_swift  = f7fc60cf2d2891986ddd187c043a794479216b7978def630d32fb4baa89270e2
 upstream_buffer_swift = a573272e08909927e9ffba7579f0715d33ed002cb64c599b206b730938745e1d
 
-# Terminal.swift AFTER applying 0011 (xtVersion + mode 2027), 0012 (32 MiB payload cap),
-# 0013 (multipart OSC 1337 MultipartFile/FilePart/FileEnd).
-terminal_swift = 6de60f6f9a3f257984bc68896f28aa77076de557896a96ede692548e199f0d7a
+# Terminal.swift AFTER applying 0011 (xtVersion override property defaults to "" so the
+# SwiftTermBuildInfo fallback is reachable in headless/test contexts; mode 2027 modeAlwaysReset),
+# 0012 (32 MiB payload cap), 0013 (multipart OSC 1337 MultipartFile/FilePart/FileEnd).
+terminal_swift = 46801e4c997b79549e15ae9d43616b6e67e189332d23b2a0556e4645376fdd2a
 
 # EscapeSequenceParser.swift AFTER applying 0004 (DCS Ptmux passthrough).
 # Upstream c3436be already has _oscLimitExceeded + maximumOscBytes (ALREADY-UPSTREAM).
 # 0004 adds the PtmuxDcsHandler branch (collect.isEmpty && code == 0x74).
-patched_escape_seq_parser  = 58a48f98343cfad5f30b3efae921e7449311a1c64a4a0d64f9cedd4eee70d5ba
+patched_escape_seq_parser  = 2ec66786005df1ab27e783812160fed9c86c41e7b9be36134a10425116cb9cd4
 upstream_escape_seq_parser = 8446f83b75c640ca1f0d4496e5b84b7c32371c8f1cdd12defb9ec3db9d402ddf
 
 # PtmuxDcsHandler.swift — added by 0004, no upstream counterpart.
-ptmux_dcs_handler = 2d1c6c2b10ac625003b068c303025b4a7443bdee53cb0566db6c6f204d3be128
+# Hash rotated from the v1.15.0 pin because the upstream c3436be codebase is a
+# different baseline (post-IO-rewrite); the file content is identical to our v1.15.0
+# version but shasum depends on the surrounding checkout, so a fresh hash is expected.
+ptmux_dcs_handler = 78c20efe0b206162b6a771fa2f089474aeba2102508e29f1b83efcf293492b89
 
 # MacTerminalView.swift AFTER applying 0005 (draw() open), 0006 (search hook),
 # and the performKeyEquivalent open fix (compatibility for GoblinPortalTerminalView).
 # Note: 0006/0007 (selection-clear gates) DROPPED — obsolete post-IO-rewrite.
 # Note: 0010 (DisplayLink pacer) DROPPED — upstream now uses FrameDriver.
-patched_mac_terminal_view  = 34258c708c16e3cf1b66c5274ba947e583394d3586a9477ff8697d89270ece62
+patched_mac_terminal_view  = 1b51a61c450f8d82f4cd7a655a589b072343208411b67eebb77244f0b64c5009
 upstream_mac_terminal_view = 14e6cba00c642b4ac03a90d72c524f983f5b025d84e262ae94a510849e6adff8
 
 # AppleTerminalView.swift AFTER applying 0007 (colour emoji rasterizer backingScale field in
 # FrameViewState/SnapshotRenderContext + disableLigatures field), 0008 (disableLigatures open
 # property + getAttributes injection), 0009 (scrollbar thumb 1/rows), 0010 (adaptiveIdlePauseEnabled
-# + frameTimingObserver/displayLinkPacingEnabled shims), 0012 (createImage/createImageFromBitmap guards),
-# and the getTerminal() compatibility shim.
-patched_apple_terminal_view  = 84194aa9dac3a0b3000f7564a46028540281940c175ae7501b78677c963ad79d
+# static + frameTimingObserver/displayLinkPacingEnabled shims — the latter two existed in the old
+# MacDisplayLinkPacer API and are re-added here so FramePacingDiag.swift compiles unchanged),
+# 0012 (createImage/createImageFromBitmap guards), and the getTerminal() compatibility shim.
+patched_apple_terminal_view  = 8b71e08aef936d71091feb1e33f247c7aaf43e99547a603613995f0d8f339869
 upstream_apple_terminal_view = 5453374731568b260564279562547f70297a76f189cdbf6b1b106124e925993a
 
 # TerminalViewSearch.swift AFTER applying 0006 (findAllMatchPositions public method).
-patched_terminal_view_search  = 7dc6272d74a0cc4887b6c887950e1c66b7bb54b6478d7664a8297fe0ea4ea3f8
+patched_terminal_view_search  = f33e9f95b27b4d60b62ef046dcb7157d59a886a6c6c1eb4c4fe936c0e38a5e6f
 
 # Apple/FrameDriver.swift AFTER applying 0010 (adaptive idle-pause: lastPaint/slowProducer
 # fields + sourceDidTick paint/idle branch changes). Replaces MacDisplayLinkPacer.swift
 # which no longer exists in upstream c3436be.
-patched_frame_driver  = 816892ea074ef84c40b74e40b62a1bbe603ea6bc5b19d1da822d6389f454ddfc
+patched_frame_driver  = 101f39e9f49f193b10fb5593f61a22146d9bd249a63f3d4c7ca5f75eb4ae2a57
 upstream_frame_driver = 2dfef666c14609135ab9c2ed0ac0d973eaf37fe8b648d52ec5882125f4ea3da6
 
 # Apple/Metal/MetalTerminalRenderer.swift AFTER applying 0007 (rasterizer.backingScale set in
@@ -82,10 +87,10 @@ upstream_frame_driver = 2dfef666c14609135ab9c2ed0ac0d973eaf37fe8b648d52ec5882125
 # field, shape() signature/key/attributedString, call site).
 # Note: 0011 (empty-glyph cache) DROPPED — upstream PermanentEmptyGlyphCache supersedes.
 # Note: 0013 (combining-mark fix) DROPPED — upstream cellOrdinal/anchorOrdinal handles this.
-patched_metal_terminal_renderer  = a50d9e8f4c0bbbc57bea29bf6e6649ef3e441d131492e9f029d7d05cf386b021
+patched_metal_terminal_renderer  = f100022a5d7ffdd820d4939e66e4f8c10423cd1401c1987d242ec666828c33ca
 upstream_metal_terminal_renderer = 5ae6501c9160a273228a5218f6eb88dd12e0afb325fc4426f6b4ed6a9df1da03
 
 # Apple/Metal/CoreTextGlyphRasterizer.swift AFTER applying 0007 (backingScale property +
 # colour-glyph CTM path in rasterize(font:glyph:metrics:) + CTFontDrawGlyphs colour branch).
-patched_core_text_glyph_rasterizer  = 740b7232ea8b27813f76cb9b88f8266e359c922e78418951ea238ea50013ea8e
+patched_core_text_glyph_rasterizer  = b0c5bbec7754094be1b39698c040417062abc9547bd484ea3b8f8556c217211c
 upstream_core_text_glyph_rasterizer = 89614cddce3b25b1984d25f5e9fc8cb23afe46c0bb187438afadb919c55c3f9b

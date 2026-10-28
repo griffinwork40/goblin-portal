@@ -1,6 +1,6 @@
 --- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
 +++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-@@ -4415,7 +4415,13 @@ open class TerminalView: NSView, NSTextI
+@@ -4415,9 +4415,16 @@ open class TerminalView: NSView, NSTextI
      func scrollThumbsizeLocked () -> CGFloat {
          terminal.terminalLock.preconditionLocked()
          let displayBuffer = terminal.displayBuffer

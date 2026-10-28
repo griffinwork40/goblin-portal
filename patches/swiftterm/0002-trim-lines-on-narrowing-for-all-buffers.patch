@@ -18,11 +18,11 @@
 +        // and the alt buffer is constructed with `scrollback: nil`, so while this loop sat
 +        // inside the `isReflowEnabled` branch the alt buffer's BufferLines kept their OLD
 +        // width forever while `cols` shrank underneath them. A later widening then copies
-+        // those stale cells back into the visible grid — under tmux, which lives in the alt
++        // those stale cells back into the visible grid - under tmux, which lives in the alt
 +        // buffer and repaints only deltas, that is stale text appearing inside the wrong
 +        // pane and surviving a window switch.
 +        // Must stay AFTER reflow: reflow rewraps from the OLD width.
-+        // SPIKE-LOCAL PATCH 0003 (not upstream).
++        // SPIKE-LOCAL PATCH 0002 (not upstream).
 +        if cols > newCols {
 +            // lines.count, not lines.maxLength (see the widen loop above).
 +            for i in 0..<lines.count {

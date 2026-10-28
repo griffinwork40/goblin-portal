@@ -15,7 +15,7 @@ Port notes for c3436be:
 
 --- a/Sources/SwiftTerm/Terminal.swift
 +++ b/Sources/SwiftTerm/Terminal.swift
-@@ -689,6 +689,15 @@ public final class Terminal {
+@@ -689,5 +689,12 @@ public final class Terminal {
      /// the terminal, the content will be wrapped in "ESC [ 200 ~" to start, and "ESC [ 201 ~" to end.
      public private(set) var bracketedPasteMode: Bool = false
  
@@ -24,11 +24,11 @@ Port notes for c3436be:
 +    // Vendor code cannot know the app version, so a sensible default is
 +    // provided for headless / test contexts. When non-empty, this overrides
 +    // upstream's SwiftTermBuildInfo-based identity completely.
-+    public var xtVersion: String = "GoblinPortal"
++    public var xtVersion: String = ""
 +
      /// Tracks DECSET/DECRST private mode 1007 (Alternate Scroll Mode, xterm's "alternateScroll" resource).
  
-@@ -5249,7 +5258,13 @@ extension Terminal {
+@@ -5249,8 +5258,15 @@ extension Terminal {
      func cmdXTVERSION(_ pars: CsiParameters, _ collect: cstring) {
          guard collect == [UInt8(ascii: ">")], pars == [0] else { return }
 -        let identity = Terminal.xtVersionIdentity(tag: SwiftTermBuildInfo.tag,
@@ -47,7 +47,7 @@ Port notes for c3436be:
          sendResponse([ControlCodes.ESC, UInt8(ascii: "P")], ">|\(identity)",
                       [ControlCodes.ESC, UInt8(ascii: "\\")])
      }
-@@ -5631,6 +5646,11 @@ extension Terminal {
+@@ -5631,4 +5646,11 @@ extension Terminal {
              case 1007:
                  res = alternateScrollMode ? modeSet : modeReset
 +            case 2027: // Unicode grapheme cluster mode

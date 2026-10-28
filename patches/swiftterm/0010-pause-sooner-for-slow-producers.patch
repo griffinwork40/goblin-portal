@@ -3,7 +3,7 @@ Patch 0016 (ported to upstream c3436be): adaptive idle-pause for slow producers.
 The upstream FrameDriver has the same idleTickLimit = 8 structure as our old
 MacDisplayLinkPacer. A 12 Hz spinner at 144 Hz had an 83ms gap vs a 56ms idle
 window (8 ticks × 7ms per tick), so the link paused and resumed once per frame
-but always paid 8 idle ticks first — each a synchronous CoreAnimation round trip.
+but always paid 8 idle ticks first - each a synchronous CoreAnimation round trip.
 Measured cost: 2160 ticks for 240 spinner paints. Fix: when the gap since the
 previous paint already exceeded the idle window, pause after ONE idle tick.
 
@@ -22,10 +22,10 @@ Port from MacDisplayLinkPacer to FrameDriver:
      private var idleTickCount = 0
      private var counters = FrameDriverCounters()
  
-+    // Patch 0016: adaptive idle-pause for slow producers. When the gap since the
++    // Patch 0010: adaptive idle-pause for slow producers. When the gap since the
 +    // previous paint already exceeded the eight-tick idle window, the link pauses
 +    // after ONE idle tick instead of eight. Slow producers (12 Hz spinners at 120/
-+    // 144 Hz) would pause/resume every frame but paid 8 idle ticks first — each a
++    // 144 Hz) would pause/resume every frame but paid 8 idle ticks first - each a
 +    // synchronous CoreAnimation round trip. 2160 -> 480 ticks for 240 spinner paints
 +    // at 144 Hz; 60/30fps streams unchanged. SWIFTTERM_ADAPTIVE_PAUSE=0 restores the
 +    // fixed window; check-display-link.sh case 9 falsifies with that env var.
@@ -36,7 +36,7 @@ Port from MacDisplayLinkPacer to FrameDriver:
      private let displayLinkTarget = FrameDisplayLinkTarget()
      private var displayLinkBackend: FrameDisplayLinkBackend?
      private var manualTickSource: ManualTickSource?
-@@ -545,15 +556,30 @@ final class FrameDriver {
+@@ -545,24 +556,49 @@ final class FrameDriver {
      private func sourceDidTick(isImmediate: Bool) {
          guard !invalidated else { return }
          var shouldCall = false
@@ -56,24 +56,28 @@ Port from MacDisplayLinkPacer to FrameDriver:
 +            // since the last paint exceeded it, we would have paused and resumed already
 +            // (or this is the first paint); pause sooner on the next idle.
 +            if TerminalView.adaptiveIdlePauseEnabled {
-+                let now = CFAbsoluteTimeGetCurrent()
++                // CACurrentMediaTime() is monotonic mach time - immune to NTP/wall-clock
++                // adjustments that CFAbsoluteTimeGetCurrent() is subject to. Assign once
++                // so both uses see the same instant.
++                let now = CACurrentMediaTime()
 +                if lastPaint > 0 {
 +                    // Approximate tick interval from the display link's nominal rate.
-+                    // At 120Hz: ~8.3ms/tick; at 144Hz: ~6.9ms/tick. Use 8ms as a safe
-+                    // approximation when the exact rate is unavailable here.
-+                    let approxTickIntervalMs: CFTimeInterval = 1.0 / 120.0
-+                    let idleWindowSecs = CFTimeInterval(Self.idleTickLimit) * approxTickIntervalMs
++                    // At 120Hz: ~8.3ms/tick; at 144Hz: ~6.9ms/tick. Use 144Hz as the
++                    // upper bound so the idle window is never over-estimated on high-Hz
++                    // displays (a too-wide window delays the pause for slow producers).
++                    let approxTickInterval: CFTimeInterval = 1.0 / 144.0
++                    let idleWindowSecs = CFTimeInterval(Self.idleTickLimit) * approxTickInterval
 +                    slowProducer = (now - lastPaint) > idleWindowSecs
 +                } else {
 +                    slowProducer = false
 +                }
-+                lastPaint = CFAbsoluteTimeGetCurrent()
++                lastPaint = now
 +            }
          } else if running {
              idleTickCount += 1
              counters.idleTicks += 1
 -            if idleTickCount >= Self.idleTickLimit {
-+            // Patch 0016: slow producers pause after 1 idle tick instead of 8.
++            // Patch 0010: slow producers pause after 1 idle tick instead of 8.
 +            let effectiveLimit = (TerminalView.adaptiveIdlePauseEnabled && slowProducer)
 +                ? 1 : Self.idleTickLimit
 +            if idleTickCount >= effectiveLimit {
@@ -85,7 +89,7 @@ Port from MacDisplayLinkPacer to FrameDriver:
          }
 --- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
 +++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-@@ -1571,6 +1571,16 @@ open class TerminalView: NSView, NSTextI
+@@ -1571,8 +1571,32 @@ open class TerminalView: NSView, NSTextI
      func resetCaches ()
      {
          self.attributes = [:]
@@ -94,12 +98,27 @@ Port from MacDisplayLinkPacer to FrameDriver:
          self.trueColors = [:]
      }
 +
-+    /// Patch 0016: pause after one idle tick when the producer is slower than the idle
++    /// Patch 0010: pause after one idle tick when the producer is slower than the idle
 +    /// window (see FrameDriver.sourceDidTick). Defaults to on; SWIFTTERM_ADAPTIVE_PAUSE=0
 +    /// restores the fixed eight-tick window. check-display-link.sh case 9 falsifies with
 +    /// that env var. See .afk/research/metal-idle-encode-2026-10-18.md (issue #143).
 +    public static var adaptiveIdlePauseEnabled: Bool = {
 +        let value = ProcessInfo.processInfo.environment["SWIFTTERM_ADAPTIVE_PAUSE"]
 +        return !(value == "0" || value == "false" || value == "FALSE")
++    }()
++
++    // Patch 0010: FramePacingDiag.swift shims. These two statics exist in the old
++    // MacDisplayLinkPacer-based upstream but were removed when upstream switched to
++    // FrameDriver. GoblinPortal's FramePacingDiag reads them at GOBLIN_PORTAL_DIAG
++    // startup; the nil observer costs one nil-check per paint when diag is off.
++    //
++    // frameTimingObserver: called from TerminalView.updateDisplay() after every paint,
++    // passing the view - same call site as the old MacDisplayLinkPacer hook.
++    // displayLinkPacingEnabled: true when FrameDriver is using a display link backend
++    // (the default); false when SWIFTTERM_DISPLAY_LINK=0 forces the timer path.
++    public static var frameTimingObserver: ((TerminalView) -> Void)? = nil
++    public static var displayLinkPacingEnabled: Bool = {
++        let v = ProcessInfo.processInfo.environment["SWIFTTERM_DISPLAY_LINK"]
++        return !(v == "0" || v == "false" || v == "FALSE")
 +    }()
  
