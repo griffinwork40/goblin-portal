@@ -60,7 +60,7 @@ let validSixel = sixel("#1;2;100;0;0#1~~~~-")
         // observe the allocation.
         let (v, _) = makeView()
         let h = SixelDcsHandler(terminal: v.getTerminal())
-        h.hook(collect: [], parameters: [], flag: 0)
+        h.hook(collect: [], parameters: .empty, flag: 0)
         h.put(data: Array("#0!8192~!8192~-".utf8)[...])
         h.unhook()
         v.feed(text: validSixel)
