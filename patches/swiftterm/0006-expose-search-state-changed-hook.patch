@@ -1,13 +1,11 @@
-0009-expose-search-state-changed-hook.patch
-
 Two changes enabling all-match search highlighting from the host app:
 
-1. TerminalViewSearch.swift — adds `findAllMatchPositions(_:options:limit:)`
+1. TerminalViewSearch.swift - adds `findAllMatchPositions(_:options:limit:)`
    A public method returning match positions as [(row: Int, col: Int, size: Int)]
    tuples, exposing the data from the module-internal SearchResult type without
    crossing the module boundary.
 
-2. MacTerminalView.swift — adds `searchStateDidChange(term:options:)`
+2. MacTerminalView.swift - adds `searchStateDidChange(term:options:)`
    An `open` callback that fires whenever the find bar's search term or options
    change, or the find bar is dismissed. Called from handleFindBarSearchChanged,
    handleFindBarOptionsChanged, and hideFindBar. Also clears findBarTerm in
@@ -17,11 +15,9 @@ Together these give a TerminalView subclass everything it needs to maintain
 a transparent overlay of all-match highlights: the callback says WHEN to update,
 and findAllMatchPositions says WHERE the matches are.
 
-Pattern: same as patches 0006/0007 — an `open` hook on existing behaviour.
-
 --- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
 +++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
-@@ -202,6 +202,14 @@
+@@ -295,6 +295,14 @@ open class MacTerminalView: TerminalView
      private var findBar: TerminalFindBarView?
      private var findBarTerm: String = ""
      private var findBarOptions: SearchOptions = SearchOptions()
@@ -34,9 +30,9 @@ Pattern: same as patches 0006/0007 — an `open` hook on existing behaviour.
 +    /// options.  Override in a subclass to drive an all-match highlight overlay.
 +    open func searchStateDidChange(term: String, options: SearchOptions) {}
      var debug: TerminalDebugView?
-     var pendingDisplay: Bool = false
-     /// Output received shortly after local input is likely echo or prompt redraw;
-@@ -2301,6 +2309,8 @@
+     let viewStateLock = NSLock()
+ 
+@@ -3621,6 +3629,8 @@ open class MacTerminalView: TerminalView
  
      private func hideFindBar() {
          findBar?.isHidden = true
@@ -45,7 +41,7 @@ Pattern: same as patches 0006/0007 — an `open` hook on existing behaviour.
          window?.makeFirstResponder(self)
      }
  
-@@ -2308,10 +2318,12 @@
+@@ -3627,10 +3637,12 @@ open class MacTerminalView: TerminalView
          findBarTerm = term
          if term.isEmpty {
              clearSearch()
@@ -58,22 +54,23 @@ Pattern: same as patches 0006/0007 — an `open` hook on existing behaviour.
      }
  
      private func handleFindBarOptionsChanged(_ options: SearchOptions) {
-@@ -2319,6 +2331,7 @@
+@@ -3637,6 +3649,7 @@ open class MacTerminalView: TerminalView
          if !findBarTerm.isEmpty {
              _ = findNext(findBarTerm, options: options)
          }
 +        searchStateDidChange(term: findBarTerm, options: options)
      }
      
-     open func selectionChanged(source: Terminal) {
+     nonisolated open func selectionChanged(source: Terminal) {
 --- a/Sources/SwiftTerm/TerminalViewSearch.swift
 +++ b/Sources/SwiftTerm/TerminalViewSearch.swift
-@@ -67,6 +67,28 @@
-         return (i + 1, all.count)
+@@ -90,5 +90,29 @@ extension TerminalView {
+         }
      }
  
++
 +    /// Returns the buffer-absolute positions of all matches for `term`, as an
-+    /// array of `(row, col, size)` tuples — the same data `searchMatchSummary`
++    /// array of `(row, col, size)` tuples - the same data `searchMatchSummary`
 +    /// uses internally, but exposed so a host app can draw all-match highlights
 +    /// without naming the module-internal `SearchResult` type.
 +    ///
@@ -89,11 +86,11 @@ Pattern: same as patches 0006/0007 — an `open` hook on existing behaviour.
 +        options: SearchOptions = SearchOptions(),
 +        limit: Int = 1000
 +    ) -> [(row: Int, col: Int, size: Int)] {
-+        guard let search = search else { return [] }
-+        return search.findAll(term: term, options: options, limit: limit)
-+            .map { (row: $0.row, col: $0.col, size: $0.size) }
++        withTerminal { _ in
++            guard let search = search else { return [] }
++            return search.findAll(term: term, options: options, limit: limit)
++                .map { (row: $0.row, col: $0.col, size: $0.size) }
++        }
 +    }
-+
      /// Clears the current search state and selection.
      public func clearSearch () {
-         search?.reset()

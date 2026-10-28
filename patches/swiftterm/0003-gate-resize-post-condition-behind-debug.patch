@@ -1,0 +1,26 @@
+--- a/Sources/SwiftTerm/Buffer.swift
++++ b/Sources/SwiftTerm/Buffer.swift
+@@ -1037,18 +1037,23 @@ public class Buffer {
+ 
+         // DEBUG: Post-condition
++        // SPIKE-LOCAL PATCH 0003 (not upstream): the #if DEBUG/#endif are ours. Upstream
++        // ships this block ungated - a fatalError in release on every resize, walking the
++        // entire scrollback. See patches/swiftterm/SwiftTerm.pin for the full rationale.
++        #if DEBUG
+         if lines.count > 0 {
+             // lines.count, not lines.maxLength: checking every capacity slot would
+             // materialize blank lines for the whole scrollback on every resize and,
+             // worse, they would be created at the old `cols` (updated below) and
+             // trip the abort() when widening.
+             for i in 0..<lines.count {
+                 let line = lines [i]
+                 if line.count < newCols {
+                     print ("stop here newCols=\(newCols) but the element has: \(line.count)")
+                     fatalError("A resized line is shorter than the buffer width")
+                 }
+             }
+         }
++        #endif
+         rows = newRows
+         cols = newCols
+     }

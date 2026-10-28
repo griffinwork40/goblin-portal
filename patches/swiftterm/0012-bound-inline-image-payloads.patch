@@ -1,0 +1,59 @@
+# 0018 - bound inline-image payloads (T4.4 hardening, ported to upstream c3436be)
+#
+# Port notes:
+# - OSC accumulation cap (65 MiB, _oscLimitExceeded): ALREADY-UPSTREAM in c3436be.
+#   EscapeSequenceParser.maximumOscBytes = 65 * 1024 * 1024 at line 515. No change.
+# - Encoded payload cap (32 MiB, part b) and createImage/createImageFromBitmap guards
+#   (parts c/d) are STILL-NEEDED as confirmed by the audit.
+# - osciTerm2 structure changed: no nested func parseDimension with named `key:` param;
+#   upstream uses `key:` label. The colonIdx path is still the same shape.
+# - createImageFromBitmap and createImage are nonisolated in upstream c3436be.
+
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+@@ -5001,7 +5001,26 @@
+                 rows: Int ((size.height+cellSize.height-1)/cellSize.height))
+     }
+     
++
++    /// PATCH 0018: largest decoded side, in pixels, for an inline (OSC 1337) or sixel image.
++    /// 8192 px matches the common decode cap and is above any real display (6K = 6016 wide).
++    /// A 60-byte PNG can claim 100000^2 in its header; read from the header BEFORE decoding.
++    public static let maximumInlineImageSide = 8192
++
++    /// PATCH 0018: raster types an inline image may be. An ALLOWLIST, because TTImage (NSImage)
++    /// happily decodes PDF/EPS (vector, multi-page) and ImageIO knows ~20 exotic formats.
++    public static let inlineImageTypes: Set<String> = [
++        "public.png", "public.jpeg", "com.compuserve.gif", "public.tiff",
++        "com.microsoft.bmp", "public.heic", "org.webmproject.webp",
++    ]
++
+     public nonisolated func createImageFromBitmap(source: Terminal, bytes: inout [UInt8], width: Int, height: Int) {
++        // PATCH 0018: bound what is INSERTED into scrollback; refuse a buffer that does not
++        // match the claimed size or whose side exceeds the 8192 px cap.
++        guard width > 0, height > 0, max(width, height) <= TerminalView.maximumInlineImageSide,
++              bytes.count >= width * height * 4 else {
++            return
++        }
+         let rgbColorSpace = CGColorSpaceCreateDeviceRGB()
+         let bitmapInfo: CGBitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+         let pixelData = NSData(bytes: bytes, length: bytes.count)
+@@ -5029,6 +5048,18 @@
+    
+     public nonisolated func createImage (source: Terminal, data: Data, width widthRequest: ImageSizeRequest, height heightRequest: ImageSizeRequest, preserveAspectRatio: Bool)
+     {
++        // PATCH 0018: inspect the header (type + pixel size) through ImageIO BEFORE the full
++        // decode. CGImageSourceCopyPropertiesAtIndex reads metadata only; nothing here
++        // allocates pixels. Any failure is a silent drop - no partial insert.
++        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
++              let type = CGImageSourceGetType(src) as String?,
++              TerminalView.inlineImageTypes.contains(type),
++              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
++              let w = props[kCGImagePropertyPixelWidth] as? Int,
++              let h = props[kCGImagePropertyPixelHeight] as? Int,
++              w > 0, h > 0, max(w, h) <= TerminalView.maximumInlineImageSide else {
++            return
++        }
+         guard let img = TTImage(data: data) else {
+             return
+         }

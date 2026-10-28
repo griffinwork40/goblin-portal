@@ -9,18 +9,13 @@ let package = Package(
     name: "GoblinPortal",
     platforms: [.macOS(.v14)],
     dependencies: [
-        // Upstream SwiftTerm v1.15.0, vendored at ../vendor/SwiftTerm with eleven
-        // local patches — 0001 ships the Metal shader as a `.copy` resource so the
-        // GPU renderer is reachable, 0002/0003 are required correctness fixes
-        // (SwiftTerm #494 scrollback reflow, and the alt-buffer resize that bled
-        // stale cells across tmux panes), 0004 gates an upstream debug `abort()`
-        // behind `#if DEBUG`, 0005 adds DCS Ptmux passthrough, and 0006 gates
-        // linefeed selection-clear on mouseMode. See ../patches/swiftterm/SwiftTerm.pin
-        // for the hashes and README.md ("Dependency note") for how to recreate the tree.
-        //
-        // A tree missing 0002/0003 compiles, runs, and silently corrupts the
-        // buffer, which is why Scripts/verify-vendor.sh is a hard gate in
-        // Scripts/make-app-bundle.sh rather than advisory.
+        // Upstream SwiftTerm main @ c3436be (post-IO-rewrite), vendored at
+        // ../vendor/SwiftTerm with thirteen local patches (0001-0013, re-vendor 2026-10-27,
+        // issue #281). Key patches: 0001 ships the Metal shader as .copy, 0002 fixes
+        // the alt-buffer narrowing trim (required — missing it bleeds stale cells across
+        // tmux panes), 0004 adds DCS Ptmux passthrough, 0012 bounds OSC 1337 image payloads.
+        // See ../patches/swiftterm/SwiftTerm.pin for hashes and README.md ("Dependency note")
+        // for how to recreate the vendor tree via bootstrap-vendor.sh.
         .package(path: "../vendor/SwiftTerm"),
     ],
     targets: [

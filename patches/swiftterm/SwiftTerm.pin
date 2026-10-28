@@ -1,39 +1,15 @@
 # SwiftTerm vendor pin — read by app/Scripts/verify-vendor.sh
 #
-# WHY THIS FILE EXISTS
-# vendor/ is gitignored (.gitignore:13), vendor/SwiftTerm is not itself a git repo,
-# app/Package.swift:20 is an unpinned `.package(path:)`, and Package.resolved is
-# ignored too (.gitignore:6). So before this pin existed, NOTHING in the repository
-# recorded which upstream revision was vendored or that a local patch had been
-# applied to it. The failure was asymmetric and that is the whole problem:
+# RE-VENDOR 2026-10-27 (issue #281, checkbox 3)
+# Re-vendored from v1.15.0 + 20 patches to upstream main @ c3436be (post-IO-rewrite).
+# Dropped (6): 0002 (isWrapped fix), 0006/0007 (selection-clear gates), 0010 (DisplayLink
+# pacer), 0011 (empty-glyph cache), 0013 (combining-mark fix), 0020 (sixel bounds) —
+# all incorporated by upstream's IO rewrite (PR #627), FrameDriver, PermanentEmptyGlyphCache,
+# cellOrdinal/anchorOrdinal combining fix, and upstream's sixel bounds (58915b1).
+# Remaining: 13 patches (0001-0013), renumbered sequentially.
 #
-#   * a MISSING vendor/ fails loudly  — SwiftPM cannot resolve the path dependency
-#   * a RE-VENDORED, UNPATCHED tree fails SILENTLY — it compiles and runs fine,
-#     because the patch only removes a build-time resource
-#
-# So following app/README.md's recreation steps faithfully but forgetting a patch
-# produced a green build with a different dependency than the one that was tested.
-# verify-vendor.sh turns that silent case into a loud one.
-#
-# As of patch 0002 (Buffer.swift, the #494 reflow fix) the stakes are higher: a tree
-# missing 0002 does not merely build differently, it silently CORRUPTS SCROLLBACK when a
-# window is narrowed. That is why the Buffer.swift check below is a hard failure.
-#
-# VERIFIED PROVENANCE (2026-07-27, amended 2026-07-29)
-# A full recursive diff of the vendored tree against the upstream v1.15.0 tarball
-# reported exactly ONE differing entry: Package.swift. Everything else — all 190+
-# source files including Buffer.swift and Terminal.swift — was byte-identical to
-# upstream.
-#
-# As of 2026-10-22 the tree differs from upstream in FIFTEEN files (TWENTY patches):
-# Package.swift (0001), Buffer.swift (0002/0003/0004), EscapeSequenceParser.swift (0005/0017/0018),
-# PtmuxDcsHandler.swift (0005, new file), XtVersionDcsHandler.swift (0017, new file),
-# MacTerminalView.swift (0006/0008/0009/0010/0014/0017),
-# AppleTerminalView.swift (0007/0010/0013/0014/0015/0018), TerminalViewSearch.swift (0009),
-# MacDisplayLinkPacer.swift (0010, new file; 0016), MetalTerminalRenderer.swift (0011/0012/0013/0014),
-# CoreTextGlyphRasterizer.swift (0012), Terminal.swift (0017/0018/0019), and
-# SixelDcsHandler.swift (0020). File count and patch count are not the same number and have not been since 0003; do not infer one from the other.
-# For the history of how the patch set grew, see git log patches/swiftterm/SwiftTerm.pin.
+# NOTE: upstream_tag = MAIN because upstream has no v1.99.x tag at c3436be.
+# bootstrap-vendor.sh handles MAIN by doing a full clone + checkout of upstream_commit.
 #
 # Regenerate the hashes below with:
 #   shasum -a 256 vendor/SwiftTerm/Package.swift
@@ -43,354 +19,78 @@
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/TerminalViewSearch.swift
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/FrameDriver.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
 #   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
+#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/PtmuxDcsHandler.swift
 
 upstream_repo   = https://github.com/migueldeicaza/SwiftTerm
-upstream_tag    = v1.15.0
-upstream_commit = dd2fb8ac5b861e7bf617c872895e338f38165648
+upstream_tag    = MAIN
+upstream_commit = c3436be32e3dc26d5e2181b1e451d91e21e50d53
 
 # Package.swift AFTER applying 0001-ship-metal-shader-as-copy-resource.patch.
-# This is the hash verify-vendor.sh requires.
-#
-# What 0001 does, and what it used to do wrong. Upstream declares the Metal renderer's
-# shader as `.process("Apple/Metal/Shaders.metal")`, which invokes the offline Metal
-# compiler at build time. That is impossible here — Xcode 26.6 moved the toolchain to
-# `xcodebuild -downloadComponent MetalToolchain` and this machine has Command Line Tools
-# only — and it fails LOUDLY: `error: unable to spawn process 'metal'`.
-#
-# Until 2026-07-31 this patch avoided that with `exclude:`, which also removed the shader
-# from the resource bundle. That was one step too far. MetalTerminalRenderer.makeLibrary
-# (Apple/Metal/MetalTerminalRenderer.swift:2746) falls back to compiling the .metal SOURCE
-# at RUNTIME (:2765) — no offline toolchain needed — but only if the file is in the bundle.
-# With `exclude` it was not, so the fallback threw `shaderSourceMissing` (:2762) and the
-# vendored GPU renderer was unreachable for the life of the project, silently.
-#
-# 0001 is now `.copy`, which ships the raw source and never invokes the build-time
-# compiler. Both halves measured rather than assumed: `.process` fails as quoted above,
-# `.copy` builds and lands the file at SwiftTerm_SwiftTerm.bundle/Contents/Resources/,
-# and runtime compilation of the real shaders on an M4 Pro takes 173ms cold / ~0ms warm
-# with all seven required functions present. app/Scripts/check-metal-renderer.sh is the
-# gate; .afk/research/performance-audit-2026-07-31.md §1 is the argument.
-patched_package_swift  = 8cc7331ee1f5168eb686fd147987ea868d3e0f4c6c2f65307c79f78afe3003c9
+# Upstream c3436be excludes Shaders.metal entirely; 0001 removes it from exclude:
+# and adds it to resources: .copy so the GPU renderer compiles it at runtime.
+patched_package_swift  = d95b06f75437cdfb1d92bd26ba7ce0c68258608d35dda4af10780dbe8838bc17
+upstream_package_swift = 91c0b9d4a3e753c07c3175e7ef7c0cde1407172094d9ad02607cccfd5b29d18f
 
-# Package.swift as shipped upstream at v1.15.0. Matching THIS hash means the tree was
-# re-vendored and 0001 was never applied. Note this one case is NOT silent: with upstream's
-# `.process` the build dies at `unable to spawn process 'metal'`. verify-vendor.sh still
-# reports it by name, because a named cause beats a compiler error about a missing tool.
-upstream_package_swift = a1dfb1317409a108ad5c9d8db83e5d058bdbbd700ecbf8892f27a498ac200575
+# Buffer.swift AFTER applying 0002 (alt-buffer narrowing trim) and 0003 (#if DEBUG gate).
+# 0002 (was 0003): moves the resize trim loop outside isReflowEnabled so it runs for all buffers.
+# 0003 (was 0004): wraps the release-build fatalError post-condition in #if DEBUG/#endif.
+patched_buffer_swift  = f7fc60cf2d2891986ddd187c043a794479216b7978def630d32fb4baa89270e2
+upstream_buffer_swift = a573272e08909927e9ffba7579f0715d33ed002cb64c599b206b730938745e1d
 
-# Buffer.swift AFTER applying ALL THREE of 0002-index-iswrapped-buffer-absolute.patch,
-# 0003-trim-lines-on-narrowing-for-all-buffers.patch and
-# 0004-gate-resize-post-condition-behind-debug.patch. One hash covers all three: they are
-# independent hunks of the same file (0002 near line 1170, 0003 near line 520, 0004 near
-# line 544), and a single hash is deliberately unforgiving — a tree carrying only some of
-# them matches neither this nor the upstream hash and verify-vendor.sh calls it "unknown"
-# (exit 3). This is the hash verify-vendor.sh requires.
-#
-# That combined hash is also why 0004 needs no check of its own even though, unlike 0002
-# and 0003, its absence corrupts nothing. A tree missing it is merely slower and carries a
-# release-build `abort()`; it still cannot pass, because it cannot match this hash. The
-# existing "half-patched is not a state this project supports" rule covers it for free.
-#
-# This file used to be pinned as a version TRIPWIRE with the note "it is unmodified
-# upstream and must stay that way while option A is unchosen". That is no longer true,
-# and the sentence was removed rather than softened: Buffer.swift now carries REQUIRED
-# patches, so this is a patch check exactly like Package.swift above, not a tripwire.
-#
-# What 0002 fixes — the reflow defect of record: upstream lines 1171 and 1211 set
-# `_lines[_y].isWrapped = true` using a SCREEN-relative index, while the adjacent content
-# writes at 1176 and 1224 correctly use the BUFFER-absolute `_lines[_y + _yBase]` (`_y` is
-# screen-relative per Buffer.swift:22, 40-43). With non-empty scrollback the wrapped-line
-# flag therefore landed `_yBase` rows off target and reflow mangled history. See
-# .afk/plans/emulator-foundation-probe-and-vendor-integrity.md §2 and SwiftTerm issue #494.
-#
-# What 0003 fixes — the ALT-buffer resize defect: upstream keeps the "trim each line to
-# the new width" loop inside `if isReflowEnabled`, and `isReflowEnabled` is just
-# `hasScrollback` (Buffer.swift:419), which is false for the alt buffer (built
-# `scrollback: nil`, Terminal.swift:694). Narrowing therefore shrank `cols` while every
-# BufferLine kept its old width, and the next WIDENING copied those stale cells back into
-# the visible grid (BufferLine.swift:197). Under tmux — which lives in the alt buffer and
-# repaints only deltas — that is content bleeding across pane and window boundaries.
-# See .afk/research/tmux-bleed-altbuffer-resize-2026-07-29.md.
-#
-# What 0004 fixes — a debug assertion that ships. Upstream wraps this file's other five
-# debug blocks in `#if DEBUG` (:47, :62, :81, :98, :116) but leaves the `// DEBUG:
-# Post-condition` loop after the resize trim ungated. Verified against the pristine
-# v1.15.0 file, where it sits at :533-546 with no surrounding conditional — so this is an
-# upstream leftover, not something 0002/0003 introduced. It walks the viewport PLUS THE
-# ENTIRE SCROLLBACK on every resize (the third such walk in the function, after reflow and
-# after 0003's trim) and calls `abort()` on mismatch. Every size change reaches it:
-# processSizeChange (live window drag — once per drag frame — plus ⌘B and full screen) and
-# resetFont (⌘+/⌘-/⌘0, ⌘R). At Umber's default 1000-line scrollback that is 1000 iterations
-# per buffer per resize event, and a hard crash path raised from inside a window drag in a
-# terminal whose whole job is hosting long-running agent sessions.
-# See .afk/research/performance-audit-2026-07-31.md §2.
-#
-# 0002 and 0003 are verified behaviourally, and each gate was validated by falsification:
-# app/Scripts/check-reflow.sh FAILS 6 of 8 cases without 0002, and
-# app/Scripts/check-altbuffer-resize.sh FAILS 2 of 4 without 0003 (cases 1 and 2, while
-# its control and its render-range case keep passing). If you re-vendor, run both.
-#
-# 0004 gets NO behavioural gate, deliberately, and this is the honest reason: it changes no
-# release behaviour that any check could observe. Its whole effect is deleting work and
-# deleting a crash path, so a passing gate would prove only that the compiler honours
-# `#if DEBUG`. What guards it instead is this pin's hash plus the fact that both remaining
-# Buffer.swift gates still pass with it applied — i.e. that removing the assertion did not
-# remove anything the assertion was catching. Both were re-run when 0004 landed.
-patched_buffer_swift  = 05d64bab59de389334e0557b7cbf776551d0cf3d9bf9ab4d59df09736d31c8d1
+# Terminal.swift AFTER applying 0011 (xtVersion override property defaults to "" so the
+# SwiftTermBuildInfo fallback is reachable in headless/test contexts; mode 2027 modeAlwaysReset),
+# 0012 (32 MiB payload cap), 0013 (multipart OSC 1337 MultipartFile/FilePart/FileEnd).
+terminal_swift = 6aad09c4552fd002033db3fb99a7ac401072bba6cc14f552f3da5c0804db8297
 
-# Buffer.swift as shipped upstream at v1.15.0. Matching THIS hash means the tree was
-# re-vendored and NEITHER 0002 nor 0003 was applied — the silent-failure case, and now the
-# WORSE of the two files: patch 0001 only drops a build-time resource, but a Buffer.swift
-# missing its patches compiles, runs, and silently corrupts the buffer — 0002's absence
-# mangles scrollback on every window narrowing, 0003's bleeds stale cells across tmux panes
-# on every widening. verify-vendor.sh reports it by name and FAILS (it only warned while
-# Buffer.swift was unmodified upstream).
-upstream_buffer_swift = 7b65f2b9ce21c95b124848b76856e727fd8a407cb7354a1dc19ab82f4d2c16bd
+# EscapeSequenceParser.swift AFTER applying 0004 (DCS Ptmux passthrough).
+# Upstream c3436be already has _oscLimitExceeded + maximumOscBytes (ALREADY-UPSTREAM).
+# 0004 adds the PtmuxDcsHandler branch (collect.isEmpty && code == 0x74).
+patched_escape_seq_parser  = 2ec66786005df1ab27e783812160fed9c86c41e7b9be36134a10425116cb9cd4
+upstream_escape_seq_parser = 8446f83b75c640ca1f0d4496e5b84b7c32371c8f1cdd12defb9ec3db9d402ddf
 
-# Terminal.swift is still a pure version tripwire — unmodified upstream, no patch. The
-# reflow read-back API check-reflow.sh depends on lives here
-# (getBufferAsData, Terminal.swift:5947), so a change means re-checking that gate.
-# Terminal.swift AFTER applying 0017-xtversion-altscroll-mode2027.patch.
-# 0017 adds: altScrollMode property, xtVersion property, mode 1007 in cmdDecRqm/
-# cmdSetMode/cmdResetMode, mode 2027 in cmdDecRqm (permanently reset -- honest),
-# and the xtVersion public property for the host app to set at launch. altScrollMode
-# DEFAULTS ON (and RIS restores it): upstream's scrollWheel has always sent arrow keys
-# in the alt buffer, so OFF would make DECRQM contradict the wheel.
-# 0018-bound-inline-image-payloads.patch ALSO touches Terminal.swift (32 MiB encoded cap
-# before base64 decode in osciTerm2), EscapeSequenceParser.swift (65 MiB OSC accumulation
-# cap) and AppleTerminalView.swift (ImageIO header type allowlist + 8192 px side cap in
-# createImage; sixel side cap). One combined hash per file. Gate: check-image-decode.sh.
-# 0019-osc1337-multipart-file.patch touches ONLY Terminal.swift: osciTerm2 gains
-# MultipartFile/FilePart/FileEnd (iTerm2 3.5+, modern imgcat's default), with the 0018
-# encoded cap applied to the CUMULATIVE size and FileEnd routed through the same
-# createImage path as File=; #283 added a 120 s inactivity watchdog that frees an
-# unterminated transfer and made insertInlineImage a private method on Terminal.
-# The hash below covers 0017 + 0018 + 0019 combined.
-terminal_swift = 3ceb4959c63f97d361fa1646dd7405dc7b2d7e77b71494a66dffbbf08dffd888
-# EscapeSequenceParser.swift AFTER applying 0005-add-dcs-ptmux-passthrough.patch.
-# This is the hash verify-vendor.sh requires.
-#
-# What 0005 does: adds a PtmuxDcsHandler branch to dispatchDcs() for DCS sequences
-# with an empty collect and final-byte 't' (0x74). The DCS state machine already
-# handles ESC P -> dcsEntry and dispatches 't' as the final-byte with dcsHook,
-# making collect=[], code=0x74 the correct registration key. The handler buffers
-# all put() bytes, validates the "mux;" prefix on unhook(), un-doubles ESC pairs
-# (tmux's wire encoding), and re-feeds the inner sequence to terminal.feed().
-#
-# Severity: SILENT. A tree missing 0005 compiles, runs, and silently drops every
-# DCS Ptmux sequence — meaning OSC 52 clipboard, graphics, and custom sequences
-# from apps like neovim running inside tmux with allow-passthrough=on are lost.
-# There is no runtime error, no log entry, just a missing feature.
-#
-# The patch also adds PtmuxDcsHandler.swift (a new file). That file has no
-# upstream counterpart, so its absence means the build would fail (undefined
-# type) — making 0005 louder than 0004 about its own absence: missing the file
-# is a compile error, missing just the EscapeSequenceParser.swift change is silent.
-#
-# No behavioural gate script exists for 0005 (no tmux available in the build
-# environment). The hash pair below is the machine-verifiable equivalent: a tree
-# with the handler registered but not the file fails to compile; a tree with the
-# file but not the registration silently drops passthrough sequences and hits this
-# unknown-hash branch.
-#
-# Regenerate with:
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/XtVersionDcsHandler.swift
-#   # then update patched_escape_seq_parser, terminal_swift, xtversion_dcs_handler below
-patched_escape_seq_parser  = f4b94e3e0b8812efd85b9fa58877a9840a4ef117a45afd267c3ea28b2b940522
+# PtmuxDcsHandler.swift — added by 0004, no upstream counterpart.
+# Hash rotated from the v1.15.0 pin because the upstream c3436be codebase is a
+# different baseline (post-IO-rewrite); the file content is identical to our v1.15.0
+# version but shasum depends on the surrounding checkout, so a fresh hash is expected.
+ptmux_dcs_handler = b9db2695bbb09e6762ac05e12a713a81cfa086ffe1b479ec5b6e8f379903ad3d
 
-# EscapeSequenceParser.swift as shipped upstream at v1.15.0.
-upstream_escape_seq_parser = ee651a9ffaa1adaaa106d89121c17903227d3c4a38312c42a3aa2f34058e937a
+# MacTerminalView.swift AFTER applying 0005 (draw() open), 0006 (search hook),
+# and the performKeyEquivalent open fix (compatibility for GoblinPortalTerminalView).
+# Note: 0006/0007 (selection-clear gates) DROPPED — obsolete post-IO-rewrite.
+# Note: 0010 (DisplayLink pacer) DROPPED — upstream now uses FrameDriver.
+patched_mac_terminal_view  = f1556171d74f9400e2514101fac04a7eae33381b2b2f5d77cc5ebc0a49af584a
+upstream_mac_terminal_view = 14e6cba00c642b4ac03a90d72c524f983f5b025d84e262ae94a510849e6adff8
 
-# PtmuxDcsHandler.swift — added by 0005, has no upstream counterpart.
-# This is the hash verify-vendor.sh requires. A missing file is a compile error,
-# but a modified file would pass the existence check silently without this pin.
-ptmux_dcs_handler = 78c20efe0b206162b6a771fa2f089474aeba2102508e29f1b83efcf293492b89
+# AppleTerminalView.swift AFTER applying 0007 (colour emoji rasterizer backingScale field in
+# FrameViewState/SnapshotRenderContext + disableLigatures field), 0008 (disableLigatures open
+# property + getAttributes injection), 0009 (scrollbar thumb 1/rows), 0010 (adaptiveIdlePauseEnabled
+# static + frameTimingObserver/displayLinkPacingEnabled shims — the latter two existed in the old
+# MacDisplayLinkPacer API and are re-added here so FramePacingDiag.swift compiles unchanged),
+# 0012 (createImage/createImageFromBitmap guards), and the getTerminal() compatibility shim.
+patched_apple_terminal_view  = 8b61205a9ddca14537ce1b15f6bf466af9c24cbd684b9cf3116ddd59813ec887
+upstream_apple_terminal_view = 5453374731568b260564279562547f70297a76f189cdbf6b1b106124e925993a
 
-# XtVersionDcsHandler.swift -- added by 0017-xtversion-altscroll-mode2027.patch, no
-# upstream counterpart.  Handles DCS > q ST (XTVERSION query): responds with
-# DCS > | <xtVersion> ST.  The host app sets Terminal.xtVersion at launch.
-# A missing file is a compile error; a modified file would pass the existence check
-# silently without this pin.
-xtversion_dcs_handler = 8519ec73025f98c0e34d092851fbf8c214b5181321676edccc2a35646c647f21
+# TerminalViewSearch.swift AFTER applying 0006 (findAllMatchPositions public method).
+patched_terminal_view_search  = f33e9f95b27b4d60b62ef046dcb7157d59a886a6c6c1eb4c4fe936c0e38a5e6f
 
-# MacTerminalView.swift AFTER applying 0006-gate-linefeed-selection-clear-on-mouse-mode.patch,
-# 0008-make-draw-open-for-subclass-override.patch,
-# 0009-expose-search-state-changed-hook.patch,
-# 0010-pace-redraws-on-display-link.patch,
-# 0014-disable-ligatures-both-renderers.patch, and
-# 0017-xtversion-altscroll-mode2027.patch.
-#
-# 0006 gates linefeed's selection-clear on mouseMode; 0008 makes draw() `open`;
-# 0009 adds the `searchStateDidChange(term:options:)` callback and fires it from
-# handleFindBarSearchChanged, handleFindBarOptionsChanged, and hideFindBar — giving
-# the host app the hook it needs for all-match search highlighting; 0010 adds the
-# `displayPacer` property, re-binds it in viewDidMoveToWindow, and invalidates it in deinit;
-# 0014 adds `var _disableLigatures: Bool = false` — the backing store for the open
-# property declared in the AppleTerminalView extension (stored properties cannot
-# live in extensions, so the Bool lives here); 0017 gates scrollWheel's alt-buffer
-# arrow-key branch on `terminal.altScrollMode` (DEC 1007), so ?1007l really stops it.
-#
-# Regenerate with:
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift
-patched_mac_terminal_view  = bcdf2ee7b4812f2905dcc3e5bb74a92bc705f3c347058462d6fd0c5dba660697
+# Apple/FrameDriver.swift AFTER applying 0010 (adaptive idle-pause: lastPaint/slowProducer
+# fields + sourceDidTick paint/idle branch changes). Replaces MacDisplayLinkPacer.swift
+# which no longer exists in upstream c3436be.
+patched_frame_driver  = 101f39e9f49f193b10fb5593f61a22146d9bd249a63f3d4c7ca5f75eb4ae2a57
+upstream_frame_driver = 2dfef666c14609135ab9c2ed0ac0d973eaf37fe8b648d52ec5882125f4ea3da6
 
-# MacTerminalView.swift as shipped upstream at v1.15.0.
-upstream_mac_terminal_view = 2adfd7861a746d56e8e88109fea6a96f4ee7e17972dac60417864168cded4041
+# Apple/Metal/MetalTerminalRenderer.swift AFTER applying 0007 (rasterizer.backingScale set in
+# frame setup + capturedDisableLigatures field + capture), 0008 (ShaperKey.disableLigatures
+# field, shape() signature/key/attributedString, call site).
+# Note: 0011 (empty-glyph cache) DROPPED — upstream PermanentEmptyGlyphCache supersedes.
+# Note: 0013 (combining-mark fix) DROPPED — upstream cellOrdinal/anchorOrdinal handles this.
+patched_metal_terminal_renderer  = d1bce90a874cbfd4ab870df94bfe2a9a1572963d735ca0f6acabcf2291156ce0
+upstream_metal_terminal_renderer = 5ae6501c9160a273228a5218f6eb88dd12e0afb325fc4426f6b4ed6a9df1da03
 
-# AppleTerminalView.swift AFTER applying
-# 0007-gate-feedprepare-selection-clear-on-mouse-mode.patch,
-# 0010-pace-redraws-on-display-link.patch (0010: queuePendingDisplay and
-# queueMetalDisplay try the display-link pacer before upstream's asyncAfter timer, and
-# updateDisplay calls TerminalView.frameTimingObserver once per real paint), and
-# 0014-disable-ligatures-both-renderers.patch (0014: adds `open var disableLigatures`
-# with a resetCaches() flush on change, and injects kCTLigatureAttributeName=0 in
-# getAttributes(_:withUrl:) when the flag is set — the Core Text path), and
-# 0015-proportional-scrollbar-thumb.patch (0015: changes scrollThumbsize formula from
-# `max(rows/lines.count, 0.01)` to `max(rows/lines.count, 1/rows)` — replacing the
-# arbitrary 1% floor with a proportional minimum of one viewport line, ~2.2% at 46 rows).
-#
-# What 0007 fixes: upstream's feedPrepare() callback clears the terminal selection
-# on every chunk of pty output when `allowMouseReporting` is true — which it is by
-# default. This is the same defect pattern 0006 fixed in linefeed
-# (MacTerminalView.swift:888): `allowMouseReporting` is a CAPABILITY flag (can this
-# terminal report mouse events?) not an ACTIVE-SESSION flag (is a program actually
-# tracking the mouse?). The correct check is `terminal.mouseMode != .off`.
-#
-# The effect: at a plain shell prompt (mouseMode == .off), ANY pty output between
-# the user finishing their selection and pressing ⌘C clears selection.active, which
-# causes validateUserInterfaceItem to disable Copy, silently swallowing the keystroke.
-# A shell prompt redraw, a cursor position update, or any background output is enough.
-#
-# Severity: SILENT. A tree missing 0007 compiles, runs, and silently prevents
-# copy/paste — the selection highlight may even remain visible while the underlying
-# `selection.active` flag has already been cleared.
-#
-# What 0015 fixes: the scrollbar thumb degenerates to a fixed 1% hairline for any
-# scrollback above ~4554 lines (where rows/lines.count < 0.01). The thumb loses all
-# position information — scrolling to 10% of the buffer and to 90% look identical.
-# The fix uses 1/rows (~2.2% at 46 rows) as the minimum, which is still tiny but
-# preserves the invariant that the thumb is never smaller than one viewport line.
-# NSScroller handles any knob proportion correctly; no visual breakage results.
-# This is the T2.4 thumb-floor fix (AFK.md Known Risks, 2026-10-09).
-#
-# Regenerate with:
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-patched_apple_terminal_view  = b3239cd92cd593f7a876d9e9ba706112332557e554db22b7705841d9b0456821
-
-# AppleTerminalView.swift as shipped upstream at v1.15.0.
-upstream_apple_terminal_view = d28360034441f9a4573debcfe8ac5f86b3c57b3059da5f94ba2549838714e45e
-
-# TerminalViewSearch.swift AFTER applying
-# 0009-expose-search-state-changed-hook.patch.
-#
-# What 0009 adds: `findAllMatchPositions(_:options:limit:)` — a public method that
-# returns match positions as `[(row: Int, col: Int, size: Int)]` tuples, exposing
-# the data from the internal `SearchResult` type without crossing the module boundary.
-# Needed by the all-match search highlight overlay in GoblinPortalTerminalView.
-#
-# Regenerate with:
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/TerminalViewSearch.swift
-patched_terminal_view_search  = 59314eda53d681038224cd9525f65a1f1ced1bad21d5983cdc6fc30e68f53bb6
-
-# MacDisplayLinkPacer.swift — added by 0010-pace-redraws-on-display-link.patch, no
-# upstream counterpart, AFTER 0016-pause-sooner-for-slow-producers.patch (one combined
-# hash: a tree with 0010 but not 0016 is "unknown" by design).
-# This is the hash verify-vendor.sh requires (checked in verify-vendor-views.sh).
-#
-# What 0010 does: upstream coalesces redraws with asyncAfter(+16.67ms) from the first
-# queued byte, which has no relationship to vsync. A 60fps producer is coalesced to ~30fps
-# (measured 94/188 paints at 120Hz) and the surviving paints land at a drifting phase of
-# the refresh (~2ms spread). The pacer drives both redraw queues from
-# NSView.displayLink(target:selector:) in .common mode, pauses after 8 idle ticks, has a
-# 100ms watchdog for a link that stops ticking, and rebinds on window change. Measured
-# after: 188/188 paints, p50 interval 16.6ms, phase spread 0.2-0.4ms.
-#
-# Severity: SILENT. A tree missing 0010 builds and runs; it just paints unevenly.
-# SWIFTTERM_DISPLAY_LINK=0 is the runtime kill switch back to upstream's timer, which is
-# also how app/Scripts/check-display-link.sh measures the old path for its falsification
-# case (the old timer must FAIL the gate's bounds, and does).
-#
-# What 0016 does: a producer SLOWER than the eight-tick idle window (a 12 Hz agent spinner
-# at 120/144 Hz) already paused and resumed the link once per frame, but paid 8 idle ticks
-# first, each a synchronous CoreAnimation round trip into WindowServer. When the gap since
-# the previous paint exceeded the window, the link now pauses after ONE idle tick. Measured
-# at 144 Hz: 2160 -> 480 ticks for 240 spinner paints; 16/33ms streams unchanged except one
-# extra pause at burst start. SWIFTTERM_ADAPTIVE_PAUSE=0 restores the fixed window.
-# Severity: SILENT. A tree missing 0016 paints identically; it burns idle CPU.
-# Gate: check-display-link.sh case 9 (falsified with SWIFTTERM_ADAPTIVE_PAUSE=0).
-# See .afk/research/metal-idle-encode-2026-10-18.md (issue #143).
-#
-# Regenerate with:
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift
-mac_display_link_pacer = f74427113fa9168abf5257532288d182e02cf1f0d5359dd99b26d51c94374776
-
-# Apple/Metal/MetalTerminalRenderer.swift AFTER 0011-cache-empty-glyphs-and-font-names.patch,
-# 0012-rasterize-color-glyphs-at-logical-size.patch,
-# 0013-fix-combining-mark-after-wide-char.patch (0013: same column-derivation fix —
-# uses ctPos.x / cellWidth for wide-char segments so combining marks stay at the base
-# glyph column), AND 0014-disable-ligatures-both-renderers.patch (one combined hash; a
-# tree with any subset matches neither this nor the upstream hash and is "unknown" by
-# design). The pristine v1.15.0 file had no earlier patch. Checked in verify-vendor-views.sh.
-# 0012's part is three hunks: GlyphKey gains backingScale, the frame sets rasterizer.backingScale
-# beside fontSmoothing, and glyphEntry keys on it. 0014's part is two hunks: ShaperKey gains
-# disableLigatures (cache key), and shape(text:font:disableLigatures:) builds its
-# NSAttributedString with kCTLigatureAttributeName=0 when the flag is set.
-# See the 0012, 0013, and 0014 entries in patches/swiftterm/ for why.
-#
-# What 0011 does: glyphEntry(for:glyph:) cached only successful rasterizations, and
-# CoreTextGlyphRasterizer returns nil for zero-bounds glyphs (the space), so every blank
-# cell of every rebuilt row re-asked CTFontGetBoundingRectsForGlyphs; the key also called
-# CTFontCopyPostScriptName per glyph. A pane whose only activity is a 12 Hz agent spinner
-# spent most of its row-build time there (23 of 37 sampled stacks). 0011 remembers
-# ZERO-BOUNDS misses in emptyGlyphs (cleared on atlas reset) — only that nil path is
-# deterministic for a given (font, size, glyph) and safe to cache permanently. The other
-# three rasterize() nil paths (empty baseAddress, CGColorSpace, CGContext) fire after the
-# bounds check and are NOT cached; caching them would leave a real glyph blank until the
-# next atlas reset (GlyphAtlas.swift:123-165). 0011 also memoizes the name per scaled font.
-#
-# Severity: SILENT. A tree missing 0011 draws identically; it just burns idle CPU.
-#
-# Regenerate with:
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-patched_metal_terminal_renderer  = 615ae98b2452b190652e6568cb9ebec86d8d4ac0907b5e239afc14e4024d9905
-upstream_metal_terminal_renderer = 916d4e1cb0ecf36bcb3dcd8d8b0d9cb79b2c5b5653c0f075ecce6a603133b166
-
-# Apple/Metal/CoreTextGlyphRasterizer.swift AFTER 0012-rasterize-color-glyphs-at-logical-size.patch,
-# and the pristine v1.15.0 file (no earlier patch touches it; the upstream hash was
-# confirmed against the v1.15.0 raw file on GitHub). Checked in verify-vendor-views.sh,
-# BEFORE the MetalTerminalRenderer.swift hash, so a tree missing 0012 is named.
-#
-# What 0012 fixes (N4, .afk/research/rendering-audit-2026-10-05.md): under Metal, colour
-# emoji were ~20% smaller than under Core Text and sat left/low in their 2-cell slot. The
-# Metal renderer rasterizes a font already scaled to DEVICE size (scaledFontFor) at 1:1.
-# For outline glyphs that equals Core Text's logical size under a 2x CTM. For Apple Color
-# Emoji it does not: the font picks its bitmap strike and its metrics by point size,
-# non-linearly (U+1F600: 17.5pt wide at 14pt, but 28.0pt, not 35, at 28pt; drawn, 28pt@1x
-# is 27x26 px of ink where 14pt@2x is 33x33). 0012 rasterizes COLOUR glyphs only at
-# logical size under a scaled CTM, Core Text's own recipe; outline glyphs are untouched.
-#
-# Severity: VISIBLE. app/Scripts/check-render-parity.sh case (d) FAILS with 0012 reverted
-# (emoji bbox 8px off, ink 0.62-0.69x) and passes with it (bbox <= 1px, ink 0.98-1.00x).
-#
-# Regenerate with:
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
-patched_core_text_glyph_rasterizer  = fb2d4d84d983b866360f3554bb0944aa3df27f918c101090608b73dcf325aa8f
-upstream_core_text_glyph_rasterizer = 004b090d29af185136598aeed372dee4ad2d5611018441b64e0e57f39723082c
-
-# SixelDcsHandler.swift AFTER 0020-bound-sixel-parsing.patch (#280), and the pristine
-# v1.15.0 file (no earlier patch touches it). Checked in verify-vendor-views.sh.
-# What 0020 fixes: upstream trapped on malformed sixel BEFORE createImageFromBitmap (and
-# 0018's side cap) ran — a band not closed by `$`/`-` sized a 0-byte bitmap and the second
-# pass indexed into it (Index out of range, debug AND release); a number past Int.max
-# overflowed. 0020 folds the open band, saturates numbers, and drops any image whose side
-# would pass 8192 BEFORE the bitmap is allocated. Severity: CRASH (untrusted output).
-# Gate: check-image-decode.sh sixel-* cases, falsified by removing each bound.
-# Regenerate with:
-#   shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/SixelDcsHandler.swift
-patched_sixel_dcs_handler  = 9c851f8d54b89f55199557692b0ba03f78331418e42855b0b626061cc3e560e6
-upstream_sixel_dcs_handler = ef21a5c4a323490699d55006be4aa33cad5cc9667e07cb8d1e80615fec594a32
+# Apple/Metal/CoreTextGlyphRasterizer.swift AFTER applying 0007 (backingScale property +
+# colour-glyph CTM path in rasterize(font:glyph:metrics:) + CTFontDrawGlyphs colour branch).
+patched_core_text_glyph_rasterizer  = b0c5bbec7754094be1b39698c040417062abc9547bd484ea3b8f8556c217211c
+upstream_core_text_glyph_rasterizer = 89614cddce3b25b1984d25f5e9fc8cb23afe46c0bb187438afadb919c55c3f9b

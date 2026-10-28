@@ -1,0 +1,102 @@
+Patch 0012 (ported to upstream c3436be): draw colour emoji under Metal at the size and
+position Core Text draws them.
+
+N4 (.afk/research/rendering-audit-2026-10-05.md): under Metal, colour emoji were ~20%
+smaller than under Core Text and sat left/low in their 2-cell slot. Root cause: the Metal
+renderer hands the rasterizer a font already scaled to DEVICE size and the rasterizer draws
+it 1:1. For outline fonts that equals drawing at logical size under a 2x CTM. For Apple
+Color Emoji it does not: the font picks its bitmap strike and metrics by point size,
+non-linearly. Fix: for colour glyphs only, rasterize the LOGICAL-size font under a scaled
+CTM, Core Text's own recipe. Outline glyphs unchanged.
+
+Port notes for c3436be:
+- CoreTextGlyphRasterizer.rasterize now returns GlyphRasterizationResult and takes an
+  optional metrics: GlyphMetrics parameter. The colour-glyph path re-measures using the
+  logical font so it overrides the pre-supplied metrics; the outline path passes them through.
+- GlyphKey now uses rasterFontToken:UInt32, not fontName+size. backingScale is NOT added
+  to GlyphKey because colour glyphs at different backing scales get different rasterFontTokens
+  (scaledFontFor produces a font at device size = logical * scale, so 14pt@2x and 28pt@1x
+  already get different tokens). No GlyphKey change needed.
+- The rasterizer.backingScale setter call is added beside rasterizer.fontSmoothing in the
+  frame setup path.
+
+--- a/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
++++ b/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift
+@@ -12,5 +12,10 @@ enum GlyphRasterizationResult {
+ final class CoreTextGlyphRasterizer {
+     var fontSmoothing: Bool = true
++    // Patch 0012: device pixels per point for the frame being built. The caller sets this
++    // once per frame beside fontSmoothing. For colour glyphs (kCTFontTraitColorGlyphs) the
++    // rasterizer rebuilds the logical-size font under a scaled CTM instead of drawing the
++    // device-size font at 1:1 - Core Text's own recipe, fixing ~20% size/offset error.
++    var backingScale: CGFloat = 1
+ #if DEBUG
+     var forceContextCreationFailureForTesting = false
+ #endif
+@@ -18,13 +22,33 @@ final class CoreTextGlyphRasterizer {
+     func rasterize(font: CTFont, glyph: CGGlyph) -> GlyphRasterizationResult {
+         rasterize(font: font, glyph: glyph,
+                   metrics: GlyphMetrics.measure(font: font, glyph: glyph))
+     }
+ 
+-    /// Rasterizes with the same unrounded bounds used by slot fitting.
+-    /// This path performs no Core Text bounds or advance query.
++    /// Rasterizes with the same unrounded bounds used by slot fitting.
++    /// For colour glyphs, remeasures using the logical-size font (patch 0012).
+     func rasterize(font: CTFont, glyph: CGGlyph, metrics: GlyphMetrics) -> GlyphRasterizationResult {
+         var glyphVar = glyph
+-        let rect = metrics.inkBounds
++
++        // Patch 0012: colour glyphs only - rasterize at LOGICAL size under a scaled CTM.
++        // Outline glyphs keep the upstream device-size path untouched.
++        let ctmScale: CGFloat = {
++            guard backingScale > 1 else { return 1 }
++            return CTFontGetSymbolicTraits(font).contains(.traitColorGlyphs) ? backingScale : 1
++        }()
++        // For colour glyphs, rebuild the logical font and re-measure at that size.
++        let drawFont: CTFont
++        let rect: CGRect
++        if ctmScale != 1 {
++            let logicalSize = CTFontGetSize(font) / ctmScale
++            drawFont = CTFontCreateCopyWithAttributes(font, logicalSize, nil, nil)
++            var lv = glyph
++            let logicalRect = CTFontGetBoundingRectsForGlyphs(drawFont, .default, &lv, nil, 1)
++            rect = logicalRect.applying(CGAffineTransform(scaleX: ctmScale, y: ctmScale))
++        } else {
++            drawFont = font
++            rect = metrics.inkBounds
++        }
++
+         if rect.width <= 0 || rect.height <= 0 {
+             return .empty
+         }
+@@ -79,8 +109,15 @@ final class CoreTextGlyphRasterizer {
+             context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+             context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+ 
+-            var positions = [CGPoint(x: -minX, y: -minY)]
+-            CTFontDrawGlyphs(font, &glyphVar, &positions, 1, context)
++            if ctmScale != 1 {
++                // Colour glyph: scale CTM and draw at logical-point origin.
++                context.scaleBy(x: ctmScale, y: ctmScale)
++                var positions = [CGPoint(x: -minX / ctmScale, y: -minY / ctmScale)]
++                CTFontDrawGlyphs(drawFont, &glyphVar, &positions, 1, context)
++            } else {
++                var positions = [CGPoint(x: -minX, y: -minY)]
++                CTFontDrawGlyphs(font, &glyphVar, &positions, 1, context)
++            }
+             return true
+         }
+         if !drew {
+--- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
++++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+@@ -1353,6 +1353,9 @@ final class MetalTerminalRenderer: Sendable {
+ #if os(macOS)
+         rasterizer.fontSmoothing = renderContext.fontSmoothing
+         let scale = renderContext.renderingScale
++        // Patch 0012: colour glyphs rasterized at logical size under this scale.
++        // Set once per frame beside fontSmoothing; the rasterizer reads it per glyph.
++        rasterizer.backingScale = scale
+ #else
+         let scale = renderContext.renderingScale
+ #endif

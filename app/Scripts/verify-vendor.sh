@@ -1,23 +1,27 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its twenty local patches applied.
+# WITH its thirteen local patches applied (re-vendor 2026-10-27, upstream c3436be).
 #
 # Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
-# fine while silently corrupting scrollback (0002), bleeding stale cells across
-# tmux panes (0003), shipping a release-build abort() (0004), dropping DCS Ptmux
-# sequences (0005), breaking copy/paste (0006, 0007), and painting on a free-running
-# timer that drops every other frame of a 60fps producer (0010), re-asking CoreText
-# about every blank cell on every Metal row rebuild (0011), drawing colour emoji ~20%
-# small and off-centre under Metal (0012), misplacing combining marks after wide
-# CJK characters over the next narrow cell (0013), and silently ignoring `ligatures: false`
-# (0014), and rendering the scrollbar thumb as a fixed 1% hairline past ~4554 lines
-# (0015). This script makes that silent case loud. The view-file checks (0006-0016)
-# live in verify-vendor-views.sh. Called first by make-app-bundle.sh.
-#
-# Buffer.swift carries 0002/0003/0004 under ONE combined hash — half-patched
-# matches neither and lands in the exit-3 "unknown" branch by design. See the
-# pin file (patches/swiftterm/SwiftTerm.pin) for detailed per-patch rationale.
+# fine while silently corrupting behaviour. This script makes that loud.
+# Patches 0001-0013 (renumbered from v1.15.0's 0001-0019):
+#   0001 Metal shader as .copy (was 0001)
+#   0002 alt-buffer narrowing trim (was 0003)
+#   0003 #if DEBUG resize guard (was 0004)
+#   0004 DCS Ptmux passthrough (was 0005)
+#   0005 draw() open (was 0008)
+#   0006 search-state hook (was 0009)
+#   0007 colour emoji logical-size rasterizer (was 0012)
+#   0008 disable-ligatures both renderers (was 0014)
+#   0009 proportional scrollbar thumb (was 0015)
+#   0010 adaptive idle-pause in FrameDriver (was 0016, ported from MacDisplayLinkPacer)
+#   0011 xtVersion host override + mode 2027 (was 0017 partial)
+#   0012 bound inline-image payloads (was 0018 partial — OSC cap already upstream)
+#   0013 OSC 1337 multipart (was 0019)
+# Dropped (ALREADY-UPSTREAM or OBSOLETE post-IO-rewrite):
+#   0002 (isWrapped), 0006/0007 (selection-clear), 0010 (MacDisplayLinkPacer),
+#   0011 (empty-glyph cache), 0013 (combining-mark), 0020 (sixel bounds)
 #
 # Usage:
 #   ./Scripts/verify-vendor.sh            # verify, print one OK line
@@ -26,8 +30,7 @@
 # Exit codes:
 #   0  vendored tree matches the pin
 #   1  vendor/ missing, or pin/patch files missing
-#   2  present but UNPATCHED (the silent case this script exists to catch) —
-#      either Package.swift is missing patch 0001, or Buffer.swift is missing 0002/0003/0004
+#   2  present but UNPATCHED (the silent case this script exists to catch)
 #   3  present but a hash matches neither patched nor upstream (unknown revision)
 #
 set -euo pipefail
@@ -35,91 +38,38 @@ set -euo pipefail
 QUIET=0
 [[ "${1:-}" == "--quiet" ]] && QUIET=1
 
-# Scripts/ lives in app/; the vendored copy and its patches are at the repo root.
 cd "$(dirname "$0")/.."
 APP_ROOT="$(pwd)"
 REPO_ROOT="$(cd .. && pwd)"
 
 VENDOR="$REPO_ROOT/vendor/SwiftTerm"
 PIN="$REPO_ROOT/patches/swiftterm/SwiftTerm.pin"
-PATCH="$REPO_ROOT/patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch"
-PATCH_REFLOW="$REPO_ROOT/patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch"
-PATCH_ALTSIZE="$REPO_ROOT/patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch"
-PATCH_DEBUGGATE="$REPO_ROOT/patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch"
-PATCH_PTMUX="$REPO_ROOT/patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
-PATCH_LFSEL="$REPO_ROOT/patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
-PATCH_FEEDSEL="$REPO_ROOT/patches/swiftterm/0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
-PATCH_PACE="$REPO_ROOT/patches/swiftterm/0010-pace-redraws-on-display-link.patch"
-PATCH_GLYPHMISS="$REPO_ROOT/patches/swiftterm/0011-cache-empty-glyphs-and-font-names.patch"
-PATCH_COLORGLYPH="$REPO_ROOT/patches/swiftterm/0012-rasterize-color-glyphs-at-logical-size.patch"
-PATCH_COMBINING="$REPO_ROOT/patches/swiftterm/0013-fix-combining-mark-after-wide-char.patch"
-PATCH_THUMB="$REPO_ROOT/patches/swiftterm/0015-proportional-scrollbar-thumb.patch"
-PATCH_SLOWPAUSE="$REPO_ROOT/patches/swiftterm/0016-pause-sooner-for-slow-producers.patch"
-PATCH_0017="$REPO_ROOT/patches/swiftterm/0017-xtversion-altscroll-mode2027.patch"
-PATCH_0018="$REPO_ROOT/patches/swiftterm/0018-bound-inline-image-payloads.patch"
-PATCH_0019="$REPO_ROOT/patches/swiftterm/0019-osc1337-multipart-file.patch"
-PATCH_0020="$REPO_ROOT/patches/swiftterm/0020-bound-sixel-parsing.patch"
 
 say() { [[ "$QUIET" == "1" ]] || echo "$@"; }
 err() { echo "$@" >&2; }
 
-# `key = value` out of the pin, tolerating surrounding whitespace. Comments start
-# with # and are skipped by the anchored key match.
 pin_value() {
   sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$PIN" | head -1 | tr -d '[:space:]'
 }
 
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
-# --- the pin and patch themselves must be present ------------------------------
-for required in "$PIN" "$PATCH" "$PATCH_REFLOW" "$PATCH_ALTSIZE" "$PATCH_DEBUGGATE" "$PATCH_PTMUX" "$PATCH_LFSEL" "$PATCH_FEEDSEL" "$PATCH_PACE" "$PATCH_GLYPHMISS" "$PATCH_COLORGLYPH" "$PATCH_COMBINING" "$PATCH_THUMB" "$PATCH_SLOWPAUSE" "$PATCH_0017" "$PATCH_0018" "$PATCH_0019" "$PATCH_0020"; do
-  if [[ ! -f "$required" ]]; then
-    err "error: missing ${required#$REPO_ROOT/}"
-    err "       The vendor pin is part of the build contract; do not delete it."
-    exit 1
-  fi
-done
+# --- pin must be present -------------------------------------------------------
+if [[ ! -f "$PIN" ]]; then
+  err "error: missing patches/swiftterm/SwiftTerm.pin"
+  err "       The vendor pin is part of the build contract; do not delete it."
+  exit 1
+fi
 
-UPSTREAM_REPO="$(pin_value upstream_repo)"
-UPSTREAM_TAG="$(pin_value upstream_tag)"
 UPSTREAM_COMMIT="$(pin_value upstream_commit)"
-WANT_PATCHED="$(pin_value patched_package_swift)"
-WANT_UPSTREAM="$(pin_value upstream_package_swift)"
-WANT_BUFFER="$(pin_value patched_buffer_swift)"
-WANT_BUFFER_UPSTREAM="$(pin_value upstream_buffer_swift)"
-WANT_PARSER="$(pin_value patched_escape_seq_parser)"
-WANT_PARSER_UPSTREAM="$(pin_value upstream_escape_seq_parser)"
-WANT_PTMUX="$(pin_value ptmux_dcs_handler)"
-WANT_TERMINAL="$(pin_value terminal_swift)"
-WANT_XTVER="$(pin_value xtversion_dcs_handler)"
-WANT_ATV="$(pin_value patched_apple_terminal_view)"
-WANT_ATV_UPSTREAM="$(pin_value upstream_apple_terminal_view)"
+UPSTREAM_TAG="$(pin_value upstream_tag)"
 
 # --- vendor/ present? ----------------------------------------------------------
 if [[ ! -d "$VENDOR" ]]; then
   err "error: vendor/SwiftTerm is missing."
   err ""
-  err "Recreate it:"
+  err "Recreate it (clones upstream c3436be and applies 13 patches):"
   err "  ./Scripts/bootstrap-vendor.sh"
-  err ""
-  err "That clones $UPSTREAM_TAG, applies all seventeen patches in order, and re-runs this"
-  err "check for the verdict. app/README.md documents the manual equivalent if you"
-  err "would rather see the steps than trust a script."
-  err ""
-  err "ALL SEVENTEEN patches are required. 0002 fixes SwiftTerm #494 (scrollback corruption on"
-  err "narrowing), 0003 fixes the alt-buffer resize defect (stale cells bleeding across tmux"
-  err "panes on widening), 0004 stops an upstream release-build abort() on every resize, 0005"
-  err "adds DCS Ptmux passthrough, 0006 keeps the selection alive during linefeed at a plain"
-  err "prompt, 0007 keeps the selection alive during pty output (feedPrepare), 0010"
-  err "paces redraws on the display link, 0011 caches blank-glyph rasterizer misses,"
-  err "0012 draws colour emoji under Metal at Core Text's size, 0013 places combining"
-  err "marks over the correct base glyph (not the next narrow cell), 0014 adds"
-  err "disableLigatures so 'ligatures: false' in config.json actually works, and 0015"
-  err "fixes the scrollbar thumb from a fixed 1% hairline to a proportional 1/rows floor"
-  err "so the thumb tracks position at any scrollback depth, and 0016 pauses the display"
-  err "link after one idle tick for producers slower than its idle window (spinners);"
-  err "check-reflow.sh, check-altbuffer-resize.sh, check-render-parity.sh, and"
-  err "check-scrollback-cost.sh prove 0002, 0003, 0012, 0013, 0014, 0015, and check-display-link.sh proves 0010 and 0016."
   exit 1
 fi
 
@@ -128,212 +78,92 @@ if [[ ! -f "$VENDOR/Package.swift" ]]; then
   exit 1
 fi
 
-# --- the load-bearing check: is the patch applied? -----------------------------
-GOT_PACKAGE="$(sha256_of "$VENDOR/Package.swift")"
+# --- Package.swift (patch 0001) -----------------------------------------------
+GOT_PKG="$(sha256_of "$VENDOR/Package.swift")"
+WANT_PKG="$(pin_value patched_package_swift)"
+WANT_PKG_UP="$(pin_value upstream_package_swift)"
 
-if [[ "$GOT_PACKAGE" == "$WANT_UPSTREAM" ]]; then
-  err "error: vendor/SwiftTerm is UNPATCHED upstream $UPSTREAM_TAG."
-  err ""
-  err "Upstream declares Shaders.metal as \`.process\`, which invokes the offline Metal"
-  err "compiler. Xcode 26.6 moved that toolchain to a downloadable component"
-  err "(\`xcodebuild -downloadComponent MetalToolchain\`), so on a Command Line Tools"
-  err "machine the build dies at \`unable to spawn process 'metal'\`. 0001 makes it a"
-  err "\`.copy\` instead: the shader ships as source and MetalTerminalRenderer compiles"
-  err "it at runtime, which needs no toolchain. Without 0001 you get no build at all;"
-  err "with the OLD exclude-based 0001 you got a build with no reachable GPU renderer."
-  err ""
-  err "Apply the patch:"
+if [[ "$GOT_PKG" == "$WANT_PKG_UP" ]]; then
+  err "error: vendor/SwiftTerm/Package.swift is UNPATCHED upstream $UPSTREAM_COMMIT."
+  err "Patch 0001 moves Shaders.metal from exclude: to resources: .copy"
   err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch"
   exit 2
 fi
-
-if [[ "$GOT_PACKAGE" != "$WANT_PATCHED" ]]; then
-  err "error: vendor/SwiftTerm/Package.swift matches neither the pinned patched hash"
-  err "       nor upstream $UPSTREAM_TAG. The vendored copy is an unknown revision."
-  err ""
-  err "  expected (patched): $WANT_PATCHED"
-  err "  found:              $GOT_PACKAGE"
-  err ""
-  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Package.swift"
-  err "  # then update patched_package_swift in patches/swiftterm/SwiftTerm.pin"
+if [[ "$GOT_PKG" != "$WANT_PKG" ]]; then
+  err "error: Package.swift hash mismatch. expected=$WANT_PKG got=$GOT_PKG"
+  err "  Regenerate: shasum -a 256 vendor/SwiftTerm/Package.swift"
   exit 3
 fi
 
-# --- the second load-bearing check: is the reflow patch applied? ----------------
-# Same logic as Package.swift above, deliberately mirrored. Buffer.swift carries a
-# REQUIRED patch (0002) that fixes the #494 _yBase defect at lines 1171/1211, so
-# "changed from the pin" is no longer a curiosity to warn about — an unpatched
-# Buffer.swift is a broken build that looks healthy.
+# --- Buffer.swift (patches 0002+0003) -----------------------------------------
 BUFFER="$VENDOR/Sources/SwiftTerm/Buffer.swift"
-if [[ ! -f "$BUFFER" ]]; then
-  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Buffer.swift — incomplete checkout."
-  exit 1
-fi
-
-GOT_BUFFER="$(sha256_of "$BUFFER")"
-
-if [[ "$GOT_BUFFER" == "$WANT_BUFFER_UPSTREAM" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Buffer.swift is UNPATCHED upstream $UPSTREAM_TAG."
-  err ""
-  err "This tree will COMPILE, RUN, and SILENTLY CORRUPT SCROLLBACK. SwiftTerm #494:"
-  err "lines 1171/1211 set \`_lines[_y].isWrapped\` with a SCREEN-relative index while"
-  err "the adjacent content writes at 1176/1224 use the BUFFER-absolute"
-  err "\`_lines[_y + _yBase]\`, so with non-empty scrollback the wrapped-line flag lands"
-  err "on the wrong row and reflow joins/splits unrelated history on every narrowing."
-  err ""
-  err "Apply the patch:"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch"
-  err ""
-  err "Then prove they took (each gate was validated by falsification):"
-  err "  cd app && ./Scripts/check-reflow.sh            # 6 of 8 fail without 0002"
-  err "  cd app && ./Scripts/check-altbuffer-resize.sh  # 2 of 4 fail without 0003"
+if [[ ! -f "$BUFFER" ]]; then err "error: Buffer.swift missing."; exit 1; fi
+GOT_BUF="$(sha256_of "$BUFFER")"
+WANT_BUF="$(pin_value patched_buffer_swift)"
+WANT_BUF_UP="$(pin_value upstream_buffer_swift)"
+if [[ "$GOT_BUF" == "$WANT_BUF_UP" ]]; then
+  err "error: Buffer.swift is UNPATCHED upstream. Patches 0002+0003 are required."
   exit 2
 fi
-
-if [[ "$GOT_BUFFER" != "$WANT_BUFFER" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Buffer.swift matches neither the pinned"
-  err "       patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
-  err ""
-  err "  expected (patched): $WANT_BUFFER"
-  err "  found:              $GOT_BUFFER"
-  err ""
-  err "If you deliberately re-vendored or upgraded SwiftTerm: re-check whether the #494"
-  err "_yBase defect still exists at lines 1171/1211, whether the line-trim loop is still"
-  err "inside 'if isReflowEnabled' near line 522, and whether the '// DEBUG: Post-condition'"
-  err "loop after it is still ungated, re-apply or retire 0002/0003/0004, run BOTH gates"
-  err "  cd app && ./Scripts/check-reflow.sh && ./Scripts/check-altbuffer-resize.sh"
-  err "and only then regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Buffer.swift"
-  err "  # then update patched_buffer_swift in patches/swiftterm/SwiftTerm.pin"
+if [[ "$GOT_BUF" != "$WANT_BUF" ]]; then
+  err "error: Buffer.swift hash mismatch. expected=$WANT_BUF got=$GOT_BUF"
   exit 3
 fi
 
-# --- third load-bearing check: is the ptmux passthrough patch applied? -----------
-# 0005 adds PtmuxDcsHandler.swift (new file) and extends dispatchDcs() in
-# EscapeSequenceParser.swift. A tree missing 0005 drops DCS Ptmux sequences silently
-# — OSC 52 clipboard, graphics, and custom sequences from apps like neovim running
-# inside tmux with allow-passthrough=on are lost, with no runtime error or log.
+# --- EscapeSequenceParser.swift (patch 0004) ----------------------------------
 PARSER="$VENDOR/Sources/SwiftTerm/EscapeSequenceParser.swift"
-if [[ ! -f "$PARSER" ]]; then
-  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/EscapeSequenceParser.swift -- incomplete checkout."
-  exit 1
-fi
-
-PTMUX_HANDLER="$VENDOR/Sources/SwiftTerm/PtmuxDcsHandler.swift"
-if [[ ! -f "$PTMUX_HANDLER" ]]; then
-  err "error: vendor/SwiftTerm is missing PtmuxDcsHandler.swift."
-  err ""
-  err "Patch 0005 adds this file and extends dispatchDcs() in EscapeSequenceParser.swift."
-  err "Without it DCS Ptmux sequences (OSC 52 clipboard, graphics, etc.) from apps"
-  err "inside tmux are silently dropped."
-  err ""
-  err "Apply the patch:"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
+if [[ ! -f "$PARSER" ]]; then err "error: EscapeSequenceParser.swift missing."; exit 1; fi
+PTMUX="$VENDOR/Sources/SwiftTerm/PtmuxDcsHandler.swift"
+if [[ ! -f "$PTMUX" ]]; then
+  err "error: PtmuxDcsHandler.swift missing — patch 0004 not applied."
   exit 2
 fi
-
 GOT_PARSER="$(sha256_of "$PARSER")"
-
-if [[ "$GOT_PARSER" == "$WANT_PARSER_UPSTREAM" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift is UNPATCHED upstream $UPSTREAM_TAG."
-  err ""
-  err "Patch 0005 adds a PtmuxDcsHandler branch to dispatchDcs() so that DCS Ptmux"
-  err "passthrough sequences (ESC P tmux;...) are decoded and re-fed to the terminal."
-  err "Without it, apps like neovim inside tmux with allow-passthrough=on lose all"
-  err "passthrough sequences silently."
-  err ""
-  err "Apply the patch:"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch"
+WANT_PARSER="$(pin_value patched_escape_seq_parser)"
+WANT_PARSER_UP="$(pin_value upstream_escape_seq_parser)"
+if [[ "$GOT_PARSER" == "$WANT_PARSER_UP" ]]; then
+  err "error: EscapeSequenceParser.swift is UNPATCHED upstream."
   exit 2
 fi
-
 if [[ "$GOT_PARSER" != "$WANT_PARSER" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift matches neither"
-  err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
-  err ""
-  err "  expected (patched): $WANT_PARSER"
-  err "  found:              $GOT_PARSER"
-  err ""
-  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/EscapeSequenceParser.swift"
-  err "  # then update patched_escape_seq_parser in patches/swiftterm/SwiftTerm.pin"
+  err "error: EscapeSequenceParser.swift hash mismatch. expected=$WANT_PARSER got=$GOT_PARSER"
+  exit 3
+fi
+GOT_PTMUX="$(sha256_of "$PTMUX")"
+if [[ "$GOT_PTMUX" != "$(pin_value ptmux_dcs_handler)" ]]; then
+  err "error: PtmuxDcsHandler.swift hash mismatch."
   exit 3
 fi
 
-# --- third-b check: is PtmuxDcsHandler.swift the expected file? ----------------
-# 0005 adds this file new; there is no upstream counterpart. The existence check
-# above catches a missing file (compile error), but a modified file would slip
-# through without this hash check.
-GOT_PTMUX="$(sha256_of "$PTMUX_HANDLER")"
-
-if [[ "$GOT_PTMUX" != "$WANT_PTMUX" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/PtmuxDcsHandler.swift does not match"
-  err "       the pinned hash. The file may have been edited or came from a different"
-  err "       version of the patch."
-  err ""
-  err "  expected: $WANT_PTMUX"
-  err "  found:    $GOT_PTMUX"
-  err ""
-  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/PtmuxDcsHandler.swift"
-  err "  # then update ptmux_dcs_handler in patches/swiftterm/SwiftTerm.pin"
-  exit 3
-fi
-
-# --- third-c check: 0017 Terminal.swift and XtVersionDcsHandler.swift -------------
-# 0017 adds altScrollMode, xtVersion, mode 1007 (altScroll), mode 2027 (honest
-# permanently-reset), and wires DCS>q to XtVersionDcsHandler.
-TERMINAL_FILE="$VENDOR/Sources/SwiftTerm/Terminal.swift"
-if [[ ! -f "$TERMINAL_FILE" ]]; then
-  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Terminal.swift -- incomplete checkout."
-  exit 1
-fi
-GOT_TERMINAL="$(sha256_of "$TERMINAL_FILE")"
-if [[ "$GOT_TERMINAL" != "$WANT_TERMINAL" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift does not match"
-  err "       the pinned hash (covers patch 0017: altScrollMode, xtVersion, modes 1007/2027)."
-  err ""
-  err "  expected: $WANT_TERMINAL"
+# --- Terminal.swift (patches 0011+0012+0013) ----------------------------------
+TERMINAL="$VENDOR/Sources/SwiftTerm/Terminal.swift"
+if [[ ! -f "$TERMINAL" ]]; then err "error: Terminal.swift missing."; exit 1; fi
+GOT_TERMINAL="$(sha256_of "$TERMINAL")"
+if [[ "$GOT_TERMINAL" != "$(pin_value terminal_swift)" ]]; then
+  err "error: Terminal.swift hash mismatch (patches 0011+0012+0013)."
+  err "  expected: $(pin_value terminal_swift)"
   err "  found:    $GOT_TERMINAL"
-  err ""
-  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Terminal.swift"
-  err "  # then update terminal_swift in patches/swiftterm/SwiftTerm.pin"
   exit 3
 fi
 
-XTVER_FILE="$VENDOR/Sources/SwiftTerm/XtVersionDcsHandler.swift"
-if [[ ! -f "$XTVER_FILE" ]]; then
-  err "error: vendor/SwiftTerm is missing Sources/SwiftTerm/XtVersionDcsHandler.swift."
-  err ""
-  err "Patch 0017 is not applied. Without it DCS>q (XTVERSION) returns nothing."
-  err ""
-  err "Apply the patch:"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0017-xtversion-altscroll-mode2027.patch"
-  exit 2
-fi
-GOT_XTVER="$(sha256_of "$XTVER_FILE")"
-if [[ "$GOT_XTVER" != "$WANT_XTVER" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/XtVersionDcsHandler.swift does not match"
-  err "       the pinned hash."
-  err ""
-  err "  expected: $WANT_XTVER"
-  err "  found:    $GOT_XTVER"
-  err ""
-  err "If you deliberately edited the patch, regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/XtVersionDcsHandler.swift"
-  err "  # then update xtversion_dcs_handler in patches/swiftterm/SwiftTerm.pin"
-  exit 3
-fi
+# --- marker checks: 0012 image guards -----------------------------------------
+for marker in "Terminal.swift:maximumInlineImageEncodedBytes" \
+              "Apple/AppleTerminalView.swift:inlineImageTypes.contains"; do
+  if ! grep -q "${marker#*:}" "$VENDOR/Sources/SwiftTerm/${marker%%:*}"; then
+    err "error: patch 0012 is not applied (${marker%%:*} lacks ${marker#*:})."
+    exit 2
+  fi
+done
 
-# --- view-layer checks (0006-0016) live in a sibling -----------------------------
-# MacTerminalView.swift, AppleTerminalView.swift, TerminalViewSearch.swift, 0010's
-# MacDisplayLinkPacer.swift, 0011/0012/0013's MetalTerminalRenderer.swift, 0012's
-# CoreTextGlyphRasterizer.swift, and 0013's AppleTerminalView.swift hunk.
-# Sourced, not executed, so its exits are this script's.
+# --- marker checks: 0013 multipart --------------------------------------------
+for marker in "case \"MultipartFile\":" "case \"FilePart\":" "iTermMultipart = nil"; do
+  if ! grep -qF "$marker" "$VENDOR/Sources/SwiftTerm/Terminal.swift"; then
+    err "error: patch 0013 is not applied (Terminal.swift lacks $marker)."
+    exit 2
+  fi
+done
+
+# --- view-layer checks live in verify-vendor-views.sh -------------------------
 . "$APP_ROOT/Scripts/verify-vendor-views.sh"
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 20 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 13 local patches"

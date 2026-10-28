@@ -1,0 +1,61 @@
+Patch 0017 (ported to upstream c3436be): XTVERSION host-app override + mode 2027.
+
+Port notes for c3436be:
+- alternateScrollMode (mode 1007) is ALREADY-UPSTREAM: Terminal.alternateScrollMode at
+  line 699, cmdDecRqm at line 5631, cmdSetMode/cmdResetMode at 6446/6686, and
+  MacTerminalView.scrollWheel gates the alt-buffer arrow keys on it at line 4377.
+  No changes needed for mode 1007.
+- XTVERSION (DCS > q): upstream dispatches cmdXTVERSION via CSI > q (not DCS > q as
+  in our v1.15.0 port). The DCS path and XtVersionDcsHandler.swift are NOT needed.
+  We only add a `xtVersion: String` public property and wire it into cmdXTVERSION so
+  the host app can override the identity string (upstream always reports "SwiftTerm").
+- Mode 2027: add `case 2027: res = modeAlwaysReset` to cmdDecRqm. Upstream's default
+  branch returns modeUnknown for unrecognised modes; modeAlwaysReset is the honest
+  answer (SwiftTerm uses wcwidth() not UAX#29 grapheme clustering).
+
+--- a/Sources/SwiftTerm/Terminal.swift
++++ b/Sources/SwiftTerm/Terminal.swift
+@@ -689,5 +689,12 @@ public final class Terminal {
+     /// the terminal, the content will be wrapped in "ESC [ 200 ~" to start, and "ESC [ 201 ~" to end.
+     public private(set) var bracketedPasteMode: Bool = false
+ 
++    // PATCH 0017: XTVERSION identity string returned by CSI > 0 q (cmdXTVERSION).
++    // The host app sets this at launch (e.g. "GoblinPortal 1.2.3").
++    // Vendor code cannot know the app version, so a sensible default is
++    // provided for headless / test contexts. When non-empty, this overrides
++    // upstream's SwiftTermBuildInfo-based identity completely.
++    public var xtVersion: String = ""
++
+     /// Tracks DECSET/DECRST private mode 1007 (Alternate Scroll Mode, xterm's "alternateScroll" resource).
+ 
+@@ -5249,8 +5258,15 @@ extension Terminal {
+     func cmdXTVERSION(_ pars: CsiParameters, _ collect: cstring) {
+         guard collect == [UInt8(ascii: ">")], pars == [0] else { return }
+-        let identity = Terminal.xtVersionIdentity(tag: SwiftTermBuildInfo.tag,
+-                                                  branch: SwiftTermBuildInfo.branch,
+-                                                  version: SwiftTermBuildInfo.version)
++        // PATCH 0017: if the host app set xtVersion, report it instead of SwiftTermBuildInfo.
++        // This lets Goblin Portal report its own name/version via DCS > | GoblinPortal x.y ST.
++        let identity: String
++        if !xtVersion.isEmpty {
++            identity = xtVersion
++        } else {
++            identity = Terminal.xtVersionIdentity(tag: SwiftTermBuildInfo.tag,
++                                                  branch: SwiftTermBuildInfo.branch,
++                                                  version: SwiftTermBuildInfo.version)
++        }
+         sendResponse([ControlCodes.ESC, UInt8(ascii: "P")], ">|\(identity)",
+                      [ControlCodes.ESC, UInt8(ascii: "\\")])
+     }
+@@ -5631,4 +5646,11 @@ extension Terminal {
+             case 1007:
+                 res = alternateScrollMode ? modeSet : modeReset
++            case 2027: // Unicode grapheme cluster mode
++                // HONEST: SwiftTerm measures cell width with wcwidth() / Unicode.Scalar.properties
++                // rather than UAX#29 grapheme-cluster segmentation. Reporting SET would lie to
++                // applications that rely on it for correct cursor positioning after wide sequences
++                // (e.g. family emoji ZWJ sequences). modeAlwaysReset matches xterm's behaviour for
++                // modes it recognises but does not implement. PATCH 0017.
++                res = modeAlwaysReset
+             case 1015:
+                 res = mouseProtocol == .urxvt ? modeSet : modeReset

@@ -1,42 +1,17 @@
---- a/Package.swift
-+++ b/Package.swift
-@@ -80,8 +80,38 @@
- //        ],
-         path: "Sources/SwiftTerm",
-         exclude: platformExcludes + ["Mac/README.md"],
-+        // SPIKE-LOCAL PATCH (not upstream): `.copy`, where upstream has `.process`.
-+        //
-+        // Upstream compiles the Metal GPU renderer's shader at BUILD time. That cannot
-+        // work here: Xcode 26.6 moved the Metal toolchain to a downloadable component
-+        // (`xcodebuild -downloadComponent MetalToolchain`) which is not installed, and
-+        // this machine has Command Line Tools only. Measured, not assumed —
-+        // `.process("Shaders.metal")` fails with:
-+        //
-+        //     error: unable to spawn process 'metal' (No such file or directory)
-+        //     error: CompileMetalFile ... failed with a nonzero exit code
-+        //
-+        // `.copy` skips the Metal compiler entirely and ships the raw .metal SOURCE into
-+        // `SwiftTerm_SwiftTerm.bundle/Contents/Resources/`. That is enough, because
-+        // MetalTerminalRenderer.makeLibrary (Apple/Metal/MetalTerminalRenderer.swift:2746)
-+        // has a third fallback: no default library and no .metallib, then compile the
-+        // source at RUNTIME via `device.makeLibrary(source:)` (:2765), which goes through
-+        // the OS Metal compiler service and needs no offline toolchain. Measured on an
-+        // M4 Pro: 173ms on the first call, ~0ms after (the OS caches it), all seven
-+        // required shader functions present, real MTLRenderPipelineState created.
-+        //
-+        // THIS PATCH USED TO SAY `exclude:`, AND THAT WAS THE BUG. Excluding the file
-+        // removes it from the bundle, so the runtime fallback cannot find it either and
-+        // throws `shaderSourceMissing` (:2762) — meaning the GPU renderer was
-+        // unreachable, silently, and the app had no way to report why. Avoiding the
-+        // build-time compiler required dropping `.process`; it never required dropping
-+        // the file. See .afk/research/performance-audit-2026-07-31.md §1.
-+        //
-+        // app/Scripts/make-app-bundle.sh already copies `*.bundle` into
-+        // `Contents/Resources/`, which is exactly one of the two locations
-+        // `candidateBundles()` (:2828) probes; `swift run` is covered by the other.
-         resources: [
--            .process("Apple/Metal/Shaders.metal")
-+            .copy("Apple/Metal/Shaders.metal")
-         ]
- //        swiftSettings: [
- //            .unsafeFlags(["-enforce-exclusivity=none"])
+--- a/Package.swift	2026-10-27 20:29:21
++++ b/Package.swift	2026-10-27 20:40:58
+@@ -83,9 +83,13 @@
+     name: "SwiftTerm",
+     dependencies: graphicsDependencies,
+     path: "Sources/SwiftTerm",
++    // SPIKE-LOCAL PATCH 0001 (not upstream): Shaders.metal moved from exclude to resources .copy
++    // so the GPU renderer is reachable on Command Line Tools machines. See SwiftTerm.pin.
+     exclude: platformExcludes + [
+         "Mac/README.md",
+-        "Apple/Metal/Shaders.metal",
++    ],
++    resources: [
++        .copy("Apple/Metal/Shaders.metal")
+     ],
+     swiftSettings: swiftTermSettings,
+     plugins: [
