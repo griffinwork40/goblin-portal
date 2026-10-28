@@ -1,0 +1,20 @@
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+@@ -4415,7 +4415,13 @@ open class TerminalView: NSView, NSTextI
+     func scrollThumbsizeLocked () -> CGFloat {
+         terminal.terminalLock.preconditionLocked()
+         let displayBuffer = terminal.displayBuffer
+         if terminal.isDisplayBufferAlternate {
+             return 0
+         }
+ 
+-        return max (CGFloat (displayBuffer.rows) / CGFloat (displayBuffer.lines.count), 0.01)
++        // Patch 0015 (T2.4 scrollbar-thumb fix): replace the arbitrary 1% floor with
++        // 1/rows (~2.2% at 46 rows) so the thumb tracks position at any scrollback depth.
++        // The 0.01 floor degenerated to a fixed hairline for any scrollback above ~4554
++        // lines (where rows/lines.count < 0.01), losing all position information.
++        // NSScroller handles any knob proportion correctly; a 1/rows minimum is honest
++        // and position-informative. See patches/swiftterm/SwiftTerm.pin for full rationale.
++        return max(CGFloat(displayBuffer.rows) / CGFloat(displayBuffer.lines.count),
++                   1.0 / CGFloat(displayBuffer.rows))
+     }

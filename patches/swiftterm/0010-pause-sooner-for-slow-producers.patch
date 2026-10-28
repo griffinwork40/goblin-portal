@@ -1,0 +1,105 @@
+Patch 0016 (ported to upstream c3436be): adaptive idle-pause for slow producers.
+
+The upstream FrameDriver has the same idleTickLimit = 8 structure as our old
+MacDisplayLinkPacer. A 12 Hz spinner at 144 Hz had an 83ms gap vs a 56ms idle
+window (8 ticks × 7ms per tick), so the link paused and resumed once per frame
+but always paid 8 idle ticks first — each a synchronous CoreAnimation round trip.
+Measured cost: 2160 ticks for 240 spinner paints. Fix: when the gap since the
+previous paint already exceeded the idle window, pause after ONE idle tick.
+
+Port from MacDisplayLinkPacer to FrameDriver:
+- `lastPaint: CFTimeInterval` and `slowProducer: Bool` added to FrameDriver.
+- In sourceDidTick: on a paint (dirty), record lastPaint and compute slowProducer.
+- On idle: if slowProducer, treat idleTickLimit as 1.
+- TerminalDisplayPacer.adaptiveIdlePauseEnabled static moves to TerminalView
+  extension since MacDisplayLinkPacer.swift is gone.
+- SWIFTTERM_ADAPTIVE_PAUSE=0 restores the fixed eight-tick window.
+- check-display-link.sh case 9 falsification: SWIFTTERM_ADAPTIVE_PAUSE=0.
+
+--- a/Sources/SwiftTerm/Apple/FrameDriver.swift
++++ b/Sources/SwiftTerm/Apple/FrameDriver.swift
+@@ -309,6 +309,17 @@ final class FrameDriver {
+     private var idleTickCount = 0
+     private var counters = FrameDriverCounters()
+ 
++    // Patch 0016: adaptive idle-pause for slow producers. When the gap since the
++    // previous paint already exceeded the eight-tick idle window, the link pauses
++    // after ONE idle tick instead of eight. Slow producers (12 Hz spinners at 120/
++    // 144 Hz) would pause/resume every frame but paid 8 idle ticks first — each a
++    // synchronous CoreAnimation round trip. 2160 -> 480 ticks for 240 spinner paints
++    // at 144 Hz; 60/30fps streams unchanged. SWIFTTERM_ADAPTIVE_PAUSE=0 restores the
++    // fixed window; check-display-link.sh case 9 falsifies with that env var.
++    // See .afk/research/metal-idle-encode-2026-10-18.md (issue #143).
++    private var lastPaint: CFTimeInterval = 0
++    private var slowProducer = false
++
+     private let displayLinkTarget = FrameDisplayLinkTarget()
+     private var displayLinkBackend: FrameDisplayLinkBackend?
+     private var manualTickSource: ManualTickSource?
+@@ -545,15 +556,30 @@ final class FrameDriver {
+     private func sourceDidTick(isImmediate: Bool) {
+         guard !invalidated else { return }
+         var shouldCall = false
+         var shouldPause = false
+ 
+         if isImmediate {
+             counters.immediateTicks += 1
+         }
+         counters.ticks += 1
+         if dirty {
+             dirty = false
+             idleTickCount = 0
+             shouldCall = true
+             counters.frames += 1
++            // Patch 0016: record the paint time and determine if the producer is slow.
++            // The idle window in seconds = idleTickLimit × tick interval. If the gap
++            // since the last paint exceeded it, we would have paused and resumed already
++            // (or this is the first paint); pause sooner on the next idle.
++            if TerminalView.adaptiveIdlePauseEnabled {
++                let now = CFAbsoluteTimeGetCurrent()
++                if lastPaint > 0 {
++                    // Approximate tick interval from the display link's nominal rate.
++                    // At 120Hz: ~8.3ms/tick; at 144Hz: ~6.9ms/tick. Use 8ms as a safe
++                    // approximation when the exact rate is unavailable here.
++                    let approxTickIntervalMs: CFTimeInterval = 1.0 / 120.0
++                    let idleWindowSecs = CFTimeInterval(Self.idleTickLimit) * approxTickIntervalMs
++                    slowProducer = (now - lastPaint) > idleWindowSecs
++                } else {
++                    slowProducer = false
++                }
++                lastPaint = CFAbsoluteTimeGetCurrent()
++            }
+         } else if running {
+             idleTickCount += 1
+             counters.idleTicks += 1
+-            if idleTickCount >= Self.idleTickLimit {
++            // Patch 0016: slow producers pause after 1 idle tick instead of 8.
++            let effectiveLimit = (TerminalView.adaptiveIdlePauseEnabled && slowProducer)
++                ? 1 : Self.idleTickLimit
++            if idleTickCount >= effectiveLimit {
+                 idleTickCount = 0
+                 running = false
+                 shouldPause = true
+                 counters.pauses += 1
+             }
+         }
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+@@ -1571,6 +1571,16 @@ open class TerminalView: NSView, NSTextI
+     func resetCaches ()
+     {
+         self.attributes = [:]
+         self.urlAttributes = [:]
+         self.colors = Array(repeating: nil, count: 256)
+         self.trueColors = [:]
+     }
++
++    /// Patch 0016: pause after one idle tick when the producer is slower than the idle
++    /// window (see FrameDriver.sourceDidTick). Defaults to on; SWIFTTERM_ADAPTIVE_PAUSE=0
++    /// restores the fixed eight-tick window. check-display-link.sh case 9 falsifies with
++    /// that env var. See .afk/research/metal-idle-encode-2026-10-18.md (issue #143).
++    public static var adaptiveIdlePauseEnabled: Bool = {
++        let value = ProcessInfo.processInfo.environment["SWIFTTERM_ADAPTIVE_PAUSE"]
++        return !(value == "0" || value == "false" || value == "FALSE")
++    }()
+ 

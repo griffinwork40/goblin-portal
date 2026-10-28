@@ -1,7 +1,6 @@
 --- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
 +++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
-@@ -951,7 +951,7 @@
-         NSGraphicsContext.current?.cgContext
+@@ -1833,7 +1833,7 @@ open class MacTerminalView: TerminalView
      }
      
 -    override public func draw (_ dirtyRect: NSRect) {

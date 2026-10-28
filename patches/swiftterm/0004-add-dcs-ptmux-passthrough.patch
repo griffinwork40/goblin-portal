@@ -1,8 +1,8 @@
 --- a/Sources/SwiftTerm/EscapeSequenceParser.swift
 +++ b/Sources/SwiftTerm/EscapeSequenceParser.swift
-@@ -567,6 +567,13 @@
-             return Terminal.DECRQSS(terminal: terminal)
-         } else if collect.isEmpty && code == 0x71 {  // "q"
+@@ -816,6 +816,13 @@ public class EscapeSequenceParser {
+ #if !SWIFTTERM_EMBEDDED
+         if collect.isEmpty && code == 0x71 {  // "q"
              return SixelDcsHandler(terminal: terminal)
 +        } else if collect.isEmpty && code == 0x74 {  // "t" -- first byte of "tmux;"
 +            // SPIKE-LOCAL PATCH 0005: DCS Ptmux passthrough.
@@ -12,8 +12,8 @@
 +            // un-doubles ESC bytes, and re-feeds the result to terminal.feed().
 +            return PtmuxDcsHandler(terminal: terminal)
          }
+ #endif
          return nil
-     }
 --- /dev/null
 +++ b/Sources/SwiftTerm/PtmuxDcsHandler.swift
 @@ -0,0 +1,94 @@

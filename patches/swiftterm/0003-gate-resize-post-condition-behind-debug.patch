@@ -1,0 +1,20 @@
+--- a/Sources/SwiftTerm/Buffer.swift
++++ b/Sources/SwiftTerm/Buffer.swift
+@@ -1028,6 +1028,8 @@ public class Buffer {
+ 
+         // DEBUG: Post-condition
++        // SPIKE-LOCAL PATCH 0004 (not upstream): the #if DEBUG/#endif are ours. Upstream
++        // ships this block ungated — a fatalError in release on every resize, walking the
++        // entire scrollback. See patches/swiftterm/SwiftTerm.pin for the full rationale.
++        #if DEBUG
+         if lines.count > 0 {
+             // lines.count, not lines.maxLength: checking every capacity slot would
+             // materialize blank lines for the whole scrollback on every resize and,
+@@ -1038,6 +1040,7 @@ public class Buffer {
+                 }
+             }
+         }
++        #endif
+         rows = newRows
+         cols = newCols
+     }

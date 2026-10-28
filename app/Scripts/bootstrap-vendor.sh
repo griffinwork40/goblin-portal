@@ -58,64 +58,45 @@ pin_value() {
 }
 
 # --- prerequisites -------------------------------------------------------------
-# The patch series is ordered and every entry is required. 0001 makes a CLT-only
-# build possible at all (it moves Shaders.metal off the offline `metal` compiler);
-# 0002 fixes SwiftTerm #494; 0003 fixes the alt-buffer bleed; 0004 stops an
-# ungated upstream debug assertion from calling abort() in RELEASE on every
-# resize; 0005 adds DCS Ptmux passthrough so tmux can forward SGR sequences; 0006
-# gates linefeed's selection.selectNone() on terminal.mouseMode != .off so a plain
-# shell prompt keeps the user's selection while output streams; 0007 gates
-# feedPrepare()'s selection.active = false the same way so pty output between
-# selecting and ⌘C does not silently disable Copy; 0008 makes draw(_:) `open`
-# instead of `public` so GoblinPortalTerminalView can override it for font dilation
-# (required by Xcode 27 / Swift 6 strict access control); 0009 adds the
-# searchStateDidChange hook + findAllMatchPositions that all-match search
-# highlighting needs (it was missing from this array while verify-vendor.sh
-# already pinned it, so a fresh bootstrap failed its own verdict); 0010 paces redraws
-# on the display link instead of a free-running 16.67ms timer, which dropped every
-# other frame of a 60fps producer; 0011 caches rasterizer misses (blank glyphs) and the
-# per-font PostScript name so an idle spinner pane stops re-asking CoreText about every
-# blank cell on every row rebuild; 0012 rasterizes colour glyphs (emoji) at logical size
-# under a scaled CTM so Metal draws them at Core Text's size and position (N4); 0013 fixes
-# a combining mark after a wide CJK char being placed one full wide-cell offset too far
-# right — in the glyph-position loop, adjacent CT positions now detect zero-advance
-# (combining) glyphs and pin them to the previous column (#151); 0014 adds
-# `open var disableLigatures: Bool` to `AppleTerminalView`, a backing `_disableLigatures`
-# Bool to `MacTerminalView`, and `kCTLigatureAttributeName: 0` injection to both the Core
-# Text attribute cache and the Metal ShaperCache — making `"ligatures": false` in
-# config.json functional in both renderers; 0015 floors the scrollbar thumb at 1/rows; 0016
-# pauses the display link sooner for slow producers; 0017 adds XTVERSION, DEC 1007
-# (alternate scroll, default ON and now actually switchable) and an honest 2027 DECRQM.
-# 0018 bounds OSC accumulation, the OSC 1337
-# encoded payload, and inline-image type/dimensions before decode (check-image-decode.sh).
-# 0019 adds OSC 1337 MultipartFile/FilePart/FileEnd (modern imgcat's default), routed
-# through 0018's caps with the encoded cap applied cumulatively (check-image-decode.sh).
-# 0020 bounds SixelDcsHandler parsing so malformed sixel drops instead of trapping (#280).
-# 0017 was missing from this list when its PR first opened, so CI's fresh bootstrap
-# built a tree without it and the pin rejected it. A tree missing any
-# one of them is not the tree this project is tested against, which is the whole
-# reason the pin records hashes rather than a version.
+# The patch series is ordered and every entry is required. Vendored against upstream
+# c3436be (post-IO-rewrite, post-FrameDriver). Dropped from v1.15.0 series:
+# 0002 (isWrapped buffer-absolute), 0006/0007 (selection-clear gates), 0010
+# (DisplayLink pacer), 0011 (empty-glyph cache), 0013 (combining-mark fix), 0020
+# (sixel bounds) — all incorporated by the upstream IO rewrite at c3436be.
+#
+# 0001 makes a CLT-only build possible (Shaders.metal as .copy, not excluded);
+# 0002 fixes the alt-buffer narrowing trim so it runs for every buffer (#3 in v1.15.0);
+# 0003 gates the resize post-condition fatalError behind #if DEBUG (#4 in v1.15.0);
+# 0004 adds DCS Ptmux passthrough so tmux can forward SGR sequences (#5 in v1.15.0);
+# 0005 makes draw(_:) `open` so GoblinPortalTerminalView can override it (#8);
+# 0006 adds searchStateDidChange hook + findAllMatchPositions for all-match highlights (#9);
+# 0007 rasterizes colour emoji at logical size under a scaled CTM (N4, Metal path) (#12);
+# 0008 adds `open var disableLigatures` to TerminalView, backing Bool to MacTerminalView,
+#      and kCTLigatureAttributeName injection to Core Text + Metal ShaperCache (#14);
+# 0009 replaces the 0.01 scrollbar thumb floor with 1/rows (#15);
+# 0010 adds adaptive idle-pause to FrameDriver: slow producers pause after 1 idle tick
+#      instead of 8 (#16, ported from MacDisplayLinkPacer to FrameDriver);
+# 0011 adds Terminal.xtVersion host-app override to cmdXTVERSION, and mode 2027
+#      (modeAlwaysReset) to cmdDecRqm; alternateScrollMode/1007/scrollWheel already
+#      upstream (#17 partial);
+# 0012 bounds the OSC 1337 encoded payload (32 MiB) and adds ImageIO type/dimension
+#      header checks to createImage and createImageFromBitmap; OSC cap already upstream (#18 partial);
+# 0013 adds OSC 1337 MultipartFile/FilePart/FileEnd (modern imgcat default) (#19).
+# A tree missing any one of them is not the tree this project is tested against.
 PATCHES=(
   "0001-ship-metal-shader-as-copy-resource.patch"
-  "0002-index-iswrapped-buffer-absolute.patch"
-  "0003-trim-lines-on-narrowing-for-all-buffers.patch"
-  "0004-gate-resize-post-condition-behind-debug.patch"
-  "0005-add-dcs-ptmux-passthrough.patch"
-  "0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
-  "0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
-  "0008-make-draw-open-for-subclass-override.patch"
-  "0009-expose-search-state-changed-hook.patch"
-  "0010-pace-redraws-on-display-link.patch"
-  "0011-cache-empty-glyphs-and-font-names.patch"
-  "0012-rasterize-color-glyphs-at-logical-size.patch"
-  "0013-fix-combining-mark-after-wide-char.patch"
-  "0014-disable-ligatures-both-renderers.patch"
-  "0015-proportional-scrollbar-thumb.patch"
-  "0016-pause-sooner-for-slow-producers.patch"
-  "0017-xtversion-altscroll-mode2027.patch"
-  "0018-bound-inline-image-payloads.patch"
-  "0019-osc1337-multipart-file.patch"
-  "0020-bound-sixel-parsing.patch"
+  "0002-trim-lines-on-narrowing-for-all-buffers.patch"
+  "0003-gate-resize-post-condition-behind-debug.patch"
+  "0004-add-dcs-ptmux-passthrough.patch"
+  "0005-make-draw-open-for-subclass-override.patch"
+  "0006-expose-search-state-changed-hook.patch"
+  "0007-rasterize-color-glyphs-at-logical-size.patch"
+  "0008-disable-ligatures-both-renderers.patch"
+  "0009-proportional-scrollbar-thumb.patch"
+  "0010-pause-sooner-for-slow-producers.patch"
+  "0011-xtversion-host-override-mode2027.patch"
+  "0012-bound-inline-image-payloads.patch"
+  "0013-osc1337-multipart-file.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then
@@ -189,16 +170,32 @@ STAGE="$(mktemp -d "$REPO_ROOT/vendor/.bootstrap.XXXXXX")"
 cleanup() { [[ -n "${STAGE:-}" && -d "$STAGE" ]] && rm -rf "$STAGE"; }
 trap cleanup EXIT
 
-echo "==> cloning $UPSTREAM_REPO @ $UPSTREAM_TAG"
-# advice.detachedHead is off because cloning a TAG always detaches, so git's
-# fourteen-line "you are in detached HEAD state" lecture fires on every single run
-# and buries the one line that matters if a patch later fails.
-if ! git -c advice.detachedHead=false clone --quiet --depth 1 \
-     --branch "$UPSTREAM_TAG" "$UPSTREAM_REPO" "$STAGE/SwiftTerm"; then
-  err "error: clone failed. This step needs network access."
-  err "       repo: $UPSTREAM_REPO"
-  err "       tag:  $UPSTREAM_TAG"
-  exit 1
+echo "==> cloning $UPSTREAM_REPO @ $UPSTREAM_COMMIT"
+# When upstream_tag = MAIN (no released tag at this commit), clone the full repo
+# and check out the pinned commit. When a tag is present, use a shallow clone.
+if [[ "$UPSTREAM_TAG" == "MAIN" ]]; then
+  # Full clone needed to reach an arbitrary commit; --filter=blob:none keeps it lean.
+  if ! git -c advice.detachedHead=false clone --quiet --filter=blob:none \
+       "$UPSTREAM_REPO" "$STAGE/SwiftTerm"; then
+    err "error: clone failed. This step needs network access."
+    err "       repo: $UPSTREAM_REPO"
+    exit 1
+  fi
+  if ! git -C "$STAGE/SwiftTerm" -c advice.detachedHead=false checkout --quiet "$UPSTREAM_COMMIT"; then
+    err "error: could not checkout pinned commit $UPSTREAM_COMMIT."
+    err "       The commit may not exist on the default branch, or the repo is shallow."
+    exit 1
+  fi
+else
+  # advice.detachedHead is off because cloning a TAG always detaches, so git's
+  # fourteen-line lecture fires on every single run and buries the important line.
+  if ! git -c advice.detachedHead=false clone --quiet --depth 1 \
+       --branch "$UPSTREAM_TAG" "$UPSTREAM_REPO" "$STAGE/SwiftTerm"; then
+    err "error: clone failed. This step needs network access."
+    err "       repo: $UPSTREAM_REPO"
+    err "       tag:  $UPSTREAM_TAG"
+    exit 1
+  fi
 fi
 
 # A tag is a movable label; the pin records a commit for a reason. verify-vendor.sh

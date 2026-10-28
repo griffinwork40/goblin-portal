@@ -1,0 +1,34 @@
+--- a/Sources/SwiftTerm/Buffer.swift
++++ b/Sources/SwiftTerm/Buffer.swift
+@@ -1016,13 +1016,23 @@ public class Buffer {
+         if isReflowEnabled {
+             reflow (newCols, newRows)
+-            // Trim the end of the line off if cols shrunk
+-            if cols > newCols {
+-                // lines.count, not lines.maxLength (see the widen loop above).
+-                for i in 0..<lines.count {
+-                    lines[i].resize(cols: newCols,
+-                                    fill: defaultBlank)
+-                }
+-            }
+         }
++
++        // Trim the end of the line off if cols shrunk. This must run for EVERY buffer, not
++        // only the reflowing one. `isReflowEnabled` is just `hasScrollback` (Buffer.swift)
++        // and the alt buffer is constructed with `scrollback: nil`, so while this loop sat
++        // inside the `isReflowEnabled` branch the alt buffer's BufferLines kept their OLD
++        // width forever while `cols` shrank underneath them. A later widening then copies
++        // those stale cells back into the visible grid — under tmux, which lives in the alt
++        // buffer and repaints only deltas, that is stale text appearing inside the wrong
++        // pane and surviving a window switch.
++        // Must stay AFTER reflow: reflow rewraps from the OLD width.
++        // SPIKE-LOCAL PATCH 0003 (not upstream).
++        if cols > newCols {
++            // lines.count, not lines.maxLength (see the widen loop above).
++            for i in 0..<lines.count {
++                lines[i].resize(cols: newCols,
++                                fill: defaultBlank)
++            }
++        }
+ 
+         // DEBUG: Post-condition

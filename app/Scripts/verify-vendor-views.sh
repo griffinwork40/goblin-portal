@@ -1,230 +1,111 @@
 # Sourced by verify-vendor.sh — never run on its own. The VIEW-LAYER half of the vendor
-# verdict: every check on the files patches 0006-0017 touch (MacTerminalView.swift,
-# AppleTerminalView.swift, TerminalViewSearch.swift, MacDisplayLinkPacer.swift,
+# verdict: every check on the files patches 0005-0010 touch (MacTerminalView.swift,
+# AppleTerminalView.swift, TerminalViewSearch.swift, FrameDriver.swift,
 # Apple/Metal/MetalTerminalRenderer.swift, Apple/Metal/CoreTextGlyphRasterizer.swift).
 #
-# Split out of verify-vendor.sh when 0010 pushed it past the 350-line ceiling. The seam
-# is the file layer: verify-vendor.sh keeps the pin plumbing and the model/parser checks
-# (Package.swift, Buffer.swift, Terminal.swift, the escape parser); this file owns the
-# view files. It inherits VENDOR, UPSTREAM_TAG, WANT_ATV, WANT_ATV_UPSTREAM and the
-# pin_value / sha256_of / err / say helpers from its caller, and its `exit`s are the
-# caller's exits — the exit-code contract is verify-vendor.sh's, unchanged.
-#
-# Patch 0014 (ligature disable) touches MacTerminalView.swift (backing Bool),
-# AppleTerminalView.swift (open property + getAttributes injection), and
-# MetalTerminalRenderer.swift (ShaperKey + shape call site). All three hashes
-# therefore cover 0014 in addition to their prior patches.
-# Patch 0015 (proportional scrollbar thumb) touches only AppleTerminalView.swift
-# (scrollThumbsize formula: 0.01 floor -> 1/rows minimum). The ATV hash covers it.
+# Re-vendor 2026-10-27 (upstream c3436be). MacDisplayLinkPacer.swift is gone upstream;
+# patch 0010 now targets FrameDriver.swift instead.
+# Patch 0013 (combining-mark): DROPPED — upstream cellOrdinal/anchorOrdinal fixes it.
+# Patch 0010 (DisplayLink pacer): DROPPED as old; new 0010 is adaptive-pause in FrameDriver.
 
-# --- 0010 first: is the display-link pacer present? --------------------------------
-# Checked BEFORE the MacTerminalView/AppleTerminalView hashes on purpose: a tree
-# bootstrapped with 0001-0009 only also fails those two hashes, but as an anonymous
-# "unknown revision" (exit 3). Missing the pacer's own file is the one symptom that NAMES
-# the cause, so it is reported first. Severity: SILENT — a tree without 0010 builds and
-# runs, and paints on upstream's free-running 16.67ms timer, which drops every other
-# frame of a 60fps producer and lands the rest at a drifting vsync phase.
-PACER="$VENDOR/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift"
-if [[ ! -f "$PACER" ]]; then
-  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift."
-  err ""
-  err "Patch 0010 is not applied. The tree builds, but redraws run on upstream's"
-  err "free-running timer: a 60fps producer (an ink reveal through tmux) paints at ~30fps"
-  err "and at an uneven phase of the display refresh. check-display-link.sh is the gate."
-  err ""
-  err "Apply the patch:"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0010-pace-redraws-on-display-link.patch"
-  exit 2
-fi
-WANT_PACER="$(pin_value mac_display_link_pacer)"
-GOT_PACER="$(sha256_of "$PACER")"
-if [[ "$GOT_PACER" != "$WANT_PACER" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift does not match"
-  err "       the pinned hash. The file was edited or came from a different version of 0010/0016."
-  err ""
-  err "  expected: $WANT_PACER"
-  err "  found:    $GOT_PACER"
-  err ""
-  err "If you deliberately edited the patch, regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacDisplayLinkPacer.swift"
-  err "  # then update mac_display_link_pacer in patches/swiftterm/SwiftTerm.pin"
-  exit 3
-fi
-
-# --- fourth check: is the linefeed selection-clear patch applied? ---------------
-# 0006 gates linefeed's selection.selectNone() on terminal.mouseMode != .off so
-# that a plain shell prompt (mouseMode == .off) preserves the selection during
-# streaming output. Without it, every LF clears the selection before ⌘C fires.
+# --- MacTerminalView.swift (patches 0005 draw() open, 0006 search hook) ------
 MTV="$VENDOR/Sources/SwiftTerm/Mac/MacTerminalView.swift"
-if [[ ! -f "$MTV" ]]; then
-  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Mac/MacTerminalView.swift -- incomplete checkout."
-  exit 1
-fi
-
-WANT_MTV="$(pin_value patched_mac_terminal_view)"
-WANT_MTV_UPSTREAM="$(pin_value upstream_mac_terminal_view)"
+if [[ ! -f "$MTV" ]]; then err "error: MacTerminalView.swift missing."; exit 1; fi
 GOT_MTV="$(sha256_of "$MTV")"
-
-if [[ "$GOT_MTV" == "$WANT_MTV_UPSTREAM" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift is UNPATCHED upstream $UPSTREAM_TAG."
-  err ""
-  err "Patch 0006 gates linefeed(source:)'s selection.selectNone() on"
-  err "terminal.mouseMode != .off. Without it, every newline in the terminal output"
-  err "clears the user's text selection — copy/paste feels broken even though ⌘C"
-  err "itself works correctly."
-  err ""
-  err "Apply the patch:"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0006-gate-linefeed-selection-clear-on-mouse-mode.patch"
+WANT_MTV="$(pin_value patched_mac_terminal_view)"
+WANT_MTV_UP="$(pin_value upstream_mac_terminal_view)"
+if [[ "$GOT_MTV" == "$WANT_MTV_UP" ]]; then
+  err "error: MacTerminalView.swift is UNPATCHED upstream."
+  err "Patches 0005 (draw open) and 0006 (search hook) are required."
   exit 2
 fi
-
 if [[ "$GOT_MTV" != "$WANT_MTV" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift matches neither"
-  err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
-  err "       Hash covers patches 0006, 0008, 0009, 0010, 0014 (_disableLigatures backing Bool)."
-  err ""
+  err "error: MacTerminalView.swift hash mismatch."
   err "  expected (patched): $WANT_MTV"
   err "  found:              $GOT_MTV"
-  err ""
-  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Mac/MacTerminalView.swift"
-  err "  # then update patched_mac_terminal_view in patches/swiftterm/SwiftTerm.pin"
+  err "  Hash covers patches 0005, 0006, and performKeyEquivalent open fix."
   exit 3
 fi
 
-# --- fifth check: is the feedPrepare selection-clear patch applied? ----------------
-# 0007 gates feedPrepare()'s selection.active = false on terminal.mouseMode != .off
-# so that pty output at a plain prompt (mouseMode == .off) preserves the selection.
-# Without it, ANY output between selecting text and pressing ⌘C clears the selection,
-# causing validateUserInterfaceItem to disable Copy and silently swallow the keystroke.
-# Same defect pattern as 0006 (linefeed), different call site (feedPrepare).
+# --- AppleTerminalView.swift (patches 0007-0010, 0012, compat shims) ---------
 ATV="$VENDOR/Sources/SwiftTerm/Apple/AppleTerminalView.swift"
-if [[ ! -f "$ATV" ]]; then
-  err "error: vendor/SwiftTerm has no Sources/SwiftTerm/Apple/AppleTerminalView.swift -- incomplete checkout."
-  exit 1
-fi
-
+if [[ ! -f "$ATV" ]]; then err "error: AppleTerminalView.swift missing."; exit 1; fi
 GOT_ATV="$(sha256_of "$ATV")"
-
-if [[ "$GOT_ATV" == "$WANT_ATV_UPSTREAM" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift is UNPATCHED upstream $UPSTREAM_TAG."
-  err ""
-  err "Patch 0007 gates feedPrepare()'s selection.active = false on"
-  err "terminal.mouseMode != .off. Without it, any pty output between selecting"
-  err "text and pressing ⌘C clears the selection — copy/paste is silently broken."
-  err ""
-  err "Apply the patch:"
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0007-gate-feedprepare-selection-clear-on-mouse-mode.patch"
+WANT_ATV="$(pin_value patched_apple_terminal_view)"
+WANT_ATV_UP="$(pin_value upstream_apple_terminal_view)"
+if [[ "$GOT_ATV" == "$WANT_ATV_UP" ]]; then
+  err "error: AppleTerminalView.swift is UNPATCHED upstream."
   exit 2
 fi
-
 if [[ "$GOT_ATV" != "$WANT_ATV" ]]; then
-  err "error: vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift matches neither"
-  err "       the pinned patched hash nor upstream $UPSTREAM_TAG. The vendored copy is unknown."
-  err "       Hash covers patches 0007, 0010, 0013, 0014 (disableLigatures property + getAttributes), and 0015 (proportional scrollbar thumb)."
-  err ""
+  err "error: AppleTerminalView.swift hash mismatch."
   err "  expected (patched): $WANT_ATV"
   err "  found:              $GOT_ATV"
-  err ""
-  err "If you deliberately re-vendored or edited the patch, regenerate the pin:"
-  err "  shasum -a 256 vendor/SwiftTerm/Sources/SwiftTerm/Apple/AppleTerminalView.swift"
-  err "  # then update patched_apple_terminal_view in patches/swiftterm/SwiftTerm.pin"
+  err "  Hash covers patches 0007 (colour emoji rasterizer backingScale/disableLigatures in"
+  err "  FrameViewState+SnapshotRenderContext), 0008 (disableLigatures property + getAttributes),"
+  err "  0009 (scrollbar thumb), 0010 (adaptiveIdlePauseEnabled + frameTimingObserver shims),"
+  err "  0012 (createImage/createImageFromBitmap guards), and getTerminal() compat shim."
   exit 3
 fi
 
-# --- sixth check: is the search-state-changed hook (0009) applied? ---------------
+# --- TerminalViewSearch.swift (patch 0006 findAllMatchPositions) ---------------
 TVS="$VENDOR/Sources/SwiftTerm/TerminalViewSearch.swift"
-if [ ! -f "$TVS" ]; then err "error: TerminalViewSearch.swift missing."; exit 1; fi
-WANT_TVS="$(pin_value patched_terminal_view_search)"
+if [[ ! -f "$TVS" ]]; then err "error: TerminalViewSearch.swift missing."; exit 1; fi
 GOT_TVS="$(sha256_of "$TVS")"
-if [ "$GOT_TVS" != "$WANT_TVS" ]; then
-  err "error: TerminalViewSearch.swift hash mismatch (expected $WANT_TVS, got $GOT_TVS)."
+if [[ "$GOT_TVS" != "$(pin_value patched_terminal_view_search)" ]]; then
+  err "error: TerminalViewSearch.swift hash mismatch (patch 0006 findAllMatchPositions)."
   err "  Regenerate: shasum -a 256 $TVS"
   exit 3
 fi
 
-# --- 0012 first: are colour glyphs rasterized at logical size? ---------------------
-# Checked BEFORE the MetalTerminalRenderer.swift hash for the same reason 0010's file is
-# checked before the view hashes: 0012 also edits MetalTerminalRenderer.swift, so a tree
-# carrying 0011 but not 0012 would otherwise fail below as an anonymous "hash mismatch".
-# An upstream CoreTextGlyphRasterizer.swift is the symptom that NAMES the cause.
-# Severity: VISIBLE but easy to miss. Without 0012 Metal draws colour emoji ~20% small
-# and left/low in their 2-cell slot (N4); check-render-parity.sh case (d) is the gate.
+# --- FrameDriver.swift (patch 0010 adaptive idle-pause) ----------------------
+FD="$VENDOR/Sources/SwiftTerm/Apple/FrameDriver.swift"
+if [[ ! -f "$FD" ]]; then err "error: FrameDriver.swift missing."; exit 1; fi
+GOT_FD="$(sha256_of "$FD")"
+WANT_FD="$(pin_value patched_frame_driver)"
+WANT_FD_UP="$(pin_value upstream_frame_driver)"
+if [[ "$GOT_FD" == "$WANT_FD_UP" ]]; then
+  err "error: FrameDriver.swift is UNPATCHED upstream."
+  err "Patch 0010 (adaptive idle-pause) is not applied."
+  exit 2
+fi
+if [[ "$GOT_FD" != "$WANT_FD" ]]; then
+  err "error: FrameDriver.swift hash mismatch (patch 0010 adaptive idle-pause)."
+  err "  expected: $WANT_FD"
+  err "  found:    $GOT_FD"
+  exit 3
+fi
+
+# --- CoreTextGlyphRasterizer.swift (patch 0007 colour emoji) -----------------
 CTGR="$VENDOR/Sources/SwiftTerm/Apple/Metal/CoreTextGlyphRasterizer.swift"
-if [ ! -f "$CTGR" ]; then err "error: Apple/Metal/CoreTextGlyphRasterizer.swift missing."; exit 1; fi
+if [[ ! -f "$CTGR" ]]; then err "error: CoreTextGlyphRasterizer.swift missing."; exit 1; fi
 GOT_CTGR="$(sha256_of "$CTGR")"
-if [ "$GOT_CTGR" = "$(pin_value upstream_core_text_glyph_rasterizer)" ]; then
-  err "error: Apple/Metal/CoreTextGlyphRasterizer.swift is UNPATCHED upstream $UPSTREAM_TAG."
-  err "Patch 0012 rasterizes colour glyphs at logical size under a scaled CTM; without it"
-  err "Metal draws emoji ~20% small and off-centre. check-render-parity.sh is the gate."
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0012-rasterize-color-glyphs-at-logical-size.patch"
+WANT_CTGR="$(pin_value patched_core_text_glyph_rasterizer)"
+WANT_CTGR_UP="$(pin_value upstream_core_text_glyph_rasterizer)"
+if [[ "$GOT_CTGR" == "$WANT_CTGR_UP" ]]; then
+  err "error: CoreTextGlyphRasterizer.swift is UNPATCHED upstream."
+  err "Patch 0007 (colour emoji logical-size rasterizer) is not applied."
   exit 2
 fi
-if [ "$GOT_CTGR" != "$(pin_value patched_core_text_glyph_rasterizer)" ]; then
-  err "error: CoreTextGlyphRasterizer.swift hash mismatch (got $GOT_CTGR)."
-  err "  Regenerate: shasum -a 256 $CTGR  # then update patched_core_text_glyph_rasterizer"
+if [[ "$GOT_CTGR" != "$WANT_CTGR" ]]; then
+  err "error: CoreTextGlyphRasterizer.swift hash mismatch."
+  err "  expected: $WANT_CTGR  found: $GOT_CTGR"
   exit 3
 fi
 
-# --- seventh check: are blank-glyph misses cached (0011)? -------------------------
-# Severity: SILENT. Without 0011 the Metal renderer draws identically but re-asks
-# CoreText (CTFontGetBoundingRectsForGlyphs) about every blank cell on every row
-# rebuild, so a pane showing only an agent spinner burns CPU it never needed.
+# --- MetalTerminalRenderer.swift (patches 0007+0008) -------------------------
 MTR="$VENDOR/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift"
-if [ ! -f "$MTR" ]; then err "error: Apple/Metal/MetalTerminalRenderer.swift missing."; exit 1; fi
+if [[ ! -f "$MTR" ]]; then err "error: MetalTerminalRenderer.swift missing."; exit 1; fi
 GOT_MTR="$(sha256_of "$MTR")"
-if [ "$GOT_MTR" = "$(pin_value upstream_metal_terminal_renderer)" ]; then
-  err "error: Apple/Metal/MetalTerminalRenderer.swift is UNPATCHED upstream $UPSTREAM_TAG."
-  err "Patch 0011 caches blank-glyph rasterizer misses; without it idle spinner panes burn CPU."
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0011-cache-empty-glyphs-and-font-names.patch"
+WANT_MTR="$(pin_value patched_metal_terminal_renderer)"
+WANT_MTR_UP="$(pin_value upstream_metal_terminal_renderer)"
+if [[ "$GOT_MTR" == "$WANT_MTR_UP" ]]; then
+  err "error: MetalTerminalRenderer.swift is UNPATCHED upstream."
+  err "Patches 0007 (backingScale capture) and 0008 (ShaperKey.disableLigatures) not applied."
   exit 2
 fi
-if [ "$GOT_MTR" != "$(pin_value patched_metal_terminal_renderer)" ]; then
-  err "error: MetalTerminalRenderer.swift hash mismatch (got $GOT_MTR)."
-  err "  The pinned hash covers 0011, 0012, 0013, AND 0014 (ShaperKey + shape call site);"
-  err "  a tree with only some of them lands here."
-  err "  Regenerate: shasum -a 256 $MTR  # then update patched_metal_terminal_renderer"
-  exit 3
-fi
-
-# --- 0018: hard-fail if the inline-image guards are missing ----------------------
-# The hashes above already cover 0018 (Terminal.swift, the parser, AppleTerminalView.swift),
-# but a re-derived pin could silently bless a tree without it. These markers are the
-# guards themselves; a tree missing any one decodes unbounded remote image payloads.
-for marker in "Terminal.swift:maximumInlineImageEncodedBytes" \
-              "EscapeSequenceParser.swift:_oscLimitExceeded" \
-              "Apple/AppleTerminalView.swift:inlineImageTypes.contains"; do
-  if ! grep -q "${marker#*:}" "$VENDOR/Sources/SwiftTerm/${marker%%:*}"; then
-    err "error: patch 0018 is not applied (${marker%%:*} lacks ${marker#*:})."
-    err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0018-bound-inline-image-payloads.patch"
-    exit 2
-  fi
-done
-
-# --- 0019: hard-fail if OSC 1337 multipart is missing ---------------------------------
-# Same reasoning as 0018: terminal_swift's hash covers it, but a re-derived pin could bless
-# a tree without it, and modern imgcat (multipart by default) would silently show nothing.
-for marker in "case \"MultipartFile\":" "case \"FilePart\":" "iTermMultipart = nil"; do
-  if ! grep -qF "$marker" "$VENDOR/Sources/SwiftTerm/Terminal.swift"; then
-    err "error: patch 0019 is not applied (Terminal.swift lacks $marker)."
-    err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0019-osc1337-multipart-file.patch"
-    exit 2
-  fi
-done
-
-# --- 0020: SixelDcsHandler.swift bounds sixel parsing (#280) -----------------------------
-# Severity: CRASH. Upstream v1.15.0 traps (Index out of range / Int overflow) on malformed
-# sixel, which is untrusted terminal output; a trap in release kills the whole app.
-SIXEL_FILE="$VENDOR/Sources/SwiftTerm/SixelDcsHandler.swift"
-if [ ! -f "$SIXEL_FILE" ]; then err "error: SixelDcsHandler.swift missing."; exit 1; fi
-GOT_SIXEL="$(sha256_of "$SIXEL_FILE")"
-if [ "$GOT_SIXEL" = "$(pin_value upstream_sixel_dcs_handler)" ]; then
-  err "error: SixelDcsHandler.swift is UNPATCHED upstream $UPSTREAM_TAG — malformed sixel traps."
-  err "  patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0020-bound-sixel-parsing.patch"
-  exit 2
-fi
-if [ "$GOT_SIXEL" != "$(pin_value patched_sixel_dcs_handler)" ]; then
-  err "error: SixelDcsHandler.swift hash mismatch (got $GOT_SIXEL)."
-  err "  Regenerate: shasum -a 256 $SIXEL_FILE  # then update patched_sixel_dcs_handler"
+if [[ "$GOT_MTR" != "$WANT_MTR" ]]; then
+  err "error: MetalTerminalRenderer.swift hash mismatch (patches 0007+0008)."
+  err "  expected: $WANT_MTR  found: $GOT_MTR"
   exit 3
 fi

@@ -1,0 +1,143 @@
+Patch 0014 (ported to upstream c3436be): adds `open var disableLigatures: Bool` to
+TerminalView, suppressing OpenType ligatures in both renderers via cache-keyed attribute
+injection. Wired via AppConfig.ligatures -> TerminalPane.applyLigatures(_:).
+
+Port notes for c3436be:
+- ShaperKey gained `fallbackTag: UInt64`; disableLigatures is added alongside it.
+- shape() call site in buildShapedSegments reads terminalView.disableLigatures and passes
+  it through. The shape() signature adds disableLigatures parameter after fallbackTag.
+- MacTerminalView backing Bool, AppleTerminalView open property + getAttributes injection:
+  unchanged from v1.15.0 port; context lines adjusted for upstream rewrite.
+
+--- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
++++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+@@ -295,6 +295,11 @@ open class MacTerminalView: TerminalView
+     private var findBar: TerminalFindBarView?
+     private var findBarTerm: String = ""
+     private var findBarOptions: SearchOptions = SearchOptions()
++    // Patch 0014: backing store for the disableLigatures property declared in the
++    // AppleTerminalView extension. Both renderers read this through the open property;
++    // MacTerminalView holds the single stored copy because stored properties cannot
++    // live in extensions (Swift limitation).
++    var _disableLigatures: Bool = false
+     var debug: TerminalDebugView?
+     let viewStateLock = NSLock()
+ 
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+@@ -1571,6 +1571,32 @@ open class TerminalView: NSView, NSTextI
+     func resetCaches ()
+     {
+         self.attributes = [:]
+         self.urlAttributes = [:]
+         self.colors = Array(repeating: nil, count: 256)
+         self.trueColors = [:]
+     }
++
++    /// When `true`, OpenType ligature substitution is suppressed in BOTH renderers.
++    ///
++    /// Core Text path (patch 0014): `getAttributes(_:withUrl:)` adds
++    /// `kCTLigatureAttributeName: 0` to every attribute dictionary before caching.
++    /// Metal path (patch 0014): `ShaperCache` keys on `disableLigatures` and builds
++    /// its `CTLine` with the same attribute when the flag is set.
++    ///
++    /// Changing this property flushes the attribute and shaper caches so the next
++    /// paint picks up the new setting without a font reset.
++    ///
++    /// Default `false` — ligatures are on, matching the behaviour of every
++    /// terminal that does not explicitly suppress them.
++    @objc open var disableLigatures: Bool {
++        get { _disableLigatures }
++        set {
++            guard _disableLigatures != newValue else { return }
++            _disableLigatures = newValue
++            // Flush the per-attribute-combo cache so `getAttributes` rebuilds
++            // every entry with the new ligature flag on the next paint.
++            // `resetFont()` would also flush, but it re-measures the font,
++            // resizes the terminal, and triggers `processSizeChange` — far more
++            // than we need. `resetCaches()` is the minimal, correct operation.
++            resetCaches()
++        }
++    }
+ 
+@@ -2680,6 +2706,14 @@ open class TerminalView: NSView, NSTextI
+         if flags.contains (.crossedOut) {
+             nsattr [.strikethroughColor] = fgColor
+             nsattr [.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+         }
+ 
++        // Patch 0014 — ligature disable (Core Text path).
++        // kCTLigatureAttributeName = 0 instructs Core Text to skip OpenType ligature
++        // substitution for this run. The attribute is part of the cached entry so every
++        // subsequent draw of the same SGR attribute also suppresses ligatures without an
++        // extra lookup. Cache-keyed on `disableLigatures` via `resetCaches()` in the
++        // setter: toggling the flag invalidates all cached entries so the next paint
++        // rebuilds every dictionary with the new setting.
++        if disableLigatures {
++            nsattr[kCTLigatureAttributeName as NSAttributedString.Key] = 0
++        }
++
+         if withUrl {
+ 
+--- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
++++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
+@@ -3550,6 +3550,8 @@ final class MetalTerminalRenderer: Senda
+     private struct ShaperKey: Hashable {
+         let fontName: String
+         let fontSize: CGFloat
+         let text: String
+         /// Distinguishes host fallback fonts that share a PostScript name and
+         /// size but are different fonts (for example after the host reloads
+         /// its font and bumps the provider generation). 0 for ordinary runs.
+         let fallbackTag: UInt64
++        // Patch 0014: ligature mode is part of the cache key so that toggling
++        // `disableLigatures` on the terminal view causes a full shaper cache
++        // miss and the next paint re-shapes every visible run with the new setting.
++        let disableLigatures: Bool
+     }
+ 
+@@ -3594,12 +3598,22 @@ final class MetalTerminalRenderer: Senda
+-        func shape(text: String, font: CTFont, fallbackTag: UInt64 = 0) -> ShaperRun? {
++        func shape(text: String, font: CTFont, fallbackTag: UInt64 = 0, disableLigatures: Bool = false) -> ShaperRun? {
+             guard !text.isEmpty else {
+                 return nil
+             }
+             let key = ShaperKey(fontName: CTFontCopyPostScriptName(font) as String,
+                                 fontSize: CTFontGetSize(font),
+                                 text: text,
+-                                fallbackTag: fallbackTag)
++                                fallbackTag: fallbackTag,
++                                disableLigatures: disableLigatures)
+             if let cached = cache[key] {
+                 return cached
+             }
+ 
+             // buildAttributedString supplies terminal cells in their final
+             // screen order. Keep that order when CoreText shapes glyphs for
+             // the Metal atlas; otherwise CoreText applies BiDi a second time.
+             let writingDirectionKey = NSAttributedString.Key(kCTWritingDirectionAttributeName as String)
+-            let attributedString = NSAttributedString(string: text, attributes: [
++            // Patch 0014 — ligature disable (Metal path).
++            var shapeAttrs: [NSAttributedString.Key: Any] = [
+                 .font: font,
+                 writingDirectionKey: [NSNumber(value: 2)],
+-            ])
++            ]
++            if disableLigatures {
++                shapeAttrs[kCTLigatureAttributeName as NSAttributedString.Key] = 0
++            }
++            let attributedString = NSAttributedString(string: text, attributes: shapeAttrs)
+             let line = CTLineCreateWithAttributedString(attributedString)
+ 
+@@ -2853,7 +2857,9 @@ final class MetalTerminalRenderer: Senda
+                 let fallbackTag: UInt64 = attributes[SwiftTermGlyphPolicyKey] != nil
+                     ? UInt64(bitPattern: Int64(ObjectIdentifier(runFont).hashValue)) : 0
+-                guard let shaped = shaperCache.shape(text: text, font: runFont as CTFont,
+-                                                     fallbackTag: fallbackTag) else {
++                // Patch 0014: pass disableLigatures so the shaper key encodes the mode.
++                let noLig = terminalView.disableLigatures
++                guard let shaped = shaperCache.shape(text: text, font: runFont as CTFont,
++                                                     fallbackTag: fallbackTag,
++                                                     disableLigatures: noLig) else {
+                     return
+                 }
