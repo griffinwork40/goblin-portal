@@ -108,7 +108,7 @@ extension DocumentTabStrip {
                         window.performZoom(nil)
                     }
                     // "None" or unknown: do nothing, matching AppKit's own titlebar.
-                } else {
+                } else if event.clickCount == 1 {
                     window.performDrag(with: event)
                 }
             }
