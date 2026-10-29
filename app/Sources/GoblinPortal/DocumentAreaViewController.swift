@@ -151,12 +151,32 @@ final class DocumentAreaViewController: NSViewController {
         // `.fullSizeContentView` it keeps row 0 out of the titlebar band (+28pt
         // overlap measured without it — `.afk/plans/titlebar-reclaim-scope.md` §1b).
         let full = view.bounds
+        var topInset = layoutTopInset
+
+        // PR3: when the strip is visible in compact mode and the band was withheld
+        // solely because the sidebar is collapsed (controls overlap the doc area),
+        // reclaim it for the strip. Tabs start past the controls via leadingInset;
+        // the terminal gains ~30pt (the strip height) that was otherwise dead space.
+        // Only when the title row is the sole inset — a native tab bar or config
+        // banner adds more, and that extra must not be given back.
+        var stripLeading: CGFloat = 0
+        if isStripVisible, let window = view.window, window.allowsContentInTitleRow {
+            let viewOrigin = view.convert(view.bounds, to: nil)
+            let controlsMax = window.titleRowControlsMaxX
+            let titleRow = window.titleRowHeight
+            if topInset > 0, topInset <= titleRow, viewOrigin.minX < controlsMax + 8 {
+                topInset = max(0, topInset - titleRow)
+                stripLeading = max(0, controlsMax + 8 - viewOrigin.minX)
+            }
+        }
+
         let bounds = NSRect(
-            x: 0, y: 0, width: full.width, height: max(0, full.height - layoutTopInset))
+            x: 0, y: 0, width: full.width, height: max(0, full.height - topInset))
         let stripHeight = isStripVisible ? DocumentTabStrip.height : 0
         // Non-flipped coordinates: the strip is at the TOP, so it takes the high y.
         strip.frame = NSRect(
             x: 0, y: bounds.height - stripHeight, width: bounds.width, height: stripHeight)
+        strip.leadingInset = stripLeading
 
         // The backdrop always fills the full area below the strip — it is the
         // base layer that shows the terminal background colour through the inset.
