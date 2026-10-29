@@ -111,6 +111,12 @@ final class DocumentTabStrip: NSView {
     // are its only reader and writer, and they need write access from that file.
     var middleClickCandidate: Int?
 
+    /// Leading offset for tabs when the strip must clear window controls in the title
+    /// row (compact mode, sidebar collapsed). Pushed from the layout owner — the strip
+    /// is agnostic about WHY there is an inset. Drawing and hit-testing read it through
+    /// `Layout.leadingInset`; the stored value feeds the computed `layout` only.
+    var leadingInset: CGFloat = 0
+
     // MARK: - Drag-to-reorder state
     // why internal: written by `+Drag.swift`, read by `+Drawing.swift` and `+Mouse.swift`.
     // The candidate is a pending drag (mouseDown captured, threshold not yet exceeded).
@@ -203,6 +209,9 @@ final class DocumentTabStrip: NSView {
         /// True when `visible` is a strict subset of `items.indices`, i.e. the
         /// chevron is present and consuming width.
         let isOverflowing: Bool
+        /// Leading x-offset before the first tab. Tabs start at this x; the area
+        /// to the left is empty strip background (under the traffic lights).
+        let leadingInset: CGFloat
     }
 
     // why internal: drawing, hit-testing and the accessibility tree all resolve the
@@ -213,12 +222,12 @@ final class DocumentTabStrip: NSView {
     // truth claim above hold across the split rather than only within this file.
     var layout: Layout {
         guard !items.isEmpty else {
-            return Layout(tabWidth: 0, visible: 0..<0, isOverflowing: false)
+            return Layout(tabWidth: 0, visible: 0..<0, isOverflowing: false, leadingInset: 0)
         }
 
         // The "+" is never sacrificed: it is the only way to open a document with
         // the mouse, so its width comes off the top before tabs get any.
-        let withoutNewButton = max(bounds.width - Self.newButtonWidth, 0)
+        let withoutNewButton = max(bounds.width - Self.newButtonWidth - leadingInset, 0)
         let fitsAtFloor = Int(withoutNewButton / Self.minTabWidth)
 
         if items.count <= fitsAtFloor {
@@ -227,10 +236,10 @@ final class DocumentTabStrip: NSView {
             // the far edge of a wide window.
             let even = withoutNewButton / CGFloat(items.count)
             let width = min(max(even, Self.minTabWidth), Self.maxTabWidth)
-            return Layout(tabWidth: width, visible: items.indices, isOverflowing: false)
+            return Layout(tabWidth: width, visible: items.indices, isOverflowing: false, leadingInset: leadingInset)
         }
 
-        let forTabs = max(bounds.width - Self.newButtonWidth - Self.overflowButtonWidth, 0)
+        let forTabs = max(bounds.width - Self.newButtonWidth - Self.overflowButtonWidth - leadingInset, 0)
         // `max(_, 1)` so a window too narrow for even one floor-width tab still
         // draws one (degenerate, sub-floor) tab rather than dividing by zero. The
         // chevron stays reachable in that state, so no document is lost.
@@ -242,7 +251,7 @@ final class DocumentTabStrip: NSView {
         var first = min(max(activeIndex - count + 1, 0), max(items.count - count, 0))
         if activeIndex < first { first = activeIndex }
         let upper = min(first + count, items.count)
-        return Layout(tabWidth: width, visible: first..<upper, isOverflowing: true)
+        return Layout(tabWidth: width, visible: first..<upper, isOverflowing: true, leadingInset: leadingInset)
     }
 
     /// Rect for an absolute item index, or `nil` when the windowed strip is not
@@ -251,7 +260,7 @@ final class DocumentTabStrip: NSView {
     func tabRect(_ index: Int, _ layout: Layout) -> NSRect? {
         guard layout.visible.contains(index) else { return nil }
         let slot = CGFloat(index - layout.visible.lowerBound)
-        return NSRect(x: slot * layout.tabWidth, y: 0, width: layout.tabWidth, height: bounds.height)
+        return NSRect(x: layout.leadingInset + slot * layout.tabWidth, y: 0, width: layout.tabWidth, height: bounds.height)
     }
 
     func closeRect(_ tab: NSRect) -> NSRect {
@@ -287,8 +296,8 @@ final class DocumentTabStrip: NSView {
     }
 
     func tabIndex(at point: NSPoint, _ layout: Layout) -> Int? {
-        guard layout.tabWidth > 0, point.x >= 0 else { return nil }
-        let slot = Int(point.x / layout.tabWidth)
+        guard layout.tabWidth > 0, point.x >= layout.leadingInset else { return nil }
+        let slot = Int((point.x - layout.leadingInset) / layout.tabWidth)
         guard slot >= 0, slot < layout.visible.count else { return nil }
         let index = layout.visible.lowerBound + slot
         return items.indices.contains(index) ? index : nil

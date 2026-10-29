@@ -95,6 +95,23 @@ extension DocumentTabStrip {
             return
         }
         guard let index = tabIndex(at: point, layout), let rect = tabRect(index, layout) else {
+            // Empty strip area: in compact mode the strip sits in the title row, so
+            // this region must act as the titlebar — drag the window and honour the
+            // system double-click preference (zoom or minimize).
+            if let window, window.allowsContentInTitleRow {
+                if event.clickCount == 2 {
+                    let action = UserDefaults.standard.string(
+                        forKey: "AppleActionOnDoubleClick") ?? "Maximize"
+                    if action == "Minimize" {
+                        window.performMiniaturize(nil)
+                    } else if action == "Maximize" {
+                        window.performZoom(nil)
+                    }
+                    // "None" or unknown: do nothing, matching AppKit's own titlebar.
+                } else if event.clickCount == 1 {
+                    window.performDrag(with: event)
+                }
+            }
             return
         }
         // Close wins over select: the × sits inside the tab's own rect, so testing
