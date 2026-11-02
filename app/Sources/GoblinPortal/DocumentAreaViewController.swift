@@ -164,9 +164,10 @@ final class DocumentAreaViewController: NSViewController {
             let viewOrigin = view.convert(view.bounds, to: nil)
             let controlsMax = window.titleRowControlsMaxX
             let titleRow = window.titleRowHeight
-            if topInset > 0, topInset <= titleRow, viewOrigin.minX < controlsMax + 8 {
+            let gap = TitlebarStyle.controlsClearance  // measured 8pt (scope §7)
+            if topInset > 0, topInset <= titleRow, viewOrigin.minX < controlsMax + gap {
                 topInset = max(0, topInset - titleRow)
-                stripLeading = max(0, controlsMax + 8 - viewOrigin.minX)
+                stripLeading = max(0, controlsMax + gap - viewOrigin.minX)
             }
         }
 

@@ -29,6 +29,8 @@
 #   C10 live reload standard -> compact -> standard: frame + saved frame unchanged, rows return.
 #   C9 (headless, TitlebarStyle.swift alone): spellings, case, unknown -> standard + 1 warning.
 #   W  reloadConfig re-applies the titlebar style (grep: the reload path is not reachable here).
+#   D1 performDrag wired in strip empty-area mouseDown (compact-mode drag).
+#   D2 AppleActionOnDoubleClick read in strip empty-area mouseDown (compact-mode double-click).
 #   ISO the real com.griffinlong.goblin-portal domain is unchanged (delta vs a snapshot).
 #   A case whose precondition does not hold (the tab bar did not shrink the layout rect, the
 #   flag did not extend the content view) exits 2: it could not judge, so it cannot pass.
@@ -44,6 +46,7 @@
 #   m5 ignore the controls rule (band even under the traffic lights)  -> C3
 #   m6 drop the "nothing below the title row" term                     -> C4c
 #   m7 an unknown titlebar value parses as compact                    -> C9
+#   m8 remove performDrag from strip empty-area mouseDown             -> D1
 #
 # EXIT: 0 pass; 1 real failure; 2 environmental. The verdict is the harness EXIT CODE.
 # CANNOT SEE: pixels, full screen, macOS 14/15 (measured on 27 only), and the shipped default
@@ -74,13 +77,14 @@ if [[ $FALSIFY -eq 1 ]]; then
   SRC=Sources/GoblinPortal
   # label | file | perl substitution | declared case
   MUTANTS=(
-    "m1|$SRC/DocumentAreaViewController.swift|s/full\.height - layoutTopInset/full.height/|C1"
+    "m1|$SRC/DocumentAreaViewController.swift|s/full\.height - topInset/full.height/|C1"
     "m2|$SRC/DocumentAreaViewController.swift|s/\n        observeContentLayoutRect\(\)\n/\n/|C4"
     "m3|$SRC/FileTreeViewController.swift|s/sidebarTopInset \+ view\.safeAreaInsets\.top/sidebarTopInset/|C7"
     "m4|$SRC/SpaceWindowController+InitialFrame.swift|s/window\.styleMask\.subtracting\(\.fullSizeContentView\)/window.styleMask/|C8"
     "m5|$SRC/TitlebarStyle.swift|s/guard allowBand, clearOfControls, /guard allowBand, /|C3"
     "m6|$SRC/TitlebarStyle.swift|s/, full <= titleRow \+ 0\.5 else/ else/|C4c"
     "m7|$SRC/TitlebarStyle.swift|s/default:         return nil/default:         return .compact/|C9"
+    "m8|$SRC/DocumentTabStrip+Mouse.swift|s/window\.performDrag\(with: event\)/\/\/ removed/|D1"
   )
   ran=0; missed=0; envfail=0
   for m in "${MUTANTS[@]}"; do
@@ -147,6 +151,15 @@ c9out="$("$T9/c9")"; c9=$?; rm -rf "$T9"; say "$c9out"
 if grep -v '^ *//' Sources/GoblinPortal/AppDelegate.swift | grep -q 'controller\.applyTitlebarStyle()'; then
   say "  ok   W reloadConfig re-applies the titlebar style"; wst=0
 else echo "  FAIL W reloadConfig no longer calls applyTitlebarStyle()"; wst=1; fi
+# D1: performDrag reachable in strip empty-area mouseDown (PR3, issue #301 R1.2).
+MOUSE=Sources/GoblinPortal/DocumentTabStrip+Mouse.swift
+if grep -v '^ *//' "$MOUSE" | grep -q 'performDrag'; then
+  say "  ok   D1 performDrag wired in strip empty-area mouseDown"; d1st=0
+else echo "  FAIL D1 performDrag missing from DocumentTabStrip+Mouse.swift"; d1st=1; fi
+# D2: double-click reads the system preference for zoom/minimize.
+if grep -v '^ *//' "$MOUSE" | grep -q 'AppleActionOnDoubleClick'; then
+  say "  ok   D2 AppleActionOnDoubleClick wired in strip empty-area mouseDown"; d2st=0
+else echo "  FAIL D2 AppleActionOnDoubleClick missing from DocumentTabStrip+Mouse.swift"; d2st=1; fi
 
 BFLAGS=(); swift build --help 2>&1 | grep -q -- '--build-system' && BFLAGS=(--build-system swiftbuild)
 say "==> building (the harness links Goblin Portal's own objects, so they must be current)"
@@ -186,7 +199,7 @@ rm -f "$HOME/Library/Preferences/$BIN.plist"
 # Drop the app's own `[goblin-portal]`/`[diag]` stderr chatter, not verdicts.
 say "$(grep -v '^\[' <<<"$out")"
 
-if [[ $status -eq 0 && $c9 -eq 0 && $wst -eq 0 ]]; then exit 0; fi
+if [[ $status -eq 0 && $c9 -eq 0 && $wst -eq 0 && $d1st -eq 0 && $d2st -eq 0 ]]; then exit 0; fi
 if [[ $status -eq 0 ]]; then echo "$c9out" | grep FAIL; exit 1; fi
 if [[ $status -eq 2 ]] || ! grep -q 'ok   \|FAIL ' <<<"$out"; then
   echo "error: harness could not judge the layout (exit $status) — treating as environmental." >&2
