@@ -69,7 +69,9 @@ upstream_mac_terminal_view = 14e6cba00c642b4ac03a90d72c524f983f5b025d84e262ae94a
 # property + getAttributes injection), 0009 (scrollbar thumb 1/rows), 0010 (adaptiveIdlePauseEnabled
 # static + onFramePresented callback + displayLinkPacingEnabled shim + Diagnostics struct with
 # diagnostics/resetDiagnostics + setProcessOutputHandler for parse-thread output notification),
-# 0012 (createImage/createImageFromBitmap guards), and the getTerminal() compatibility shim.
+# 0012 (createImage/createImageFromBitmap guards), 0014 (ProMotion immediate-draw: isImmediate
+# parameter on frameTick/submitFrameDraw/onTick, synchronous display() for refresh-rate promotion),
+# and the getTerminal() compatibility shim.
 patched_apple_terminal_view  = 930cc2bd065d9dc0994f4376557d1ed60e12899f142fc6078b286c1b315ff6a0
 upstream_apple_terminal_view = 5453374731568b260564279562547f70297a76f189cdbf6b1b106124e925993a
 
@@ -77,9 +79,10 @@ upstream_apple_terminal_view = 5453374731568b260564279562547f70297a76f189cdbf6b1
 patched_terminal_view_search  = f33e9f95b27b4d60b62ef046dcb7157d59a886a6c6c1eb4c4fe936c0e38a5e6f
 
 # Apple/FrameDriver.swift AFTER applying 0010 (adaptive idle-pause: lastPaint/slowProducer
-# fields + sourceDidTick paint/idle branch changes). Replaces MacDisplayLinkPacer.swift
-# which no longer exists in upstream c3436be.
-patched_frame_driver  = 9dfa1f37475e13c17f8f6a0f794bd8af24f7b571ce0b815c6e9077b17bf883b0
+# fields + sourceDidTick paint/idle branch changes) and 0014 (onTick signature (Bool) -> Void
+# for ProMotion immediate-draw passthrough). Replaces MacDisplayLinkPacer.swift which no
+# longer exists in upstream c3436be.
+patched_frame_driver  = 58aaea586498d890d31b808dc03e87d6651a30803c956b3dad1c1f1d5250c413
 upstream_frame_driver = 2dfef666c14609135ab9c2ed0ac0d973eaf37fe8b648d52ec5882125f4ea3da6
 
 # Apple/Metal/MetalTerminalRenderer.swift AFTER applying 0007 (rasterizer.backingScale set in

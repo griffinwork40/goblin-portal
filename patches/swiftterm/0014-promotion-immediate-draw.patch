@@ -1,0 +1,108 @@
+--- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
++++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
+@@ -4011,13 +4011,19 @@
+     /// Always runs on the main thread. When a render loop is active this does
+     /// almost nothing: it captures the view state and hands the frame over
+     /// (io-gaps.md G1, WO-F4).
+-    func frameTick ()
++    func frameTick (isImmediate: Bool = false)
+     {
+         let tick = Profiling.begin(.frameTick)
+         defer { tick.end() }
+         guard let viewState = captureFrameViewState() else { return }
+ #if os(macOS) && canImport(MetalKit)
+-        if usesRenderLoop {
++        // Goblin Portal patch: when isImmediate (IO data arrival), bypass the
++        // render loop and draw synchronously on main. The render loop defers to
++        // its own thread, which on ProMotion displays causes WindowServer to
++        // throttle the refresh rate. Synchronous main-thread draws replicate
++        // v1.18.0's latency model. Non-immediate ticks (cursor blink, resize)
++        // still use the render loop.
++        if usesRenderLoop && !isImmediate {
+             publishFrameViewState(viewState)
+             renderLoop?.signal()
+             return
+@@ -4026,7 +4032,7 @@
+         guard let prepared = prepareFrame(viewState: viewState) else { return }
+         applyFrameSideEffects(prepared.mainEffects)
+         updateCursorPosition(from: prepared.cursor, rowCount: prepared.cursorRowCount)
+-        submitFrameDraw(prepared)
++        submitFrameDraw(prepared, isImmediate: isImmediate)
+     }
+ 
+     /// Captures what this frame needs from the view. Main thread only — this is
+@@ -4103,24 +4109,35 @@
+     }
+ 
+     /// Hands the prepared frame to whichever renderer is active.
+-    func submitFrameDraw (_ prepared: PreparedFrame)
++    ///
++    /// Goblin Portal patch: when `isImmediate` is true (IO data arrival via
++    /// requestImmediateTick), forces a synchronous draw via `display()` instead
++    /// of deferring to `setNeedsDisplay(region)`. On ProMotion displays, macOS
++    /// throttles the compositor to 10-24Hz when it sees no real draw commits.
++    /// `setNeedsDisplay` from a `DispatchQueue.main.async` block does not carry
++    /// enough signal for WindowServer to promote the refresh rate; `display()`
++    /// forces a synchronous draw in the same run-loop spin, which does.
++    func submitFrameDraw (_ prepared: PreparedFrame, isImmediate: Bool = false)
+     {
+ #if canImport(MetalKit)
+         if prepared.needsMetalDisplay {
+-            if metalView?.needsExternalDrawCall == true {
+-                // No display callback exists for this surface: render now.
+-                // Routing through requestDisplay() here would only mark the
+-                // driver dirty again and spin without ever drawing.
++            // Goblin Portal patch: when isImmediate, draw synchronously via
++            // renderMetal() instead of deferring via requestDisplay(). Same
++            // ProMotion rationale as the CoreText display() path below.
++            if isImmediate || metalView?.needsExternalDrawCall == true {
+                 renderOwner.renderMetal()
+             } else {
+-                // MTKView: AppKit will call the delegate, which renders.
+                 metalView?.requestDisplay()
+             }
+             return
+         }
+ #endif
+         if let region = prepared.region {
+-            setNeedsDisplay(region)
++            if isImmediate {
++                display()
++            } else {
++                setNeedsDisplay(region)
++            }
+         }
+     }
+ 
+@@ -4425,8 +4442,8 @@
+ 
+     func setupFrameDriver () {
+         let driver = FrameDriver(signal: frameSignal)
+-        driver.onTick = { [weak self] in
+-            self?.frameTick()
++        driver.onTick = { [weak self] isImmediate in
++            self?.frameTick(isImmediate: isImmediate)
+         }
+         driver.onVisibilityChanged = { [weak self] visible in
+             self?.renderOwner.setTerminalVisibility(
+--- a/Sources/SwiftTerm/Apple/FrameDriver.swift
++++ b/Sources/SwiftTerm/Apple/FrameDriver.swift
+@@ -285,7 +285,8 @@
+     nonisolated let signal: FrameDriverSignal
+ 
+     /// The view installs a weakly captured frame callback here.
+-    var onTick: (() -> Void)?
++    // Patch 0014: isImmediate parameter for ProMotion refresh-rate promotion.
++    var onTick: ((Bool) -> Void)?
+ 
+     /// Publishes the same effective visibility that controls frame suspension.
+     var onVisibilityChanged: ((Bool) -> Void)?
+@@ -604,7 +605,7 @@
+         }
+ 
+         if shouldCall {
+-            onTick?()
++            onTick?(isImmediate)
+         }
+         if shouldPause {
+             pauseBackendOnMain()

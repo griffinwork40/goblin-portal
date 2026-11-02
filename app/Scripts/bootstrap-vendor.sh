@@ -97,6 +97,8 @@ PATCHES=(
   "0011-xtversion-host-override-mode2027.patch"
   "0012-bound-inline-image-payloads.patch"
   "0013-osc1337-multipart-file.patch"
+  "0014-promotion-immediate-draw.patch"
+  
 )
 
 if [[ ! -f "$PIN" ]]; then
