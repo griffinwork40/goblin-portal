@@ -109,6 +109,10 @@ extension AppConfig {
                         + " — using \(config.renderer.configName)")
             }
         }
+        // Diagnostic override: GOBLIN_PORTAL_RENDERER=coretext forces CoreText without
+        // editing config.json. Useful for isolating Metal-specific rendering issues.
+        if let envRenderer = ProcessInfo.processInfo.environment["GOBLIN_PORTAL_RENDERER"],
+           let r = Renderer.named(envRenderer) { config.renderer = r }
         // `fontThicken` is accepted so existing configs stay valid, but the field may have
         // no visible effect on current macOS: `CGContextSetFontSmoothingStyle` was observed
         // to be a no-op in both render paths on macOS 15 (0 px changed under the

@@ -1,6 +1,7 @@
 // TerminalPane+Notifications.swift
 // Pane-side notification setup and attention signals, separate from OSC 133 outcomes.
 import AppKit
+import QuartzCore  // CACurrentMediaTime
 
 @MainActor
 extension TerminalPane {
@@ -14,6 +15,17 @@ extension TerminalPane {
         // Defined in GoblinPortalTerminalView+Progress.swift.
         view.progressCallback = { [weak self] code, pct in
             self?.applyProgressReport(stateCode: code, progress: pct)
+        }
+        // Update lastDrawTimestamp on every output batch so the agent-activity
+        // timer (TerminalPane+AgentActivity.swift) detects output regardless of
+        // renderer.  With Metal, draw() returns immediately (MacTerminalView.swift:1848)
+        // and AppKit rarely calls it, so the timestamp set there goes stale; this
+        // callback fires on every parse batch, including under Metal.
+        // The callback runs on the swiftterm-io-reader thread; capture the
+        // timestamp there (accurate) and dispatch the write to main (safe).
+        view.setProcessOutputHandler { [weak view] in
+            let now = CACurrentMediaTime()
+            DispatchQueue.main.async { view?.lastDrawTimestamp = now }
         }
         startAgentActivityTimer()  // output-activity heuristic — see TerminalPane+AgentActivity
     }

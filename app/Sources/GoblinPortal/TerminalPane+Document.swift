@@ -81,6 +81,7 @@ extension TerminalPane: SpaceDocument {
     /// is what keeps this honest.
     func documentWillClose() {
         stopAgentActivityTimer()  // tear down before pty cleanup
+        view.setProcessOutputHandler(nil)  // remove parse-thread callback
         view.smoothScroll.invalidate()
         guard view.process.running else { return }
         kill(view.process.shellPid, SIGHUP)
