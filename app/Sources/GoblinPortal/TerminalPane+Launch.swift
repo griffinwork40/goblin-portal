@@ -47,13 +47,6 @@ extension TerminalPane {
         startedShellName = URL(fileURLWithPath: config.shell).resolvingSymlinksInPath().lastPathComponent
         view.startProcess(executable: config.shell, args: ["-l"],
             environment: env, currentDirectory: directory)
-        // DIAGNOSTIC: disable the FrameDriver's occlusion-based visibility suspension.
-        // In fullscreen, macOS Space transitions can leave occlusionState stale, causing
-        // the display link to stay suspended — the terminal only repaints on cursor blinks
-        // (~5fps). Disabling this keeps the link running regardless of occlusion state.
-        // TODO: find the root cause (stale occlusionState after fullscreen) and restore
-        // the suspension for non-fullscreen windows to save GPU cycles.
-        view.suspendsRenderingWhenNotVisible = false
         applyCursorStyle(config.cursorStyle)
         registerShellIntegration()       // OSC 133 — see TerminalPane+ShellIntegration
     }
