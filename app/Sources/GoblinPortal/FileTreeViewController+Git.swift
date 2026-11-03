@@ -329,6 +329,8 @@ extension FileTreeViewController {
     /// decoration through the same function `viewFor` uses, which keeps one description of
     /// how a row looks rather than two that can drift.
     func gitStatusDidChange() {
+        // Accumulate session highlights before the repaint reads them.
+        notifySourceControlOfChange()
         for row in 0..<outlineView.numberOfRows {
             guard let node = outlineView.item(atRow: row) as? FileNode,
                 let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false)
@@ -343,6 +345,5 @@ extension FileTreeViewController {
             applyGitDecoration(to: cell, for: node)
         }
         gitHeader.update(summary: gitFollow?.branchSummary)
-        notifySourceControlOfChange()
     }
 }

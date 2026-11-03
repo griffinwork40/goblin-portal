@@ -89,6 +89,9 @@ private final class FileCellView: NSTableCellView {
     /// from inputs rather than from whatever it drew last.
     var isStaged = false
 
+    /// Whether this path appears in the session-touched accumulation set.
+    var isSessionTouched = false
+
     /// Held so the decoration can switch it on and off. An always-active minimum would
     /// reserve badge width on every clean row, which is exactly what `makeCell`'s layout
     /// comment says must not happen.
@@ -96,6 +99,11 @@ private final class FileCellView: NSTableCellView {
 
     func applyTint() {
         let selected = backgroundStyle == .emphasized
+        // Session-touched highlight: a subtle accent fill behind the entire cell,
+        // yielding inside the selection pill. Same CGColor-resolution pattern as
+        // the staged chip — re-resolved on `viewDidChangeEffectiveAppearance`.
+        layer?.backgroundColor = (isSessionTouched && !selected)
+            ? NSColor.controlAccentColor.withAlphaComponent(0.08).cgColor : nil
         imageView?.contentTintColor =
             selected ? .alternateSelectedControlTextColor : .secondaryLabelColor
         // A clean row keeps `labelColor` — decoration is the exception, never the default,
@@ -179,6 +187,11 @@ extension FileTreeViewController: NSOutlineViewDelegate {
             view.decorationColour = status?.decorationColour
             view.badge.stringValue = status?.letter ?? ""
             view.isStaged = entry?.isStaged ?? false
+            // Session-touched: does the accumulated set include this file?
+            let relative = gitFollow?.repository?.relativePath(for: node.url)
+            view.isSessionTouched = relative.map {
+                !$0.isEmpty && sessionTouchedPaths.contains($0)
+            } ?? false
             // Only widen the badge when it has something in it: the empty badge's
             // zero intrinsic width is what lets a clean row's name run the full width of
             // the sidebar, which the layout comment in `makeCell` is explicit about.
@@ -250,6 +263,7 @@ extension FileTreeViewController: NSOutlineViewDelegate {
     private static func makeCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = FileCellView()
         cell.identifier = identifier
+        cell.wantsLayer = true
 
         let imageView = NSImageView()
         imageView.translatesAutoresizingMaskIntoConstraints = false

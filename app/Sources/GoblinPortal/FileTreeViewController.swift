@@ -67,6 +67,9 @@ final class FileTreeViewController: NSViewController {
     /// properties. Everything it does lives over there.
     var gitFollow: GitStatusFollow?
 
+    /// Repo-relative paths this session has seen dirty, pushed by SpaceViewController.
+    var sessionTouchedPaths: Set<String> = []
+
     /// The branch line above the tree. Built eagerly and hidden — it costs one view, and
     /// `loadView` has to put it in the stack before the first poll can decide whether it
     /// belongs on screen.
