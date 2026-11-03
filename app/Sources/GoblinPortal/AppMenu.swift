@@ -74,9 +74,9 @@ extension AppDelegate {
         // documents, and a document is not necessarily a shell any more.
         let fileItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(withTitle: "New Space", action: #selector(newSpace(_:)), keyEquivalent: "n")
+        fileMenu.addItem(withTitle: "New Space\u{2026}", action: #selector(newSpace(_:)), keyEquivalent: "n")
         let newWindowItem = NSMenuItem(
-            title: "New Space in New Window", action: #selector(newSpaceInWindow(_:)),
+            title: "New Space in New Window\u{2026}", action: #selector(newSpaceInWindow(_:)),
             keyEquivalent: "n")
         newWindowItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(newWindowItem)

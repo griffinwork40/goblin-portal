@@ -245,13 +245,12 @@ enum OpenSpaceRoots {
 
     /// De-duplicate and cap, preserving tab order.
     ///
-    /// Two Spaces *can* legitimately share a root today — ⌘N twice takes
-    /// `AppDelegate.defaultSpaceRoot` with no dedupe, unlike ⌘O, which explicitly
-    /// refuses because "two Spaces onto one root would give the same project two
-    /// file trees and two titles with no way to tell them apart"
-    /// (`AppDelegate.openFolder`). Restoring that state would rebuild exactly the
-    /// pair of indistinguishable tabs ⌘O declines to create, so the duplicate is
-    /// collapsed here instead. Restore is lossy by design; it is not a session
+    /// Two Spaces could legitimately share a root before T5.2 (⌘N twice took
+    /// the silent $HOME fallback with no dedupe); post-T5.2 every creation path dedupes
+    /// via `openDirectoryAsSpace` / `openDirectoryAsNewWindow`, so duplicates
+    /// should no longer arise — but the collapse here is kept as a defensive
+    /// backstop, since restore reads what was persisted, not what is currently
+    /// possible to create. Restore is lossy by design; it is not a session
     /// snapshot.
     ///
     /// Compared on `resolvingSymlinksInPath` for the same reason `openFolder`'s
