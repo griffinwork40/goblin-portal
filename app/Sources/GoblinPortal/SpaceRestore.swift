@@ -46,7 +46,20 @@ extension AppDelegate {
     /// `AppDelegate.swift`, and `private` is file-scoped in Swift.
     func restoreSpaces() {
         let roots = OpenSpaceRoots.urls
-        guard let first = roots.first else { return newSpaceInWindow(nil) }
+        guard let first = roots.first else {
+            // T5.2: no remembered roots — present a folder picker so the first
+            // Space starts with an explicit project root. If the user cancels,
+            // fall through to $HOME — the ONE remaining path that creates a Space
+            // without an explicit folder choice, and an informed one: they saw
+            // the picker and chose to dismiss it.
+            if let url = selectProjectRoot() {
+                openDirectoryAsNewWindow(url: url)
+            } else {
+                let home = FileManager.default.homeDirectoryForCurrentUser
+                SpaceWindowController(config: config, root: home).present()
+            }
+            return
+        }
 
         // The first Space opens as a plain window; the rest attach as system tabs via
         // the existing `presentAsTab(relativeTo:)`. Spaces ARE native macOS window

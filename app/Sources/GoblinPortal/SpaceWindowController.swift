@@ -142,7 +142,11 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
         // the title names the project and the *subtitle* carries the active
         // document. Titling the window after the shell would make every project's
         // tab read "zsh" (plan §12.4 item 1).
-        window.title = root.lastPathComponent
+        // T5.2: a $HOME-rooted Space (the first-launch cancel fallback) shows
+        // "Home" instead of the username, signalling it has no chosen project root.
+        let isHome = root.resolvingSymlinksInPath()
+            == FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath()
+        window.title = isHome ? "Home" : root.lastPathComponent
         // Match the terminal's own background so the titlebar area does not flash
         // a mismatched colour on open or during a live resize. A nil theme leaves
         // SwiftTerm on its own defaults, whose background is black

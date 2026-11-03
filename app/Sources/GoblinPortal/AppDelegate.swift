@@ -158,27 +158,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UpdateChecker.shared.checkNow(currentVersion: UpdateChecker.bundleVersion)
     }
 
-    /// The root a Space gets when the user did not name one (⌘N, ⌘⇧N, first launch).
-    ///
-    /// The last root opened with ⌘O, falling back to `$HOME` — which is still the
-    /// right *first* answer, because a login shell starts there anyway, but a poor
-    /// steady-state one: you almost always want the project you were last in, not a
-    /// home directory whose first screen is tool caches. See `LastSpaceRoot`.
-    private var defaultSpaceRoot: URL {
-        LastSpaceRoot.url ?? FileManager.default.homeDirectoryForCurrentUser
-    }
-
-    /// ⌘N — a new Space, joining the existing tab group. A system tab *is* a Space
-    /// under this design, and `tabbingMode = .preferred` already says macOS wants
-    /// these tabbed; ⌘⇧N exists for when a genuinely separate window is wanted.
+    /// ⌘N — pick a project folder and open it as a new Space, joining the existing
+    /// tab group. The picker enforces the "Spaces = project roots" invariant: every
+    /// Space has an explicit root chosen by the user. ⌘⇧N does the same in a new
+    /// window; ⌘O is kept as an alias with identical behaviour. (#297, T5.2)
     @objc func newSpace(_ sender: Any?) {
-        let host = NSApp.keyWindow ?? SpaceWindowController.open.last?.window
-        SpaceWindowController(config: config, root: defaultSpaceRoot)
-            .presentAsTab(relativeTo: host)
+        guard let url = selectProjectRoot() else { return }
+        openFileHandler.openDirectoryAsSpace(url: url)
     }
 
     @objc func newSpaceInWindow(_ sender: Any?) {
-        SpaceWindowController(config: config, root: defaultSpaceRoot).present()
+        guard let url = selectProjectRoot() else { return }
+        openDirectoryAsNewWindow(url: url)
     }
 
     /// ⌘O — choose a project folder and open it as a Space.
@@ -201,7 +192,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.prompt = "Open as Space"
         // Start where the focused Space already is, so opening a sibling project is
         // one level up rather than a walk from $HOME.
-        panel.directoryURL = focusedSpaceWindow?.root ?? defaultSpaceRoot
+        panel.directoryURL = focusedSpaceWindow?.root
+            ?? LastSpaceRoot.url
+            ?? FileManager.default.homeDirectoryForCurrentUser
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
