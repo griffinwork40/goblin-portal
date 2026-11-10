@@ -98,7 +98,7 @@ PATCHES=(
   "0012-bound-inline-image-payloads.patch"
   "0013-osc1337-multipart-file.patch"
   "0014-promotion-immediate-draw.patch"
-  
+  "0015-fullscreen-transition-observers.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then

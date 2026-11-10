@@ -1,0 +1,118 @@
+--- a/Sources/SwiftTerm/Apple/FrameDriver.swift
++++ b/Sources/SwiftTerm/Apple/FrameDriver.swift
+@@ -332,6 +332,14 @@
+     private var cvDisplayLink: CVDisplayLink?
+     private var cvCallbackContext: Unmanaged<FrameDriverSignal>?
+     private var screenObserver: NSObjectProtocol?
++    // (#302) Flag set during fullscreen Space transitions so stale occlusionState
++    // reads are suppressed. macOS does not reliably fire correcting notifications
++    // after these transitions (Flutter PR #188772, Mozilla bug 1831967,
++    // WebKit commit 7e8c765).
++    private var inFullscreenTransition = false
++    // Separate storage for the workspace-center observer so removeWindowObservers()
++    // can remove it from NSWorkspace.shared.notificationCenter, not NotificationCenter.default.
++    private var workspaceSpaceObserver: NSObjectProtocol?
+ #endif
+ 
+     init(signal: FrameDriverSignal = FrameDriverSignal()) {
+@@ -750,9 +758,62 @@
+             ) { [weak self] _ in
+                 Task { @MainActor [weak self] in
+                     self?.updateVisibilityOnMain()
++                }
++            })
++        }
++
++        // (#302) macOS does not reliably update occlusionState after fullscreen
++        // Space transitions (Flutter PR #188772, Mozilla bug 1831967,
++        // WebKit commit 7e8c765). Suppress visibility reads during the animation
++        // and force a re-check once the transition completes (or fails).
++        let willTransitionNames: [Notification.Name] = [
++            NSWindow.willEnterFullScreenNotification,
++            NSWindow.willExitFullScreenNotification,
++        ]
++        for name in willTransitionNames {
++            visibilityObservers.append(center.addObserver(
++                forName: name,
++                object: window,
++                queue: .main
++            ) { [weak self] _ in
++                Task { @MainActor [weak self] in
++                    self?.fullscreenTransitionBegan()
++                }
++            })
++        }
++        // Note: didFailToEnterFullScreen / didFailToExitFullScreen are not
++        // exposed as typed NSWindow constants in all SDK versions; use raw names.
++        let didTransitionNames: [Notification.Name] = [
++            NSWindow.didEnterFullScreenNotification,
++            NSWindow.didExitFullScreenNotification,
++            Notification.Name("NSWindowDidFailToEnterFullScreenNotification"),
++            Notification.Name("NSWindowDidFailToExitFullScreenNotification"),
++        ]
++        for name in didTransitionNames {
++            visibilityObservers.append(center.addObserver(
++                forName: name,
++                object: window,
++                queue: .main
++            ) { [weak self] _ in
++                Task { @MainActor [weak self] in
++                    self?.fullscreenTransitionEnded()
+                 }
+             })
+         }
++
++        // (#302) Backstop: activeSpaceDidChange fires after the Space animation
++        // settles and occlusionState is usually correct by then. Delay 100ms to
++        // let AppKit finish latching the new state before we read it.
++        workspaceSpaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
++            forName: NSWorkspace.activeSpaceDidChangeNotification,
++            object: nil,
++            queue: .main
++        ) { [weak self] _ in
++            Task { @MainActor [weak self] in
++                try? await Task.sleep(nanoseconds: 100_000_000)
++                self?.updateVisibilityOnMain()
++            }
++        }
+     }
+ 
+     private func removeWindowObservers() {
+@@ -765,6 +826,11 @@
+             center.removeObserver(observer)
+         }
+         visibilityObservers.removeAll()
++        // (#302) The workspace space observer uses a different notification center.
++        if let workspaceSpaceObserver {
++            NSWorkspace.shared.notificationCenter.removeObserver(workspaceSpaceObserver)
++            self.workspaceSpaceObserver = nil
++        }
+     }
+ 
+     private func isVisibleOnMain() -> Bool {
+@@ -782,9 +848,25 @@
+     }
+ 
+     private func updateVisibilityOnMain() {
++        // (#302) Suppress stale occlusionState reads during fullscreen Space
++        // transitions. fullscreenTransitionEnded() will re-call us once the
++        // animation settles and AppKit's state is trustworthy again.
++        guard !inFullscreenTransition else { return }
+         setVisibilityOnMain(visible: isVisibleOnMain())
+     }
+ 
++    // (#302) macOS does not reliably fire occlusionState updates after
++    // fullscreen Space transitions (Flutter PR #188772, Mozilla bug 1831967).
++    // Suppress reads during animation; force re-check after.
++    private func fullscreenTransitionBegan() {
++        inFullscreenTransition = true
++    }
++
++    private func fullscreenTransitionEnded() {
++        inFullscreenTransition = false
++        updateVisibilityOnMain()
++    }
++
+     private func destroyMacBackend() {
+         displayLinkBackend?.invalidate()
+         displayLinkBackend = nil

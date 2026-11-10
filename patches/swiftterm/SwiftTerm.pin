@@ -79,10 +79,12 @@ upstream_apple_terminal_view = 5453374731568b260564279562547f70297a76f189cdbf6b1
 patched_terminal_view_search  = f33e9f95b27b4d60b62ef046dcb7157d59a886a6c6c1eb4c4fe936c0e38a5e6f
 
 # Apple/FrameDriver.swift AFTER applying 0010 (adaptive idle-pause: lastPaint/slowProducer
-# fields + sourceDidTick paint/idle branch changes) and 0014 (onTick signature (Bool) -> Void
-# for ProMotion immediate-draw passthrough). Replaces MacDisplayLinkPacer.swift which no
-# longer exists in upstream c3436be.
-patched_frame_driver  = 58aaea586498d890d31b808dc03e87d6651a30803c956b3dad1c1f1d5250c413
+# fields + sourceDidTick paint/idle branch changes), 0014 (onTick signature (Bool) -> Void
+# for ProMotion immediate-draw passthrough), and 0015 (fullscreen Space transition observers:
+# inFullscreenTransition flag, willEnter/didEnter/willExit/didExit/didFail fullscreen observers,
+# NSWorkspace.activeSpaceDidChange backstop, guard in updateVisibilityOnMain; fixes #302).
+# Replaces MacDisplayLinkPacer.swift which no longer exists in upstream c3436be.
+patched_frame_driver  = 7f4bd45575ba99792fa78160dda0eaec6960a06d7cf0713991da27db0c21f7b2
 upstream_frame_driver = 2dfef666c14609135ab9c2ed0ac0d973eaf37fe8b648d52ec5882125f4ea3da6
 
 # Apple/Metal/MetalTerminalRenderer.swift AFTER applying 0007 (rasterizer.backingScale set in
