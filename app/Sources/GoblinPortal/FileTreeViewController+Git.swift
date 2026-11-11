@@ -2,7 +2,7 @@
 //  FileTreeViewController+Git.swift
 //  Keeping the tree's git decorations current, and knowing what each row should say.
 //
-//  Its own file because it is one whole concern with a lifecycle of its own — a timer that
+//  Its own file because it is one whole concern with a lifecycle of its own — a poller that
 //  must start, stop and not outlive its window — and because the controller had no room:
 //  the same argument, and the same shape, as `SpaceViewController+DirectoryFollow.swift`.
 //  Only the single stored property lives over there, because Swift extensions cannot add
@@ -27,35 +27,26 @@
 //  risks the identity-preservation invariant that `refresh()` depends on. Nothing here
 //  touches a node.
 //
-//  WHY A TIMER AND NOT FSEVENTS, for now. The research recommends FSEvents as the primary
-//  signal with a slow poll as a backstop, which is what VS Code does, and that remains the
-//  right end state. This first cut is the poll alone, deliberately: it matches what the
-//  tree already does (`FileTreeViewController.refresh()` is driven by window-became-key and
-//  says in its own comment that "FSEvents is the obvious upgrade if it ever feels behind"),
-//  it matches the one poller this app already ships, and it is the half that needs no
-//  CoreServices callback plumbing to be correct. The cost of being wrong is latency, not
-//  wrongness. Upgrading means adding a watch on BOTH `GitRepository.gitDirectory` and
-//  `.commonDirectory` — they differ in a worktree, and one alone is half-blind — plus the
-//  worktree itself, since untracked files never touch `.git` at all.
+//  WHEN to read is not decided here. `GitStatusWatch` owns the FSEvents stream, the 2s
+//  backstop timer and the rate floor, behind one start/stop switch; this file owns WHAT a
+//  read does. An earlier cut kept the timer here and the stream there, and the two fell
+//  out of step on the first window deactivation. See `GitStatusWatch.swift`.
 //
 
 import AppKit
 
 /// The git-status poller for one file tree.
 ///
-/// A class rather than a few methods on the controller so the timer, the last snapshot and
+/// A class rather than a few methods on the controller so the watch, the last snapshot and
 /// the start/stop rules sit in one object with one owner — the same argument
-/// `DirectoryFollow` makes, and these two are siblings: both poll while their window is
-/// key, both stop when it is not, and neither has an event to subscribe to instead.
+/// `DirectoryFollow` makes, and these two are siblings: both run while their window is
+/// key and both stop when it is not.
 @MainActor
 final class GitStatusFollow {
-    /// Weak, and load-bearing for the same reason `DirectoryFollow.space` is: `Timer`
-    /// retains its closure until invalidated, and a Space's window can close while a tick
-    /// is in flight. A strong reference would keep the tree — and through it the Space —
-    /// alive after the window was gone.
+    /// Weak, and load-bearing for the same reason `DirectoryFollow.space` is: a Space's
+    /// window can close while a read is in flight. A strong reference would keep the tree —
+    /// and through it the Space — alive after the window was gone.
     private weak var tree: FileTreeViewController?
-
-    private var timer: Timer?
 
     /// True while a `git` subprocess is in flight. Ticks that land during one are dropped
     /// rather than queued, which is the small version of the mitigation VS Code needed at
@@ -66,6 +57,15 @@ final class GitStatusFollow {
     /// shape that starts overlapping, and a dropped tick costs nothing — the next one
     /// rebuilds the whole answer anyway.
     private var isReading = false
+
+    /// When to read: FSEvents first, a 2s timer behind it, one start/stop switch for both.
+    /// The closure answers false once this follower is gone, which is how a watch whose
+    /// owner was released without `stop()` ends itself (`GitStatusWatch.onEvent`).
+    private lazy var watch = GitStatusWatch { [weak self] in
+        guard let self else { return false }
+        self.tick()
+        return true
+    }
 
     /// Whether a completed read has been logged under `GOBLIN_PORTAL_DIAG` yet — see `finish`.
     private var hasLogged = false
@@ -104,50 +104,36 @@ final class GitStatusFollow {
         self.tree = tree
     }
 
-    /// Begin polling. Idempotent — `windowDidBecomeKey` can fire more than once without an
-    /// intervening resign (a sheet dismissing, a tab switch inside a key window), and two
-    /// timers would double the subprocess rate for nothing.
+    /// Begin following. Idempotent — `windowDidBecomeKey` can fire more than once without
+    /// an intervening resign (a sheet dismissing, a tab switch inside a key window), and a
+    /// second watch would double the subprocess rate for nothing.
     func start() {
-        guard timer == nil else { return }
+        guard !watch.isRunning else { return }
+        watch.start()
 
-        // 2s, deliberately slower than cwd-follow's 750ms, because the work is a fork/exec
-        // rather than a syscall pair: measured ~6.6ms on this checkout but ~92ms on a real
-        // 60k-file repo, and cost scales with *tree size* rather than with how many files
-        // are dirty (`git-sidebar-external-mechanism-2026-07-31.md` §1.16). At 2s that is
-        // under 5% of one background core in the bad case and invisible in the normal one.
-        // The number is reasoned, not measured — the research says so about its own
-        // recommendation — so it is a knob to turn if this ever shows up in Activity
-        // Monitor, and dropping to refresh-on-focus-only is the escape hatch.
-        let interval: TimeInterval = 2.0
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
-            // Same reasoning as `DirectoryFollow.start()`: a run-loop timer scheduled from
-            // the main thread always fires on it, so the isolation is real and
-            // `assumeIsolated` states that rather than hopping through a `Task`.
-            MainActor.assumeIsolated { self.tick() }
-        }
-
-        // Poll immediately rather than waiting out the first interval. A window that has
-        // just become key is exactly when its decorations are most likely to be stale —
-        // the agent in the terminal beside the tree has been committing while you were
-        // elsewhere — and a visible 2s lag on activation reads as lag, not as polling.
-        tick()
+        // Read immediately rather than waiting for the first event or backstop tick. A
+        // window that has just become key is exactly when its decorations are most likely
+        // to be stale — the agent in the terminal beside the tree has been committing while
+        // you were elsewhere — and a visible 2s lag on activation reads as lag.
+        pollNow()
     }
 
-    /// Stop polling and release the timer.
+    /// Stop following and release the watch's timer and FSEvents stream.
     ///
     /// Called on resign-key, not on close, reusing `DirectoryFollow`'s rule verbatim: a
     /// background Space cannot be looked at, so decorating it is pure cost. An in-flight
-    /// read is not cancelled — it will land, find `timer == nil` irrelevant, and update a
-    /// snapshot nobody is looking at, which is cheaper than teaching the spawn to abort.
+    /// read is not cancelled — it will land and update a snapshot nobody is looking at,
+    /// which is cheaper than teaching the spawn to abort.
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        watch.stop()
     }
 
-    /// Read right now, outside the timer's rhythm — for the moments when waiting up to 2s
-    /// would be visibly wrong, such as the tree being repointed at a different project.
+    /// Read right now, outside the watch's rhythm — for the moments when waiting would be
+    /// visibly wrong, such as the tree being repointed at a different project. Routed
+    /// through the watch so the read is stamped: an event landing while it is in flight
+    /// then earns a trailing read rather than being dropped by `isReading`.
     func pollNow() {
-        tick()
+        watch.fireNow()
     }
 
     private func tick() {
@@ -187,7 +173,8 @@ final class GitStatusFollow {
     ) {
         isReading = false
         let next = read ?? .empty
-        let changed = found != repository || next != snapshot
+        let repoChanged = found != repository
+        let changed = repoChanged || next != snapshot
         repository = found
         // The root this read was ISSUED for, not whatever the tree shows by the time it
         // lands. Those differ when `setRoot(_:)` moves the tree mid-read, and recording the
@@ -196,6 +183,14 @@ final class GitStatusFollow {
         // of trusting an answer computed for somewhere else.
         repositoryRootPath = rootPath
         snapshot = next
+
+        // Repoint the watch when the repository changes; [] closes the stream. While the
+        // window is not key this only records the set — `GitStatusWatch.watch`.
+        if repoChanged {
+            watch.watch(directories: found.map {
+                [$0.gitDirectory, $0.commonDirectory, $0.root]
+            } ?? [])
+        }
 
         // `GOBLIN_PORTAL_DIAG=1` dumps the resolved git state to stderr, matching what
         // `TerminalPane` does for font and theme. This layer needs it more than either of

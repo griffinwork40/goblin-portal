@@ -112,6 +112,7 @@ jobs:
             check-cwd-follow.sh \
             check-foreground-process.sh \
             check-git-status.sh \
+            check-git-watch.sh \
             check-theme-contrast.sh \
             check-light-theme.sh \
             check-afk-loc.sh \
