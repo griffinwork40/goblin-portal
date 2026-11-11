@@ -3,7 +3,8 @@
 # Assert an ALTERNATE-buffer resize does not resurrect content from a previous,
 # wider window size.
 #
-# This is the gate for patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch.
+# This is the gate for patches/swiftterm/0002-trim-lines-on-narrowing-for-all-buffers.patch
+# (numbered 0003 before the 2026-10-27 re-vendor; "0002" and "0003" below are that era's).
 # Same technique as check-reflow.sh: no test target exists, so compile a throwaway
 # harness against the SHIPPED vendored SwiftTerm and run a truth table. The unit
 # under test is the vendored emulator, which is why this links

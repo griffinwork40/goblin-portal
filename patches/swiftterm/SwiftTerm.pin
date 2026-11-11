@@ -7,6 +7,9 @@
 # all incorporated by upstream's IO rewrite (PR #627), FrameDriver, PermanentEmptyGlyphCache,
 # cellOrdinal/anchorOrdinal combining fix, and upstream's sixel bounds (58915b1).
 # Remaining: 13 patches (0001-0013), renumbered sequentially.
+# Added since: 0014 (ProMotion immediate draw, commit 3d21b931) and 0015 (fullscreen
+# transition observers, #302, commit 89c1d340). Fifteen in total; verify-vendor.sh counts
+# the files on disk and fails if they differ from bootstrap-vendor.sh's PATCHES list.
 #
 # NOTE: upstream_tag = MAIN because upstream has no v1.99.x tag at c3436be.
 # bootstrap-vendor.sh handles MAIN by doing a full clone + checkout of upstream_commit.
