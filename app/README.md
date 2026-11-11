@@ -36,7 +36,7 @@ of pure logic would have caught. So the checks are the `check-*.sh` scripts, a v
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all twenty patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all fifteen patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-info-plist.sh    # every privacy usage-description key (incl. Local Network) is in the shipped Info.plist — headless
 ./Scripts/check-afk-loc.sh      # every `| \`X.swift\` | N |` row in AFK.md equals wc -l — headless (#178)
@@ -57,7 +57,7 @@ verifier, and a diagnostic env var, each aimed at something that has really gone
 ./Scripts/check-reflow.sh        # does narrowing corrupt scrollback? (#494) — headless
 ./Scripts/check-altbuffer-resize.sh # does an alt-buffer resize resurrect stale cells? — headless
 ./Scripts/check-metal-renderer.sh # does the GPU renderer actually ship AND come up? — offscreen GUI
-./Scripts/check-render-parity.sh  # do Core Text and Metal draw the same pixels? (incl. emoji, patch 0012) — offscreen GUI
+./Scripts/check-render-parity.sh  # do Core Text and Metal draw the same pixels? (incl. emoji, patch 0007) — offscreen GUI
 ./Scripts/check-renderer-config.sh # does a `renderer` string reach the renderer it names? — fast, headless
 ./Scripts/check-config-warnings.sh # does a bad config.json produce the right banner (and none when clean)? — fast, headless
 ./Scripts/check-light-theme.sh   # are the palettes well-formed, and is `afk-light` light enough to flip the chrome? — fast, headless
@@ -87,12 +87,16 @@ codes: `2` = present but unpatched, `3` = unknown revision, `1` = missing vendor
 missing pin.
 
 It checks **two** files now, and both are hard failures. `Buffer.swift` was a warn-only
-version tripwire until 2026-07-29, when patch `0002` made it load-bearing: a tree missing
-that patch compiles, runs, passes every other check, and silently corrupts scrollback on
-every window narrowing. Warn-only would have meant the single check able to catch that
-printing to stderr and exiting `0` — the exact silent-failure asymmetry this script exists
-to kill. `check-reflow.sh` is the behavioural half of the same guarantee: it fails 6 of its
-8 cases against an unpatched tree, so the patch cannot be quietly lost.
+version tripwire until 2026-07-29, when the #494 isWrapped fix (local patch `0002` in the
+v1.15.0 numbering) made it load-bearing: a tree missing that patch compiles, runs, passes
+every other check, and silently corrupts scrollback on every window narrowing. Warn-only
+would have meant the single check able to catch that printing to stderr and exiting `0` —
+the exact silent-failure asymmetry this script exists to kill. `check-reflow.sh` is the
+behavioural half of the same guarantee: it failed 6 of its 8 cases against an unpatched
+v1.15.0 tree. Since the 2026-10-27 re-vendor that fix is upstream at the pinned commit and
+the local patch is gone (`../patches/swiftterm/SwiftTerm.pin`), so the gate now guards
+against a re-vendor to a tree that lacks it. Today's `0002` is a different patch, the
+alt-buffer narrowing trim, and the pin hashes eleven vendored files, not two.
 
 `check-space-restore.sh` follows `check-keybindings.sh`'s pattern — compile the shipped
 source, run a truth table — and is the exception that proves the rule above rather than a
@@ -152,7 +156,8 @@ AppKit and therefore cannot be compiled alone. `GOBLIN_PORTAL_DIAG=1` prints one
 per changed snapshot to cover the gap that matters most, which is telling "not a repository"
 apart from "the tint failed to draw".
 
-`check-reflow.sh` is the gate for SwiftTerm #494 and for local patch `0002`. It compiles a
+`check-reflow.sh` is the gate for SwiftTerm #494. The fix was local patch `0002` until the
+2026-10-27 re-vendor and is upstream at the pinned commit now; the gate stays as the tripwire. It compiles a
 harness against the **vendored emulator itself** (not a file from `Sources/GoblinPortal`), seeds
 more lines than `rows` so the scrollback offset `_yBase` is non-zero, uses absolute CUP to
 put the cursor above the last row — the only state in which the faulty branch at
@@ -364,7 +369,7 @@ tooling, and four documented wrong answers are in `.afk/research/theme-design-20
 | `font.family` | Any installed monospaced family. Omitted, or set to `SF Mono`/`system`, gives the system monospaced face (SF Mono) — the default. An unavailable family warns and falls back to it. Note `NSFont(name: "SF Mono")` returns nil, so SF Mono is only reachable via that alias, never by name |
 | `font.size` | Points, **6–48**, default **14**. Out of range warns and uses the default rather than silently clamping. ⌘+ / ⌘- zoom on top of this and persist; ⌘0 clears the zoom so this value applies again |
 | `cursor` | `block`, `steady-block`, `bar`, `steady-bar`, `underline`, `steady-underline` |
-| `scrollback` | Lines retained, default `1000`. `0` disables it. Raising it is not free: SwiftTerm sizes the scrollbar thumb as `max(rows / lines, 0.01)`, so past ~3,500 lines the thumb sticks at the 1% floor and stops tracking position, and `Buffer.resize` walks every line twice on each window resize (three times until local patch `0004` removed an ungated upstream debug assertion) |
+| `scrollback` | Lines retained, default `1000`. `0` disables it. Raising it is not free: SwiftTerm sizes the scrollbar thumb as `max(rows / lines, 0.01)`, so past ~3,500 lines the thumb sticks at the 1% floor and stops tracking position, and `Buffer.resize` walks every line twice on each window resize (three times until local patch `0003` removed an ungated upstream debug assertion) |
 | `shell` | Defaults to `$SHELL`. Must be executable or it is ignored |
 | `optionAsMeta` | `true` makes Option act as Meta instead of typing accented characters |
 | `fontThicken` | **No effect on macOS 15+.** `CGContextSetFontSmoothingStyle` is a no-op in both renderers — confirmed by an on-screen pixel probe (0 bytes differed between the baseline and thickened frames, captured via `screencapture -l <windowid>` from a real NSWindow on macOS 27). Setting `true` emits a config warning. The key is still parsed so existing configs stay valid and the warning is visible. See PR #152 for the probe methodology |
@@ -428,7 +433,7 @@ existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **twenty** local patches:
+Depends on `../vendor/SwiftTerm` — upstream main @ `c3436be` with **fifteen** local patches:
 
 1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
    shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
@@ -443,12 +448,7 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **twenty** local 
    permanently unreachable, silently: avoiding the build-time compiler required dropping
    `.process`, but it never required dropping the file. `check-metal-renderer.sh` is the
    gate; `../.afk/research/performance-audit-2026-07-31.md` §1 is the argument.
-2. `0002-index-iswrapped-buffer-absolute.patch` — fixes SwiftTerm
-   [#494](https://github.com/migueldeicaza/SwiftTerm/issues/494) by indexing the
-   wrapped-line flag buffer-absolute (`_lines[_y + _yBase]`) at `Buffer.swift:1171` and
-   `:1211`, which previously used the screen-relative `_lines[_y]` and so corrupted
-   scrollback on every narrowing. See "Known upstream risk" below.
-3. `0003-trim-lines-on-narrowing-for-all-buffers.patch` — hoists the "trim each line to
+2. `0002-trim-lines-on-narrowing-for-all-buffers.patch` — hoists the "trim each line to
    the new width" loop out of `if isReflowEnabled` at `Buffer.swift:522`, so it runs for
    the **alternate** buffer too. `isReflowEnabled` is just `hasScrollback`
    (`Buffer.swift:419`) and the alt buffer is built `scrollback: nil`
@@ -457,99 +457,88 @@ Depends on `../vendor/SwiftTerm` — upstream **v1.15.0** with **twenty** local 
    grid (`BufferLine.swift:197`). Under tmux — which lives in the alt buffer and repaints
    only deltas — that is content bleeding across pane and window boundaries. The loop must
    stay **after** `reflow`, which rewraps from the old width. Diagnosis:
-   `../.afk/research/tmux-bleed-altbuffer-resize-2026-07-29.md`.
-4. `0004-gate-resize-post-condition-behind-debug.patch` — wraps the `// DEBUG:
+   `../.afk/research/tmux-bleed-altbuffer-resize-2026-07-29.md`. (The v1.15.0 isWrapped fix
+   is already upstream at c3436be; this is the narrowing-trim patch, renumbered.)
+3. `0003-gate-resize-post-condition-behind-debug.patch` — wraps the `// DEBUG:
    Post-condition` block at `Buffer.swift:544` in `#if DEBUG`. Upstream ships it ungated
    while gating this file's five other debug blocks correctly, so it reads as a leftover: it
    walks the viewport **plus the entire scrollback** on every `resize` — the third such walk
    in that function, and every live-window-drag frame reaches it — and ends in `abort()`, a
    hard crash in release builds raised from inside a drag. Kept as `abort()` inside the guard
-   so debug builds still fail as loudly as upstream intended. Unlike `0002`/`0003` it has no
+   so debug builds still fail as loudly as upstream intended. Unlike `0002` it has no
    behavioural gate, deliberately: its whole effect is deleting work and deleting a crash
    path, so a passing check would only prove the compiler honours `#if DEBUG`. What guards it
    is the combined `Buffer.swift` hash plus both existing Buffer gates still passing with it
    applied.
-5. `0005-add-dcs-ptmux-passthrough.patch` — adds a `PtmuxDcsHandler` branch to
+4. `0004-add-dcs-ptmux-passthrough.patch` — adds a `PtmuxDcsHandler` branch to
    `dispatchDcs()` in `EscapeSequenceParser.swift`, plus a new `PtmuxDcsHandler.swift`, so
    DCS Ptmux sequences survive tmux's `allow-passthrough on` wrapping: the handler
    un-doubles tmux's `ESC` encoding and re-feeds the inner sequence, so OSC 52 clipboard,
    graphics and custom escapes from apps like neovim running inside tmux reach the outer
    terminal instead of being silently dropped. It is the only patch that adds a **new file**
    with no upstream counterpart, so its absence is a compile error rather than a silent one.
-6. `0006-gate-linefeed-selection-clear-on-mouse-mode.patch` — gates
-   `linefeed(source:)`'s `selection.selectNone()` on `terminal.mouseMode != .off`
-   (`MacTerminalView.swift:888`). Upstream cleared the terminal selection on **every** LF
-   whenever `allowMouseReporting` was true — which it is by default — so at a plain shell
-   prompt (`mouseMode == .off`) each newline in streaming output wiped the user's selection
-   before ⌘C could copy it, making copy/paste feel broken. Every other `allowMouseReporting`
-   guard in that file already checked `mouseMode`; linefeed was the sole omission.
-7. `0007-gate-feedprepare-selection-clear-on-mouse-mode.patch` — the same gate as `0006`,
-   in `feedPrepare()` (`AppleTerminalView.swift`): any pty output between selecting and ⌘C
-   used to clear `selection.active` and silently disable Copy.
-8. `0008-make-draw-open-for-subclass-override.patch` — makes `draw(_:)` `open` so
+5. `0005-make-draw-open-for-subclass-override.patch` — makes `draw(_:)` `open` so
    `GoblinPortalTerminalView` can override it.
-9. `0009-expose-search-state-changed-hook.patch` — adds `searchStateDidChange` and
+6. `0006-expose-search-state-changed-hook.patch` — adds `searchStateDidChange` and
    `findAllMatchPositions`, the hooks all-match search highlighting needs.
-10. `0010-pace-redraws-on-display-link.patch` — paces redraws on `NSView.displayLink`
-    instead of upstream's free-running 16.67ms timer, which dropped every other frame of a
-    60fps producer; adds `MacDisplayLinkPacer.swift`. Gated by `check-display-link.sh`.
-11. `0011-cache-empty-glyphs-and-font-names.patch` — the Metal glyph cache remembers
-    zero-bounds rasterizer misses (the space glyph), so an idle spinner pane stops
-    re-asking CoreText about every blank cell on every row rebuild. Draws identically.
-12. `0012-rasterize-color-glyphs-at-logical-size.patch` — under Metal, colour emoji were
-    ~20% smaller than under Core Text and off-centre in their slot (N4). The Metal path
-    rasterized a font pre-scaled to **device** size at 1:1, which matches Core Text's
-    logical-size-under-2x-CTM only for outline fonts; Apple Color Emoji picks its strike
-    and metrics by point size, non-linearly. `0012` rasterizes colour glyphs only at
-    logical size under a scaled CTM. Gated by `check-render-parity.sh`, whose emoji cases
-    fail with it reverted.
-13. `0013-fix-combining-mark-after-wide-char.patch` — a combining mark (e.g. U+0301 acute
-    accent) after a wide CJK character was drawn over the **next narrow cell** instead of
-    over the CJK glyph itself (#151, F10). Root cause: the glyph-position loop in both
-    renderers computed each glyph's column as `startColumn + (i × columnWidth)`, but
-    combining marks have zero CT advance and must stay at the same column as their base
-    glyph. Fix: for wide-char segments (`columnWidth ≥ 2`), detect zero-advance glyphs by
-    comparing adjacent CT positions; when advance < 0.5 × cellWidth, pin to the previous
-    column. Touches `AppleTerminalView.swift` and `MetalTerminalRenderer.swift`. Gated by
-    the F10 correctness assertion in `check-render-parity.sh` (mark ink must start inside
-    the wide-glyph slot, not over the next cell); falsified by reverting the patch.
+7. `0007-rasterize-color-glyphs-at-logical-size.patch` — under Metal, colour emoji were
+   ~20% smaller than under Core Text and off-centre in their slot (N4). The Metal path
+   rasterized a font pre-scaled to **device** size at 1:1, which matches Core Text's
+   logical-size-under-2x-CTM only for outline fonts; Apple Color Emoji picks its strike
+   and metrics by point size, non-linearly. `0007` rasterizes colour glyphs only at
+   logical size under a scaled CTM. Gated by `check-render-parity.sh`, whose emoji cases
+   fail with it reverted.
+8. `0008-disable-ligatures-both-renderers.patch` — adds `open var disableLigatures: Bool`
+   to `TerminalView` (backing Bool in `MacTerminalView.swift`). Core Text path: the setter
+   flushes `resetCaches()` and `getAttributes(_:withUrl:)` injects `kCTLigatureAttributeName=0`
+   when the flag is set. Metal path: `ShaperKey` gains `disableLigatures` and
+   `shape(text:font:disableLigatures:)` builds its `CTLine` with the same attribute.
+   Wired via `AppConfig.ligatures` → `TerminalPane.applyLigatures(_:)`. Default `false`
+   (ligatures on). `"ligatures": false` in config.json now actually disables them.
+   Gated by `check-render-parity.sh` ligature cases (both renderers, on+off); falsified
+   by removing the `kCTLigatureAttributeName` injection. Fixes #153.
+9. `0009-proportional-scrollbar-thumb.patch` — replaces the scrollbar thumb's fixed 1%
+   floor in `scrollThumbsize` (`AppleTerminalView.swift`) with `1/rows`, so above ~4,554
+   lines of scrollback the thumb still tracks position instead of collapsing to a hairline
+   of constant size (T2.4).
+10. `0010-pause-sooner-for-slow-producers.patch` — adds adaptive idle-pause to
+    `FrameDriver`: slow producers pause after one idle tick instead of eight (ported from
+    the old `MacDisplayLinkPacer` to the upstream `FrameDriver`). A 12 Hz agent spinner at
+    120/144 Hz paid eight idle ticks per frame; now pays one. `SWIFTTERM_ADAPTIVE_PAUSE=0`
+    restores the fixed window. Gated by `check-display-link.sh` case 9.
+11. `0011-xtversion-host-override-mode2027.patch` — T4.2 partial: `Terminal.xtVersion`
+    host-app override for XTVERSION responses, and mode 2027 reporting `modeAlwaysReset` in
+    `cmdDecRqm`; `alternateScrollMode`/mode 1007/`scrollWheel` gate already upstream.
+12. `0012-bound-inline-image-payloads.patch` — T4.4 partial: bounds the OSC 1337 encoded
+    payload (32 MiB) before base64-decode, and adds ImageIO type/dimension header checks to
+    `createImage` and `createImageFromBitmap`; OSC accumulation cap already upstream at 65 MiB.
+13. `0013-osc1337-multipart-file.patch` — T4.4: OSC 1337 `MultipartFile`/`FilePart`/`FileEnd`
+    — modern `imgcat`'s default — with the 32 MiB cap applied cumulatively across parts;
+    `inline!=1` never buffered; `File=` and RIS clear state.
+14. `0014-promotion-immediate-draw.patch` — adds `isImmediate: Bool = false` parameter to
+    `frameTick`/`submitFrameDraw`/`onTick` in `AppleTerminalView.swift`. When IO data
+    arrives and `isImmediate` is true, the render loop is bypassed and a synchronous
+    main-thread draw fires instead, replicating v1.18.0's latency model on ProMotion
+    displays where the render loop deferred to its own thread and caused WindowServer to
+    throttle the refresh rate. Non-immediate ticks (cursor blink, resize) still use the
+    render loop.
+15. `0015-fullscreen-transition-observers.patch` — adds `inFullscreenTransition` flag and
+    willEnter/didEnter/willExit/didExit/didFail fullscreen observers to `FrameDriver.swift`,
+    plus an `NSWorkspace.activeSpaceDidChange` backstop. macOS does not reliably update
+    `occlusionState` after fullscreen Space transitions (Flutter PR #188772, Mozilla bug
+    1831967, WebKit commit 7e8c765), leaving the display link suspended at ~5fps. The fix
+    suppresses occlusion reads during transitions and forces a re-check after each one.
+    Fixes #302.
 
-14. `0014-disable-ligatures-both-renderers.patch` — adds `open var disableLigatures: Bool`
-    to `TerminalView` (backing Bool in `MacTerminalView.swift`). Core Text path: the setter
-    flushes `resetCaches()` and `getAttributes(_:withUrl:)` injects `kCTLigatureAttributeName=0`
-    when the flag is set. Metal path: `ShaperKey` gains `disableLigatures` and
-    `shape(text:font:disableLigatures:)` builds its `CTLine` with the same attribute.
-    Wired via `AppConfig.ligatures` → `TerminalPane.applyLigatures(_:)`. Default `false`
-    (ligatures on). `"ligatures": false` in config.json now actually disables them.
-    Gated by `check-render-parity.sh` ligature cases (both renderers, on+off); falsified
-    by removing the `kCTLigatureAttributeName` injection. Fixes #153.
-
-15. `0015-proportional-scrollbar-thumb.patch` — replaces the scrollbar thumb's fixed 1%
-    floor in `scrollThumbsize` (`AppleTerminalView.swift`) with `1/rows`, so above ~4,554
-    lines of scrollback the thumb still tracks position instead of collapsing to a hairline
-    of constant size (T2.4).
-
-16. `0016-pause-sooner-for-slow-producers.patch` — when the gap since the previous paint
-    was longer than 0010's eight-tick idle window, `MacDisplayLinkPacer` pauses the display
-    link after **one** idle tick instead of eight. A 12 Hz agent spinner at 120/144 Hz
-    already paused and resumed the link once per frame, but paid eight idle ticks first,
-    each a synchronous CoreAnimation round trip into WindowServer: 9 ticks per paint, now 2
-    (measured 2160 -> 480 ticks for 240 paints at 144 Hz). Steady 16/33ms streams are
-    unchanged apart from one extra pause at the start of a burst. `SWIFTTERM_ADAPTIVE_PAUSE=0`
-    restores the fixed window. Gated by `check-display-link.sh` case 9, falsified with that
-    switch. Diagnosis: `../.afk/research/metal-idle-encode-2026-10-18.md` (#143).
-
-17-19. `0017` (XTVERSION, alternate scroll 1007, mode 2027), `0018` (inline-image input
-    bounds) and `0019` (OSC 1337 multipart) are described in `../AFK.md`'s vendor row.
-
-20. `0020-bound-sixel-parsing.patch` — malformed sixel (untrusted output) trapped
-    `SixelDcsHandler` with Index out of range, debug and release (#280): a band not closed
-    by `$`/`-` sized a 0-byte bitmap. Folds the open band, saturates numbers, and drops an
-    image whose side would pass 8192 before allocating it. Gated by
-    `check-image-decode.sh`'s `sixel-*` cases, each guard falsified.
+Dropped from the v1.15.0 patch set during the 2026-10-27 re-vendor (all incorporated
+upstream at c3436be): isWrapped fix (was 0002), selection-clear gates (were 0006/0007),
+MacDisplayLinkPacer (was 0010, replaced by upstream FrameDriver), empty-glyph cache (was
+0011, superseded by upstream `PermanentEmptyGlyphCache`), combining-mark fix (was 0013,
+superseded by upstream `cellOrdinal`/`anchorOrdinal` glyph positioning), sixel bounds (was
+0020, fixed upstream in 58915b1).
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0020` (twenty patches) in `../patches/swiftterm/`, all pinned by
+`0001` through `0015` (fifteen patches) in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -567,25 +556,22 @@ names, which `verify-vendor.sh` only echoes cosmetically.
 The manual equivalent, if you would rather see the steps than trust a script:
 
 ```sh
-git clone --depth 1 --branch v1.15.0 \
-    https://github.com/migueldeicaza/SwiftTerm.git vendor/SwiftTerm
+# upstream_tag = MAIN; no v1.x tag at c3436be, so a full clone + checkout is required
+git clone https://github.com/migueldeicaza/SwiftTerm.git vendor/SwiftTerm
+git -C vendor/SwiftTerm checkout c3436be32e3dc26d5e2181b1e451d91e21e50d53
+rm -rf vendor/SwiftTerm/.git       # keep the tree clean; verify-vendor.sh expects no .git
 chmod -R u+w vendor/SwiftTerm      # SPM checkouts are read-only; patch fails otherwise
-patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0001-ship-metal-shader-as-copy-resource.patch
-patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch
-patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0003-trim-lines-on-narrowing-for-all-buffers.patch
-patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0004-gate-resize-post-condition-behind-debug.patch
-patch -p1 -d vendor/SwiftTerm < patches/swiftterm/0005-add-dcs-ptmux-passthrough.patch
-for p in patches/swiftterm/00{06,07,08,09,10,11,12,13,14,15,16}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all twenty patches)
-(cd app && ./Scripts/check-reflow.sh)            # proves 0002 actually took
-(cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0003 actually took
+for p in patches/swiftterm/00{01,02,03,04,05,06,07,08,09,10,11,12,13,14,15}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all fifteen patches)
+(cd app && ./Scripts/check-reflow.sh)            # proves the tree has upstream's #494 fix (no local patch since the re-vendor)
+(cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0002 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader
-(cd app && ./Scripts/check-render-parity.sh)     # proves 0012 (Metal emoji match Core Text)
+(cd app && ./Scripts/check-render-parity.sh)     # proves 0007 (Metal emoji match Core Text)
 ```
 
-`verify-vendor.sh` exits `2` naming the specific file if one is missing. Note that `0002`,
-`0003` and `0004` patch the **same file**, so the pin carries a single combined `Buffer.swift`
-hash: a tree with only some of them matches neither the patched
+`verify-vendor.sh` exits `2` naming the specific file if one is missing. Note that `0002`
+and `0003` patch the **same file**, so the pin carries a single combined `Buffer.swift`
+hash: a tree with only one of them matches neither the patched
 nor the upstream hash and lands in the exit-`3` "unknown revision" branch. That is
 deliberate — half-patched is not a state this project supports, and it is louder than a
 hash that quietly tolerated either.
@@ -595,6 +581,10 @@ Earlier revisions of this file said to "exclude the shader resource in its
 patch lived *inside the ignored file*, so it could not survive losing that file. That is
 fixed: the patch is now reproducible from git, and `verify-vendor.sh` proves the result
 byte-for-byte.
+
+*(The next paragraph is v1.15.0-era history. The tree is now upstream main @ `c3436be`, and
+`SwiftTerm.pin` records an upstream and a patched hash for each of the eleven files the
+fifteen patches touch.)*
 
 Provenance is mechanically established rather than assumed: a full recursive diff of the
 vendored tree against the upstream `v1.15.0` tarball (commit `dd2fb8a`) reported **exactly
@@ -619,6 +609,12 @@ Note that **upstream** is correct here — CodeEdit pins `thecoolwinter/SwiftTer
 a fork last pushed 2025-07-17.
 
 ## Known upstream risk
+
+> **Status, 2026-10-27:** resolved by the re-vendor. `SwiftTerm.pin` records the local #494
+> fix as incorporated upstream at `c3436be`, the local patch was dropped, and
+> `check-reflow.sh` passes against the unpatched-for-#494 tree. Everything below is the
+> history of the defect under v1.15.0, kept on purpose; its patch numbers and line numbers
+> are that era's.
 
 [SwiftTerm #494](https://github.com/migueldeicaza/SwiftTerm/issues/494) —
 "Buffer reflow produces duplicate/orphan lines when narrowing terminal" — is still

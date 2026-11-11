@@ -1,5 +1,5 @@
 # Sourced by verify-vendor.sh — never run on its own. The VIEW-LAYER half of the vendor
-# verdict: every check on the files patches 0005-0010 touch (MacTerminalView.swift,
+# verdict: every check on the files patches 0005-0015 touch (MacTerminalView.swift,
 # AppleTerminalView.swift, TerminalViewSearch.swift, FrameDriver.swift,
 # Apple/Metal/MetalTerminalRenderer.swift, Apple/Metal/CoreTextGlyphRasterizer.swift).
 #
@@ -7,6 +7,11 @@
 # patch 0010 now targets FrameDriver.swift instead.
 # Patch 0013 (combining-mark): DROPPED — upstream cellOrdinal/anchorOrdinal fixes it.
 # Patch 0010 (DisplayLink pacer): DROPPED as old; new 0010 is adaptive-pause in FrameDriver.
+# Patch 0014 (ProMotion immediate-draw): isImmediate parameter on frameTick/submitFrameDraw
+#   in AppleTerminalView.swift; synchronous display() call bypasses render loop on IO arrival.
+# Patch 0015 (fullscreen Space transition observers): inFullscreenTransition flag and
+#   willEnter/didEnter/willExit/didExit/didFail fullscreen observers in FrameDriver.swift,
+#   plus NSWorkspace.activeSpaceDidChange backstop; fixes #302.
 
 # --- MacTerminalView.swift (patches 0005 draw() open, 0006 search hook) ------
 MTV="$VENDOR/Sources/SwiftTerm/Mac/MacTerminalView.swift"
@@ -58,7 +63,7 @@ if [[ "$GOT_TVS" != "$(pin_value patched_terminal_view_search)" ]]; then
   exit 3
 fi
 
-# --- FrameDriver.swift (patch 0010 adaptive idle-pause) ----------------------
+# --- FrameDriver.swift (patches 0010, 0014, 0015) ----------------------------
 FD="$VENDOR/Sources/SwiftTerm/Apple/FrameDriver.swift"
 if [[ ! -f "$FD" ]]; then err "error: FrameDriver.swift missing."; exit 1; fi
 GOT_FD="$(sha256_of "$FD")"

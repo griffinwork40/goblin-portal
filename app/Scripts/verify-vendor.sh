@@ -1,11 +1,11 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its thirteen local patches applied (re-vendor 2026-10-27, upstream c3436be).
+# WITH its fifteen local patches applied (re-vendor 2026-10-27, upstream c3436be).
 #
 # Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
 # fine while silently corrupting behaviour. This script makes that loud.
-# Patches 0001-0013 (renumbered from v1.15.0's 0001-0019):
+# Patches 0001-0015 (renumbered from v1.15.0's 0001-0019, plus two new additions):
 #   0001 Metal shader as .copy (was 0001)
 #   0002 alt-buffer narrowing trim (was 0003)
 #   0003 #if DEBUG resize guard (was 0004)
@@ -19,6 +19,8 @@
 #   0011 xtVersion host override + mode 2027 (was 0017 partial)
 #   0012 bound inline-image payloads (was 0018 partial — OSC cap already upstream)
 #   0013 OSC 1337 multipart (was 0019)
+#   0014 ProMotion immediate-draw: isImmediate path in frameTick/submitFrameDraw
+#   0015 fullscreen Space transition observers in FrameDriver (fixes #302)
 # Dropped (ALREADY-UPSTREAM or OBSOLETE post-IO-rewrite):
 #   0002 (isWrapped), 0006/0007 (selection-clear), 0010 (MacDisplayLinkPacer),
 #   0011 (empty-glyph cache), 0013 (combining-mark), 0020 (sixel bounds)
@@ -64,11 +66,72 @@ fi
 UPSTREAM_COMMIT="$(pin_value upstream_commit)"
 UPSTREAM_TAG="$(pin_value upstream_tag)"
 
+# --- patch-set consistency check ---------------------------------------------
+# The number and names of *.patch files on disk must match exactly what
+# bootstrap-vendor.sh applies. A mismatch here means someone added or removed a
+# patch file without updating the other script, which produces a vendor/ tree that
+# does not match what this script expects.
+#
+# PATCH_DIR can be overridden for falsification testing:
+#   PATCH_DIR=/some/tmp/dir ./Scripts/verify-vendor.sh
+# The real tree uses the default (repo root patches/swiftterm/).
+PATCH_DIR="${PATCH_DIR:-$REPO_ROOT/patches/swiftterm}"
+
+# The authoritative list comes from bootstrap-vendor.sh. We extract it with awk
+# so the two scripts cannot silently diverge: there is one source of truth.
+BOOTSTRAP="$APP_ROOT/Scripts/bootstrap-vendor.sh"
+if [[ ! -f "$BOOTSTRAP" ]]; then
+  err "error: Scripts/bootstrap-vendor.sh not found; cannot verify patch-set consistency."
+  exit 1
+fi
+
+# Extract the patch filenames from the PATCHES=(...) array in bootstrap-vendor.sh.
+# awk reads lines between the opening ( and the closing ) of that array.
+# Using a while-read loop instead of mapfile: macOS ships bash 3.2, which lacks mapfile.
+EXPECTED_PATCHES=()
+while IFS= read -r line; do
+  EXPECTED_PATCHES+=("$line")
+done < <(awk '/^PATCHES=\(/{p=1; next} p && /\)/{p=0} p{gsub(/^[[:space:]"]+|["[:space:]]+$/, ""); if (NF) print}' "$BOOTSTRAP")
+
+# Collect patch files actually on disk in PATCH_DIR (sorted for stable comparison).
+DISK_PATCHES=()
+while IFS= read -r line; do
+  DISK_PATCHES+=("$line")
+done < <(find "$PATCH_DIR" -maxdepth 1 -name '*.patch' -exec basename {} \; | sort)
+
+PATCH_COUNT="${#DISK_PATCHES[@]}"
+EXPECTED_COUNT="${#EXPECTED_PATCHES[@]}"
+
+# Check for files on disk that bootstrap does not apply.
+for f in "${DISK_PATCHES[@]}"; do
+  found=0
+  for e in "${EXPECTED_PATCHES[@]}"; do [[ "$e" == "$f" ]] && found=1 && break; done
+  if [[ "$found" == "0" ]]; then
+    err "error: patch file '$f' exists in patches/swiftterm/ but is not in bootstrap-vendor.sh's PATCHES list."
+    err "       Add it to PATCHES in bootstrap-vendor.sh, or remove it from patches/swiftterm/."
+    exit 1
+  fi
+done
+
+# Check for files bootstrap expects that are missing from disk.
+for e in "${EXPECTED_PATCHES[@]}"; do
+  if [[ ! -f "$PATCH_DIR/$e" ]]; then
+    err "error: bootstrap-vendor.sh lists '$e' but that file is missing from patches/swiftterm/."
+    err "       Restore the patch file, or remove it from PATCHES in bootstrap-vendor.sh."
+    exit 1
+  fi
+done
+
+if [[ "$PATCH_COUNT" != "$EXPECTED_COUNT" ]]; then
+  err "error: patch count mismatch: $PATCH_COUNT files on disk, $EXPECTED_COUNT listed in bootstrap-vendor.sh."
+  exit 1
+fi
+
 # --- vendor/ present? ----------------------------------------------------------
 if [[ ! -d "$VENDOR" ]]; then
   err "error: vendor/SwiftTerm is missing."
   err ""
-  err "Recreate it (clones upstream c3436be and applies 13 patches):"
+  err "Recreate it (clones upstream c3436be and applies $PATCH_COUNT patches):"
   err "  ./Scripts/bootstrap-vendor.sh"
   exit 1
 fi
@@ -166,4 +229,4 @@ done
 # --- view-layer checks live in verify-vendor-views.sh -------------------------
 . "$APP_ROOT/Scripts/verify-vendor-views.sh"
 
-say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + 13 local patches"
+say "==> vendor OK: SwiftTerm $UPSTREAM_TAG (${UPSTREAM_COMMIT:0:7}) + $PATCH_COUNT local patches"

@@ -2,8 +2,10 @@
 #
 # Assert buffer reflow does not mangle SCROLLBACK when the window is narrowed.
 #
-# This is the gate for SwiftTerm issue #494 and for the local fix
-# patches/swiftterm/0002-index-iswrapped-buffer-absolute.patch, which changes
+# This is the gate for SwiftTerm issue #494. Until the 2026-10-27 re-vendor the fix was the
+# local patch 0002-index-iswrapped-buffer-absolute.patch; upstream carries it at the pinned
+# commit now (patches/swiftterm/SwiftTerm.pin), so this gate is the tripwire for a re-vendor
+# to a tree that lacks it. Line numbers below are v1.15.0's. The local patch changed
 # Buffer.swift:1171 and :1211 from the screen-relative `_lines[_y].isWrapped` to
 # the buffer-absolute `_lines[_y + _yBase].isWrapped`. Same technique as
 # check-keybindings.sh and check-space-restore.sh: no test target exists, so
