@@ -7,7 +7,7 @@
 
 - **INV-001** (2026-09-17, spine-init): All Swift source files in Sources/ capped at 350 LOC; Scripts/ similarly enforced.
 - **INV-002** (2026-09-17, spine-init): No AI features in the terminal itself; agent-afk runs as REPL guest.
-- **INV-003** (2026-09-17, spine-init): SwiftTerm vendored at v1.15.0 with exactly six local patches; verify-vendor.sh enforces pin.
+- **INV-003** (2026-09-17, spine-init): SwiftTerm vendored at v1.15.0 with exactly six local patches; verify-vendor.sh enforces pin. **Amended 2026-11-12**: re-vendored 2026-10-27 (#281) to upstream main @ c3436be with fifteen local patches (0001–0015); seven v1.15.0-era patches dropped as upstream-absorbed; verify-vendor.sh derives count from disk.
 - **INV-004** (2026-09-17, spine-init): Bundle ID, env var prefix, code identifier all normalized to `goblin-portal`/`GoblinPortal`/`GOBLIN_PORTAL_`.
 - **INV-005** (2026-09-17, spine-init): Single `main` branch; no feature branches or CI/test target; verification via 19 headless/GUI check-*.sh scripts.
 - **INV-006** (2026-09-17, spine-init): GOBLIN_PORTAL_DIAG=1 env var dumps resolved font/theme/scrollback diagnostics to stderr.
