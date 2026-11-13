@@ -1,5 +1,5 @@
-// check-image-decode-harness.swift — the assertions for check-image-decode.sh (patch 0018;
-// the 0019 multipart cases live in check-image-decode-multipart.swift, the 0020 sixel
+// check-image-decode-harness.swift — the assertions for check-image-decode.sh (patch 0012, was 0018;
+// the 0013 multipart cases live in check-image-decode-multipart.swift, the sixel
 // cases in check-image-decode-sixel.swift).
 //
 // Owns: feeding OSC 1337 / sixel / plain OSC bytes into a real, WINDOWLESS SwiftTerm

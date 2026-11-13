@@ -30,7 +30,7 @@
 #      the other display, whose refresh rate may differ
 #   8  FALSIFICATION: case 2 re-run with SWIFTTERM_DISPLAY_LINK=0 (upstream's timer) MUST
 #      FAIL. If the old path passes these bounds, the gate is blind and exits 1.
-#   9  patch 0016, each renderer: a 200ms producer (slower than the eight-tick idle window
+#   9  patch 0010 (was 0016), each renderer: a 200ms producer (slower than the eight-tick idle window
 #      at any refresh >= 60Hz) keeps the link running <= 4 ticks per paint, and a 33ms
 #      producer still never pause/resume-churns (<= 1 pause). FALSIFICATION: the 200ms run
 #      repeated with SWIFTTERM_ADAPTIVE_PAUSE=0 (0010's fixed window) MUST read >= 6 ticks
@@ -103,7 +103,7 @@ if ! swiftc -O -o "$DLCHECK" "$TMP/main.swift" -I "$PRODUCTS" -L "$PRODUCTS" \
 fi
 
 # run <env-pacing 0|1> <args...>  -> one result line on stdout, or exits 2
-# ADAPT=0 (a global, set around one call) turns off patch 0016 for case 9's falsification.
+# ADAPT=0 (a global, set around one call) turns off patch 0010 (was 0016) for case 9's falsification.
 ADAPT=1
 run() {
   local pace="$1"; shift
@@ -195,9 +195,9 @@ for r in coretext metal; do
   fi
 done
 
-# --- case 9: slow producers pause sooner (patch 0016) ----------------------------------
+# --- case 9: slow producers pause sooner (patch 0010, was 0016) ----------------------------------
 # Ticks per paint = reference-link vsyncs during which the pacer's link was running,
-# divided by paints. 0016: ~2 (paint tick + one idle tick). 0010 alone: ~9.
+# divided by paints. 0010: ~2 (paint tick + one idle tick). without 0010: ~9.
 per_paint() { awk -v a="$(field "$1" active_ticks)" -v d="$(field "$1" draws)" 'BEGIN{printf "%.1f", (d>0)? a/d : 99}'; }
 for r in coretext metal; do
   line="$(run 1 slow "$r" 200 2)" || exit 2

@@ -1,4 +1,4 @@
-// check-image-decode-multipart.swift — patch 0019 cases for check-image-decode.sh.
+// check-image-decode-multipart.swift — patch 0013 (was 0019) cases for check-image-decode.sh.
 //
 // Owns: the OSC 1337 MultipartFile / FilePart / FileEnd assertions (iTerm2 3.5+, modern
 // imgcat's default), compiled beside check-image-decode-harness.swift (which owns main,
