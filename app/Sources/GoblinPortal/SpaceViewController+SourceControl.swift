@@ -174,7 +174,7 @@ extension SpaceViewController: SourceControlDelegate {
         sourceControlPanel.update(snapshot: snapshot, repository: repository)
         pushBadgeCount(snapshot.entries.count)
         updateSwitcherVisibility(hasRepo: repository != nil)
-        updateSessionHighlight(snapshot: snapshot)
+        updateSessionHighlight(snapshot: snapshot, repository: repository)
     }
 
     // MARK: Private helpers

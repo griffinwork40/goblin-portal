@@ -3,7 +3,7 @@
 //  Session-scoped file-highlight tracking for the sidebar file tree.
 //
 //  Owns the `SessionHighlightStore` that accumulates which repo-relative paths
-//  have been dirty at any point since the Space first received a git snapshot.
+//  have been dirty since the tree entered its current repository (#298).
 //  Fed from `updateSourceControl(snapshot:repository:)` — the single fanout
 //  point — so the poller's "one snapshot, no derived stores" invariant stays
 //  intact.
@@ -58,9 +58,12 @@ extension SpaceViewController {
     /// Called from `updateSourceControl(snapshot:repository:)` on every 2s
     /// git-status tick. The tree reads `sessionTouchedPaths` during its repaint
     /// loop, which runs immediately after this returns (the call order in
-    /// `gitStatusDidChange()` guarantees it).
-    func updateSessionHighlight(snapshot: GitStatusSnapshot) {
-        highlightBox.store.accumulate(entryKeys: Set(snapshot.entries.keys))
+    /// `gitStatusDidChange()` guarantees it). The repository's root is passed so a
+    /// change of repository starts a new session (#298): the paths are repo-relative,
+    /// and the policy decides what a change means (`SessionHighlightPolicy.swift`).
+    func updateSessionHighlight(snapshot: GitStatusSnapshot, repository: GitRepository?) {
+        highlightBox.store.accumulate(
+            entryKeys: Set(snapshot.entries.keys), repositoryRoot: repository?.root.path)
         fileTree.sessionTouchedPaths = highlightBox.store.effectivePaths
     }
 
