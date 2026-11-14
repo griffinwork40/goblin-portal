@@ -68,15 +68,19 @@ jobs:
         working-directory: app
         run: swift build
 
-      # The two gates whose subject is the VENDORED emulator rather than our own source.
-      # They link SwiftTerm.o, so they need the build above. Both were validated by
+      # The gates whose subject is the VENDORED emulator rather than our own source.
+      # They link SwiftTerm.o, so they need the build above. Each was validated by
       # falsification — reverting the patch each guards makes it fail — which is the only
-      # reason their passes mean anything.
+      # reason their passes mean anything. check-primitives.sh is the byte-feed truth
+      # table over the emulator's replies (XTVERSION, DECRQM modes, kitty query, …); its
+      # FALSIFY=1 mutants rebuild the vendor three times, so they stay local. A plain run
+      # writes no file (the report is opt-in via PRIMITIVES_REPORT).
       - name: Vendor patch gates
         working-directory: app
         run: |
           ./Scripts/check-reflow.sh
           ./Scripts/check-altbuffer-resize.sh
+          ./Scripts/check-primitives.sh
 
       # Drives the SHIPPED shell-integration scripts inside real interactive bash (the
       # runner's /bin/bash 3.2), zsh and fish through a pty. fish is installed here
@@ -113,6 +117,7 @@ jobs:
             check-foreground-process.sh \
             check-git-status.sh \
             check-git-watch.sh \
+            check-session-highlight.sh \
             check-theme-contrast.sh \
             check-light-theme.sh \
             check-afk-loc.sh \
