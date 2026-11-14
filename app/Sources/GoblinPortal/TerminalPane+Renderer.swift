@@ -30,11 +30,11 @@ extension TerminalPane {
     ///
     /// CALL ORDER: `apply(config:)` calls this BEFORE setting the font, because enabling or
     /// disabling Metal rebuilds the drawing surface (`updateMetalRenderer`,
-    /// `Mac/MacTerminalView.swift:391` — it inserts or removes an `MTKView` and, on the way
-    /// out, restores the caret view), so a font applied first would be applied to a surface
-    /// that is about to be replaced. Safe to reach on every ⌘R: `setUseMetal` returns early
-    /// when the requested state already matches (`:380-382`), so an unchanged config costs a
-    /// comparison.
+    /// `Mac/MacTerminalView.swift:669` — it inserts or removes the Metal surface and, on the
+    /// way out, restores the caret view at `:710-713`), so a font applied first would be
+    /// applied to a surface that is about to be replaced. Safe to reach on every ⌘R:
+    /// `setUseMetal` returns early when the requested state already matches (`:657-659`), so
+    /// an unchanged config costs a comparison.
     @discardableResult
     func applyRenderer(_ renderer: Renderer) -> Renderer {
         let live = requestRenderer(renderer)
@@ -62,10 +62,10 @@ extension TerminalPane {
     /// The renderer this view is drawing with right now.
     ///
     /// Read from SwiftTerm rather than remembered locally, so it cannot drift from reality:
-    /// the view rebuilds its `MTKView` when it moves between windows
-    /// (`Mac/MacTerminalView.swift:225` — a `CAMetalLayer`'s binding does not survive being
-    /// reparented, and a stale one silently freezes on its last frame), and a cached copy of
-    /// "we asked for Metal once" would keep claiming Metal through any later failure.
+    /// the view rebuilds its Metal surface when it moves between windows (`viewDidMoveToWindow`
+    /// at `:1061` calls `rebindMetalRendererToWindow` at `:1091` — a `CAMetalLayer`'s binding
+    /// does not survive reparenting; `:867-874`), and a cached copy of "we asked for Metal
+    /// once" would keep claiming Metal through any later failure.
     var liveRenderer: Renderer {
         #if canImport(MetalKit)
         return view.isUsingMetalRenderer ? .metal : .coreText

@@ -6,7 +6,7 @@
 //  SwiftTerm. That is not tidiness: it is what lets `Scripts/check-cwd-follow.sh`
 //  compile this one file directly with `swiftc` and run a truth table over it, the
 //  same trick `KeyBindings.swift` plays for `check-keybindings.sh`. In a repo with no
-//  test target and no CI (AFK.md, "Checks"), a concern that cannot be compiled alone
+//  test target (CI runs the headless gates; see `checks.yml`), a concern that cannot be compiled alone
 //  cannot be gated alone, so the dependency-free boundary IS the testability.
 //
 //  Both directions of cwd-follow pass through here: `workingDirectory(of:)` reads where a
