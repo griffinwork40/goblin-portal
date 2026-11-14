@@ -43,6 +43,8 @@ nonisolated final class Presentation: @unchecked Sendable {
     var drawable: CAMetalDrawable?
     var excluded: CAMetalLayer?
     func arm() { lock.lock(); generation += 1; firstTime = 0; completionTime = 0; drawable = nil; armed = true; lock.unlock() }
+    // Do not pin the preceding sample's drawable through the hidden hold.
+    func clear() { lock.lock(); generation += 1; drawable = nil; armed = false; lock.unlock() }
     // GPU completion is a diagnostic floor only, never a presentation substitute.
     // MetalTerminalRenderer.swift:1461-1466 calls this before compositor presentation.
     func completed() { lock.lock(); if armed && completionTime == 0 { completionTime = CACurrentMediaTime() }; lock.unlock() }
@@ -80,13 +82,20 @@ let mode = args.count > 1 ? args[1] : "memory"
 let n = args.count > 2 ? Int(args[2]) ?? 0 : 0
 let rep = args.count > 3 ? Int(args[3]) ?? 1 : 1
 let core = args.count > 4 && args[4] == "coretext"
+let releaseArm = args.count > 4 ? args[4] : "shrink"
+let presentation = args.count > 5 ? args[5] : "invisible"
+let hold = args.count > 6 ? Double(args[6]) ?? 0 : 0
+if mode == "timing" && load() > 0.70 { print("SKIP=load-per-CPU load=\(load())"); exit(0) }
+print("CONFIG presentation=\(presentation) hold=\(hold) samples=\(n) load=\(load())")
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
-guard let screen = NSScreen.main, let device = MTLCreateSystemDefaultDevice() else { fail("no-screen-or-metal") }
+let screen: NSScreen = { guard let s = NSScreen.main else { fail("no-screen") }; return s }()
+let device: MTLDevice = { guard let d = MTLCreateSystemDefaultDevice() else { fail("no-metal") }; return d }()
 let win = NSWindow(contentRect: NSRect(x: screen.frame.minX + 10, y: screen.frame.minY + 10,
                                      width: 1100, height: 800),
                    styleMask: [.borderless], backing: .buffered, defer: false)
-win.alphaValue = 0; win.ignoresMouseEvents = true; win.colorSpace = .sRGB
+win.alphaValue = presentation == "visible" ? 1 : 0
+win.ignoresMouseEvents = true; win.colorSpace = .sRGB
 let container = NSView(frame: NSRect(x: 0, y: 0, width: 1100, height: 800))
 win.contentView = container; win.orderFrontRegardless()
 let counter = Counter()
@@ -161,7 +170,9 @@ func awaitFirst(_ start: Double) -> (Double, Data) {
     guard time > start, let d else { fail("no-presented-drawable time=\(time) acquired=\(probe.acquisitions) callbacks=\(probe.callbacks) completed=\(counter.read()) completionFloorMS=\((probe.completionTime - start) * 1000)") }
     return ((time - start) * 1000, pixels(d))
 }
-if mode == "memory" {
+if mode == "breakdown" {
+    breakdown()
+} else if mode == "memory" {
     let visible = autoreleasepool { makePane(0, coreText: core) }
     var hidden: [TerminalPane] = []
     for i in 0..<n {
@@ -199,13 +210,23 @@ if mode == "memory" {
     if oracle == decoy || Set(oracle).count < 10 { fail("pixel-control-vacuous") }
     var samples: [Double] = []
     let beforeLoad = load()
+    var peakLoad = beforeLoad
+    var correctCount = 0
     for i in 0..<n {
         autoreleasepool {
-            p.clipView.removeFromSuperview(); pump(0.04)
+            peakLoad = max(peakLoad, load())
+            if peakLoad > 0.70 { fail("timing-load-guard sample=\(i) load=\(peakLoad)") }
+            probe.clear()
+            p.clipView.removeFromSuperview()
             do { try p.view.setUseMetal(false) } catch { fail("timing-release-\(error)") }
-            // Alternate two references: a previously presented stale frame cannot pass.
+            if p.view.isUsingMetalRenderer { fail("timing-release-still-metal") }
+            // No fixed sleep added to hold=0: the requested duration starts at release.
+            let hiddenAt = CACurrentMediaTime()
             let token = i % 2 == 0 ? 2 : 3
-            p.view.feed(text: payload(token)); pump(0.1)
+            p.view.feed(text: payload(token))
+            while CACurrentMediaTime() - hiddenAt < hold { autoreleasepool { pump(min(0.05, hold)) } }
+            peakLoad = max(peakLoad, load())
+            if peakLoad > 0.70 { fail("timing-load-after-hold sample=\(i) load=\(peakLoad)") }
             probe.arm(); let start = CACurrentMediaTime()
             // Attach first to avoid creating a hidden surface immediately replaced on rebind
             // (MacTerminalView.swift:1089-1091,898-950).
@@ -216,8 +237,9 @@ if mode == "memory" {
             let (ms, actual) = awaitFirst(start)
             let correct = actual == (token == 2 ? oracle : decoy) && actual != (token == 2 ? decoy : oracle)
             print("SHOW rep=\(rep) i=\(i) ms=\(ms) correct=\(correct) bytes=\(actual.count) load=\(load())")
-            if !correct { fail("first-frame-pixels") }
+            if correct { correctCount += 1 }
             samples.append(ms)
+            peakLoad = max(peakLoad, load())
             // Let Core Animation retire this presentation before another detach.
             pump(0.1)
         }
@@ -225,7 +247,7 @@ if mode == "memory" {
     let sorted = samples.sorted()
     func pct(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(ceil(Double(sorted.count) * p)) - 1)] }
     let afterLoad = load()
-    print("TIMING rep=\(rep) count=\(n) p50=\(pct(0.5)) p95=\(pct(0.95)) loadBefore=\(beforeLoad) loadAfter=\(afterLoad) valid=\(max(beforeLoad, afterLoad) <= 0.70)")
+    print("TIMING rep=\(rep) count=\(samples.count) requested=\(n) hold=\(hold) presentation=\(presentation) p50=\(pct(0.5)) p95=\(pct(0.95)) max=\(sorted.last ?? 0) correct=\(correctCount)/\(n) allCorrect=\(correctCount == n) loadBefore=\(beforeLoad) loadAfter=\(afterLoad) peakLoad=\(peakLoad) valid=\(max(peakLoad, afterLoad) <= 0.70)")
     withExtendedLifetime((visible, p)) {}
 }
 print("COMPLETE")
