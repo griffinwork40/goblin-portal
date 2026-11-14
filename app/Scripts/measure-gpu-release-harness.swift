@@ -96,6 +96,18 @@ let win = NSWindow(contentRect: NSRect(x: screen.frame.minX + 10, y: screen.fram
                    styleMask: [.borderless], backing: .buffered, defer: false)
 win.alphaValue = presentation == "visible" ? 1 : 0
 win.ignoresMouseEvents = true; win.colorSpace = .sRGB
+// Attempt 1 (2026-11-14, visible-hold0-attempt1-incomplete) lost presentation at sample 30
+// while the user typed in another app: at normal level that app's window can cover this
+// one, and a fully covered layer gets presentedTime 0. Float above normal windows.
+// Attempts 2-3 then showed the real mechanism on this machine: Stage Manager is on, and
+// switching apps sweeps a normal window off stage. canJoinAllApplications is the Stage
+// Manager analogue of canJoinAllSpaces.
+if presentation == "visible" { win.level = .floating; win.collectionBehavior = [.canJoinAllSpaces, .canJoinAllApplications, .stationary, .fullScreenAuxiliary] }
+// A second, independent visibility signal (window server list), logged beside occlusionState.
+func cgOnScreen() -> Bool {
+    let l = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? []
+    return l.contains { ($0[kCGWindowNumber as String] as? Int) == win.windowNumber }
+}
 let container = NSView(frame: NSRect(x: 0, y: 0, width: 1100, height: 800))
 win.contentView = container; win.orderFrontRegardless()
 let counter = Counter()
@@ -167,8 +179,25 @@ func awaitFirst(_ start: Double) -> (Double, Data) {
     let deadline = CACurrentMediaTime() + 3
     while probe.result().0 == 0 && CACurrentMediaTime() < deadline { pump(0.001) }
     let (time, d) = probe.result()
-    guard time > start, let d else { fail("no-presented-drawable time=\(time) acquired=\(probe.acquisitions) callbacks=\(probe.callbacks) completed=\(counter.read()) completionFloorMS=\((probe.completionTime - start) * 1000)") }
+    guard time > start, let d else { fail("no-presented-drawable windowVisible=\(win.occlusionState.contains(.visible)) time=\(time) acquired=\(probe.acquisitions) callbacks=\(probe.callbacks) completed=\(counter.read()) completionFloorMS=\((probe.completionTime - start) * 1000)") }
     return ((time - start) * 1000, pixels(d))
+}
+// nil = the window server does not list this window as on screen (cgOnScreen), so
+// no re-show reached the screen and there is nothing to time. Attempts 1 of both visible
+// runs (2026-11-14) died this way while the user worked in another app. ONLY that recorded
+// condition invalidates a sample; a listed window with no presentation is still fatal, so
+// a slow re-show can never be dropped by this path. NSWindow.occlusionState is NOT usable
+// here: attempt 3 read it false for 60 s while frames presented and the window was listed.
+func awaitFirstIfVisible(_ start: Double) -> (Double, Data)? {
+    let deadline = CACurrentMediaTime() + 3
+    while probe.result().0 == 0 && CACurrentMediaTime() < deadline { pump(0.001) }
+    if probe.result().0 == 0 && !cgOnScreen() { return nil }
+    return awaitFirst(start)
+}
+func waitVisible() {
+    let until = CACurrentMediaTime() + 60
+    while !cgOnScreen() && CACurrentMediaTime() < until { pump(0.1) }
+    if !cgOnScreen() { fail("window-not-listed-on-screen-for-60s") }
 }
 if mode == "breakdown" {
     breakdown()
@@ -212,8 +241,11 @@ if mode == "breakdown" {
     let beforeLoad = load()
     var peakLoad = beforeLoad
     var correctCount = 0
-    for i in 0..<n {
+    var i = 0, invalid = 0
+    print("VISIBILITY occlusionVisible=\(win.occlusionState.contains(.visible)) cgOnScreen=\(cgOnScreen())")
+    while i < n {
         autoreleasepool {
+            if presentation == "visible" { waitVisible() }
             peakLoad = max(peakLoad, load())
             if peakLoad > 0.70 { fail("timing-load-guard sample=\(i) load=\(peakLoad)") }
             probe.clear()
@@ -234,19 +266,25 @@ if mode == "breakdown" {
             do { try p.view.setUseMetal(true) } catch { fail("timing-enable-\(error)") }
             // Explicitly submit the AppKit transaction in this manually pumped app.
             win.displayIfNeeded(); CATransaction.flush()
-            let (ms, actual) = awaitFirst(start)
+            guard let (ms, actual) = awaitFirstIfVisible(start) else {
+                invalid += 1
+                print("INVALID i=\(i) reason=window-not-listed-on-screen count=\(invalid)"); fflush(stdout)
+                if invalid > 10 { fail("too-many-invalid-samples count=\(invalid)") }
+                waitVisible(); pump(1.0); return
+            }
             let correct = actual == (token == 2 ? oracle : decoy) && actual != (token == 2 ? decoy : oracle)
             print("SHOW rep=\(rep) i=\(i) ms=\(ms) correct=\(correct) bytes=\(actual.count) load=\(load())")
             if correct { correctCount += 1 }
             samples.append(ms)
             peakLoad = max(peakLoad, load())
             // Let Core Animation retire this presentation before another detach.
-            pump(0.1)
+            pump(0.1); i += 1
         }
     }
     let sorted = samples.sorted()
     func pct(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(ceil(Double(sorted.count) * p)) - 1)] }
     let afterLoad = load()
+    print("INVALIDATED count=\(invalid) rule=window-not-listed-on-screen-only")
     print("TIMING rep=\(rep) count=\(samples.count) requested=\(n) hold=\(hold) presentation=\(presentation) p50=\(pct(0.5)) p95=\(pct(0.95)) max=\(sorted.last ?? 0) correct=\(correctCount)/\(n) allCorrect=\(correctCount == n) loadBefore=\(beforeLoad) loadAfter=\(afterLoad) peakLoad=\(peakLoad) valid=\(max(peakLoad, afterLoad) <= 0.70)")
     withExtendedLifetime((visible, p)) {}
 }
