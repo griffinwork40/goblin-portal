@@ -5,7 +5,7 @@
 //  **Pure and view-free — Foundation only, on purpose**, so `check-theme-contrast.sh`
 //  can compile it beside `ThemeValues.swift` with no UI framework linked. That gate is
 //  the only reason a theme in this repo can claim to be legible: there is no test target
-//  and no CI, so an unmeasured palette is an opinion.
+//  (CI runs the headless gates; see `checks.yml`), so an unmeasured palette is an opinion.
 //
 //  Separate from `Theme.swift` because that file is the AppKit *bridge* (it turns hex
 //  into `NSColor` and hands it to two engines) and separate from `ThemeValues.swift`
