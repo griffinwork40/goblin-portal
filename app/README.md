@@ -217,9 +217,9 @@ so one proves nothing about the other), three behavioural (asking for `metal` yi
 asking for `coretext` yields coretext; and asking for `metal` *then* `coretext` in one process
 still yields coretext), and one falsification. Only the third behavioural case is a real
 control. A freshly built view already has `useMetalRenderer == false`, so `setUseMetal(false)`
-on its own early-returns (`Mac/MacTerminalView.swift:379-381`) and the case passes without any
+on its own early-returns (`Mac/MacTerminalView.swift:657-659`) and the case passes without any
 teardown running — it would still pass if `setUseMetal` were a no-op. The metal-then-coretext
-case is the one that removes the `MTKView` and restores the caret view, which is what a ⌘R
+case is the one that removes the Metal surface and restores the caret view, which is what a ⌘R
 after editing `renderer` back to `coretext` actually does. The falsification case is the
 load-bearing one: it hides
 `Shaders.metal`, re-runs, and *requires* the request to fail. If Metal still came up with the

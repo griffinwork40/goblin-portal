@@ -6,8 +6,8 @@
 //  `Process`. That is not tidiness: it is what lets `Scripts/check-git-status.sh`
 //  compile this one file directly with `swiftc` and run a truth table over it, the same
 //  trick `ShellDirectory.swift` plays for `check-cwd-follow.sh` and `KeyBindings.swift`
-//  for `check-keybindings.sh`. In a repo with no test target and no CI (AFK.md,
-//  "Checks"), a concern that cannot be compiled alone cannot be gated alone, so the
+//  for `check-keybindings.sh`. In a repo with no test target (CI runs the headless
+//  gates; see `checks.yml`), a concern that cannot be compiled alone cannot be gated alone, so the
 //  dependency-free boundary IS the testability. The spawn lives next door in
 //  `GitStatusReader.swift` precisely so this half stays a total function over bytes.
 //
