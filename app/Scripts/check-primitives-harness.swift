@@ -1,7 +1,7 @@
 // check-primitives-harness.swift — compiled and linked by check-primitives.sh
 //
-// Byte-feed probe for T4.0: records what SwiftTerm v1.15.0 + 17 local patches
-// actually responds to, replacing the A1b static-analysis hypotheses with measured
+// Byte-feed probe for T4.0: records what the vendored SwiftTerm (upstream c3436be +
+// the patches in patches/swiftterm/) actually responds to, replacing the A1b static-analysis hypotheses with measured
 // behaviour. Each row feeds escape sequences to a headless Terminal, captures the
 // bytes SwiftTerm sends back via TerminalDelegate.send(source:data:), and records
 // PRESENT / ABSENT / PARTIAL. The pinned truth table is the regression gate:
@@ -139,19 +139,21 @@ struct Row {
 
 // MARK: - Pinned truth table
 //
-// These are the RECORDED verdicts for 2026-10-21. A verdict change exits 1.
+// These are the RECORDED verdicts (2026-10-21; XTVERSION rows re-derived 2026-11-14
+// against the real CSI query form). A verdict change exits 1.
 // To update after a legitimate change: run the probe, verify the output, update
 // the value here, commit with a note explaining why the row changed.
 //
 // Evidence for each pinned value is in the note field of the corresponding Row,
-// and in the A1b corrections section of .afk/research/primitives-probe-2026-10-21.md.
+// and in the A1b corrections section of the report (PRIMITIVES_REPORT, see the .sh).
 
 let pinnedVerdicts: [String: Verdict] = [
-    "XTVERSION":          .PRESENT,  // DCS>q: XtVersionDcsHandler responds DCS>|<ver> ST (patch 0011, was 0017)
+    "XTVERSION":          .PRESENT,  // CSI>0q -> upstream cmdXTVERSION (Terminal.swift:5358) replies DCS>|<xtVersion> ST (override: patch 0011)
+    "XTVERSIONbare":      .PRESENT,  // CSI>q: CsiParameters reads an omitted Ps as [0], so the same cmdXTVERSION guard passes
     "DA1":                .PRESENT,  // Terminal.swift:4621-4632 VT525 response
     "DA2":                .PRESENT,  // Terminal.swift:4605-4612 >65;20;1c
     "modifyOtherKeys":    .ABSENT,   // mode 1036 absent from cmdDecRqm (Terminal.swift:3374)
-    "altScroll1007":      .PRESENT,  // mode 1007: altScrollMode property + DECRQM (patch 0011, was 0017)
+    "altScroll1007":      .PRESENT,  // mode 1007: upstream alternateScrollMode (Terminal.swift:706) + DECRQM; default ON
     "mode2027":           .PRESENT,  // mode 2027: permanently-reset response in cmdDecRqm (patch 0011, was 0017, honest)
     "kittyKbdQuery":      .PRESENT,  // Terminal.swift:921 sends CSI?<flags>u
     "OSC9progress":       .PRESENT,  // Terminal.swift:1859 fires progressReport delegate
@@ -167,6 +169,7 @@ let pinnedVerdicts: [String: Verdict] = [
 func runProbe() {
 var rows: [Row] = []
 rows.append(probeXTVERSION())
+rows.append(probeXTVERSIONBare())
 rows.append(probeDA1())
 rows.append(probeDA2())
 rows.append(probeModifyOtherKeys())
@@ -182,7 +185,7 @@ rows.append(probeBracketedPaste())
 
 // Print the results table.
 let sep = String(repeating: "─", count: 82)
-print("primitives probe — SwiftTerm v1.15.0 + 17 patches — T4.2")
+print("primitives probe — vendored SwiftTerm (c3436be + local patches) — T4.2")
 print("")
 print(sep)
 print("  \("ID".padding(toLength: 22, withPad: " ", startingAt: 0))"
@@ -212,10 +215,10 @@ let mdTable = rows.map {
 
 print("=== MARKDOWN ===")
 print("""
-# Primitives Probe — 2026-10-21
+# Primitives Probe
 
 **Gate:** `app/Scripts/check-primitives.sh`  ·  **Roadmap:** T4.0  
-**SwiftTerm:** v1.15.0 + 17 local patches  
+**SwiftTerm:** upstream c3436be + the local patches in `patches/swiftterm/`  
 **Method:** byte-feed to headless `Terminal`; no window server, no AppKit.  
 Metal / CoreText pixel draw **deferred** (requires offscreen GUI — noted per row).
 
@@ -238,7 +241,8 @@ This probe records all corrections found:
 |-----------|-------------|---------------|------------|
 | OSC 9;4 progress — vendor layer | PARTIAL | **PRESENT** | `Terminal.swift:1859` fires `progressReport(source:report:)` with parsed state and progress, and the app already uses it: `GoblinPortalTerminalView+Notify.swift:16-36` feeds 9;4 to `MacTerminalView.progressReport` (`:2908`, SwiftTerm's in-view progress bar). `Terminal.swift:6841` is only the protocol's default stub. What T4.3 still lacks is tab-strip / Dock progress; no vendor patch needed. |
 | OSC 1337 iTerm2 images — vendor layer | MISSING (app drops) | **PARTIAL** | CORRECTED 2026-10-21 (T4.4): `inline=1` goes to `createImage`, which the vendored `TerminalView` implements (`AppleTerminalView.swift:2444`) — the app DOES paint inline images under both renderers (`check-image-render.sh`). Only `inline=0` / other keys reach `iTermContent`. This probe's stub delegate measured the stub, not the app. Gap: multipart (`MultipartFile`/`FilePart`/`FileEnd`) unsupported pending vendor patch 0019 (now landed as 0013). |
-| All other rows (11 of 13) | — | ✓ confirmed | XTVERSION ABSENT, DA1/DA2 PRESENT, modifyOtherKeys ABSENT, altScroll1007 ABSENT, mode2027 ABSENT, kittyKbdQuery PRESENT, sixelParsing PARTIAL, kittyGraphics PARTIAL, syncOutput2026 PARTIAL, bracketedPaste2004 PRESENT — all match A1b static analysis. |
+| XTVERSION | MISSING | **PRESENT** (both forms) | A1b and the first probe both treated `DCS > q ST` as the query. It is the CSI form `CSI > Ps q`; `DCS > \\| text ST` is only the reply. Upstream c3436be dispatches it (`EscapeSequenceParser.swift:648-650` → `cmdXTVERSION`); patch 0011 adds the host identity override. |
+| All other rows | — | see Probe Results | 2026-10-21: DA1/DA2 PRESENT, modifyOtherKeys ABSENT, kittyKbdQuery PRESENT, sixelParsing/kittyGraphics/syncOutput2026 PARTIAL, bracketedPaste2004 PRESENT matched A1b; altScroll1007 and mode2027 flipped to PRESENT with T4.2. |
 
 ---
 
@@ -258,10 +262,10 @@ pipeline; a kitty-image fixture would extend `check-render-parity.sh` (Gap 11 in
 
 | Roadmap item | Probe finding | Required work |
 |---|---|---|
-| T4.2 XTVERSION | ABSENT — DCS>q not dispatched | Vendor patch: register DCS>q in `EscapeSequenceParser.swift`, respond `DCS>|GoblinPortal <ver> ST` |
+| T4.2 XTVERSION | PRESENT — `CSI > q` / `CSI > 0 q` reply `DCS>\\|<identity> ST` | Done: upstream dispatch + patch 0011 override (`TerminalPane.swift` sets `GoblinPortal <ver>`) |
 | T4.2 modifyOtherKeys | ABSENT — mode 1036 not in `cmdDecRqm` | Vendor patch: add 1036 to DECSET/DECRST + key encoder in `MacTerminalView.swift` |
-| T4.2 altScroll 1007 | ABSENT — mode 1007 not in `cmdDecRqm` | Vendor patch: add 1007 + scroll-event → cursor-key synthesis in `MacTerminalView.swift` |
-| T4.2 mode 2027 | ABSENT — mode 2027 not in `cmdDecRqm` | Vendor patch: large UAX#29 change to hot path; defer |
+| T4.2 altScroll 1007 | PRESENT — upstream at c3436be, default ON | Done (no local patch needed since the re-vendor) |
+| T4.2 mode 2027 | PRESENT — DECRQM reports permanently reset (patch 0011) | Real UAX#29 clustering: large hot-path change; deferred |
 | T4.3 OSC 9;4 progress | PRESENT at vendor; in-view bar already wired | App-only: surface the same report on the tab strip and `NSDockTile` (hook beside the existing `+Notify` decoder) |
 | T4.4 sixel render | PARTIAL — parsed, not rendered | Vendor patch: draw path in `AppleTerminalView.swift` / `MetalTerminalRenderer.swift` |
 | T4.4 kitty graphics render | PARTIAL — Metal path exists; pixel test deferred | Extend `check-render-parity.sh` with kitty-image fixture |
