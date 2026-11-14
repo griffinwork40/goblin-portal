@@ -1,4 +1,3 @@
-// check-primitives-probes.swift — compiled and linked by check-primitives.sh
 // check-primitives-probes.swift — individual probe functions for check-primitives.sh
 //
 // Compiled together with check-primitives-harness.swift by check-primitives.sh.
@@ -13,27 +12,38 @@ import Foundation
 import SwiftTerm
 
 
-/// P1 XTVERSION — DCS > q ST → should respond with DCS containing terminal name.
-/// A1b: MISSING (static). Terminal.swift has no DCS>q handler.
-/// Expected: ABSENT (no response bytes).
-func probeXTVERSION() -> Row {
+/// P1 XTVERSION — the QUERY is CSI > Ps q (xterm ctlseqs, "XTVERSION"); the REPLY is
+/// DCS > | text ST. Until 2026-11-14 this probe fed the reply shape (ESC P > q ESC \) as if it
+/// were the query: the v1.15.0-era patch 0017 had added a DCS handler for it, and the
+/// 2026-10-27 re-vendor dropped that handler because upstream c3436be dispatches the real
+/// CSI form (EscapeSequenceParser.swift:648-650 -> Terminal.cmdXTVERSION, :5358). The row went
+/// ABSENT because the probe was stale, not because the product regressed.
+/// Two rows: `CSI > 0 q` (explicit Ps) and bare `CSI > q` (Ps defaults to 0 in xterm), each
+/// reported separately so a gap in one form cannot hide behind the other. The probe sets
+/// Terminal.xtVersion, the host override patch 0011 adds (TerminalPane.swift:128 sets it to
+/// "GoblinPortal <ver>"), and requires the EXACT reply bytes, so both the dispatch and the
+/// override are under test. FALSIFY mutant B removes the dispatch call.
+let xtProbeIdentity = "GoblinPortal probe"
+func probeXTVERSIONForm(id: String, query: String, label: String) -> Row {
     let (t, d) = makeTerminal()
-    // DCS > q ST  =  ESC P > q ESC \  (EscapeSequenceParser.swift dispatches DCS by final byte)
-    feedStr(t, "\u{1b}P>q\u{1b}\\")
+    t.xtVersion = xtProbeIdentity
+    feedStr(t, query)
     let resp = d.sent
-    let asStr = String(bytes: resp, encoding: .isoLatin1) ?? ""
-    // A real XTVERSION response starts with DCS and contains the terminal name.
-    // XTVERSION response: DCS > | <name> ST  (ESC P > | ... ESC \ in 8-bit form)
-    // Look for the ">|" marker that precedes the version string.
-    let present = !resp.isEmpty && asStr.contains(">|")
-    let verdict: Verdict = present ? .PRESENT : .ABSENT
-    return Row(id: "XTVERSION",
-               description: "DCS > q ST — XTVERSION terminal identity query",
-               verdict: verdict,
+    let want = Array("\u{1b}P>|\(xtProbeIdentity)\u{1b}\\".utf8)
+    let present = resp == want
+    return Row(id: id,
+               description: "\(label) — XTVERSION query, reply DCS > | <identity> ST",
+               verdict: present ? .PRESENT : .ABSENT,
                rawResponse: describe(resp),
                note: present
-                   ? "Response: \(asStr.prefix(80)) (patch 0011, was 0017 ✓ PRESENT)"
-                   : "No response — DCS>q has no registered handler")
+                   ? "reply \(describe(resp)) = DCS>|\(xtProbeIdentity) ST (upstream cmdXTVERSION + patch 0011 override)"
+                   : "reply \(describe(resp)) — no DCS>|\(xtProbeIdentity) ST reply to \(label)")
+}
+func probeXTVERSION() -> Row {
+    probeXTVERSIONForm(id: "XTVERSION", query: "\u{1b}[>0q", label: "CSI > 0 q")
+}
+func probeXTVERSIONBare() -> Row {
+    probeXTVERSIONForm(id: "XTVERSIONbare", query: "\u{1b}[>q", label: "CSI > q")
 }
 
 /// P2 DA1 — CSI c → CSI ? <caps> c
@@ -96,9 +106,11 @@ func probeModifyOtherKeys() -> Row {
 
 /// P5 Alternate scroll mode 1007 — DECRQM CSI ?1007 $p, as a ROUND TRIP.
 /// PRESENT requires: default reads SET (1), ?1007l then reads RESET (2), ?1007h reads SET
-/// again. The default is pinned ON because SwiftTerm's scrollWheel has always sent arrow
-/// keys in the alt buffer (patch 0011, was 0017); a default of OFF would make DECRQM contradict the
-/// wheel. The scrollWheel gate itself is AppKit and stays daily-drive. FALSIFY mutant C
+/// again. The default is pinned ON because SwiftTerm's scrollWheel sends arrow keys in the
+/// alt buffer; a default of OFF would make DECRQM contradict the wheel. Mode 1007 was local
+/// patch 0017 at v1.15.0 and is UPSTREAM since the 2026-10-27 re-vendor (alternateScrollMode,
+/// Terminal.swift:706; patch 0011's port notes record the drop). The scrollWheel gate
+/// itself is AppKit and stays daily-drive. FALSIFY mutant C
 /// flips the default and must turn this row ABSENT.
 func probeAltScroll1007() -> Row {
     let (t, d) = makeTerminal()
@@ -120,7 +132,7 @@ func probeAltScroll1007() -> Row {
                description: "DECRQM ?1007 — alternate scroll (default SET, switchable)",
                verdict: ok ? .PRESENT : .ABSENT,
                rawResponse: describe(Array(initial.utf8)),
-               note: ok ? "\(trail) (patch 0011, was 0017 ✓ PRESENT)" : "\(trail) -> ABSENT (want 1/2/1)")
+               note: ok ? "\(trail) (upstream alternateScrollMode ✓ PRESENT)" : "\(trail) -> ABSENT (want 1/2/1)")
 }
 
 /// P6 Mode 2027 Unicode grapheme clustering — DECRQM CSI ?2027 $p.
@@ -228,8 +240,8 @@ func probeSixelParsing() -> Row {
 /// the app `tdel` is the vendored TerminalView, which implements createImage
 /// (AppleTerminalView.swift:2444 -> insertImage) and PAINTS the image under Core Text and Metal
 /// (proved by check-image-render.sh). Verdict stays PARTIAL only because this headless probe
-/// sees dispatch, not pixels; multipart (MultipartFile/FilePart/FileEnd) is unsupported
-/// vendor patch 0013 (was 0019).
+/// sees dispatch, not pixels. Multipart (MultipartFile/FilePart/FileEnd) LANDED in vendor
+/// patch 0013 (was 0019); its decode is gated by check-image-decode.sh, not by this row.
 func probeOSC1337() -> Row {
     let (t, d) = makeTerminal()
     // OSC 1337 ; File=inline=1:<base64> BEL  (Terminal.swift:1905 osciTerm2)
