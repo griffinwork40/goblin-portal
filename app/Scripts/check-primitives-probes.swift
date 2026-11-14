@@ -32,7 +32,7 @@ func probeXTVERSION() -> Row {
                verdict: verdict,
                rawResponse: describe(resp),
                note: present
-                   ? "Response: \(asStr.prefix(80)) (patch 0017 ✓ PRESENT)"
+                   ? "Response: \(asStr.prefix(80)) (patch 0011, was 0017 ✓ PRESENT)"
                    : "No response — DCS>q has no registered handler")
 }
 
@@ -97,7 +97,7 @@ func probeModifyOtherKeys() -> Row {
 /// P5 Alternate scroll mode 1007 — DECRQM CSI ?1007 $p, as a ROUND TRIP.
 /// PRESENT requires: default reads SET (1), ?1007l then reads RESET (2), ?1007h reads SET
 /// again. The default is pinned ON because SwiftTerm's scrollWheel has always sent arrow
-/// keys in the alt buffer (patch 0017); a default of OFF would make DECRQM contradict the
+/// keys in the alt buffer (patch 0011, was 0017); a default of OFF would make DECRQM contradict the
 /// wheel. The scrollWheel gate itself is AppKit and stays daily-drive. FALSIFY mutant C
 /// flips the default and must turn this row ABSENT.
 func probeAltScroll1007() -> Row {
@@ -120,7 +120,7 @@ func probeAltScroll1007() -> Row {
                description: "DECRQM ?1007 — alternate scroll (default SET, switchable)",
                verdict: ok ? .PRESENT : .ABSENT,
                rawResponse: describe(Array(initial.utf8)),
-               note: ok ? "\(trail) (patch 0017 ✓ PRESENT)" : "\(trail) -> ABSENT (want 1/2/1)")
+               note: ok ? "\(trail) (patch 0011, was 0017 ✓ PRESENT)" : "\(trail) -> ABSENT (want 1/2/1)")
 }
 
 /// P6 Mode 2027 Unicode grapheme clustering — DECRQM CSI ?2027 $p.
@@ -133,7 +133,7 @@ func probeMode2027() -> Row {
     let isKnown = asStr.contains("2027") &&
         (asStr.contains(";1$y") || asStr.contains(";2$y") ||
          asStr.contains(";1 $y") || asStr.contains(";2 $y"))
-    // mode 2027: patch 0017 adds a case 2027 to cmdDecRqm that reports modeAlwaysReset (4).
+    // mode 2027: patch 0011 (was 0017) adds a case 2027 to cmdDecRqm that reports modeAlwaysReset (4).
     // Status 4 = recognised but permanently reset — honest: SwiftTerm uses wcwidth(), not UAX#29.
     // isKnown checks for status 1 or 2 (set/reset).  Status 4 (always-reset) also counts as
     // "known to the emulator" for our PRESENT verdict — the emulator RECOGNISES the mode.
@@ -146,7 +146,7 @@ func probeMode2027() -> Row {
                rawResponse: describe(resp),
                note: isAlwaysReset
                    ? "DECRQM ?2027 -> \"\(asStr.prefix(40))\" status=4(always-reset) — " +
-                     "patch 0017 ✓ PRESENT: emulator recognises mode but reports permanently reset " +
+                     "patch 0011 (was 0017) ✓ PRESENT: emulator recognises mode but reports permanently reset " +
                      "(SwiftTerm uses wcwidth(), not UAX#29 grapheme clustering — honest)"
                    : isKnown
                        ? "DECRQM ?2027 -> \"\(asStr.prefix(40))\" (known, set/reset)"
@@ -229,7 +229,7 @@ func probeSixelParsing() -> Row {
 /// (AppleTerminalView.swift:2444 -> insertImage) and PAINTS the image under Core Text and Metal
 /// (proved by check-image-render.sh). Verdict stays PARTIAL only because this headless probe
 /// sees dispatch, not pixels; multipart (MultipartFile/FilePart/FileEnd) is unsupported
-/// pending vendor patch 0019.
+/// vendor patch 0013 (was 0019).
 func probeOSC1337() -> Row {
     let (t, d) = makeTerminal()
     // OSC 1337 ; File=inline=1:<base64> BEL  (Terminal.swift:1905 osciTerm2)
@@ -249,7 +249,7 @@ func probeOSC1337() -> Row {
                    ? "SwiftTerm calls createImage ✓ (Terminal.swift:1966 inline=1 path). "
                    + "In the app tdel is TerminalView, whose createImage paints the image "
                    + "(AppleTerminalView.swift:2444; pixels gated by check-image-render.sh). "
-                   + "inline=0/other keys reach iTermContent; multipart unsupported (patch 0019)."
+                   + "inline=0/other keys reach iTermContent; multipart landed in patch 0013 (was 0019)."
                    : "createImage NOT called — osciTerm2 did not dispatch or base64 parse failed")
 }
 

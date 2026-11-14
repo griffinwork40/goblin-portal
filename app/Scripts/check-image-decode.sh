@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# check-image-decode.sh — patches 0018/0019/0020: are inline-image payloads (incl. sixel) bounded, and does
+# check-image-decode.sh — patches 0012/0013 (were 0018/0019; old 0020 sixel-bounds is upstream since the 2026-10-27 re-vendor): are inline-image payloads (incl. sixel) bounded, and does
 # OSC 1337 multipart (modern imgcat) render through the same bounded path?
 #
 # Headless-ish: links the vendored SwiftTerm.o and drives a real TerminalView (an NSView

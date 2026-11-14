@@ -6,7 +6,7 @@
 #
 # WHAT IS UNDER TEST: the three scripts, as a user's rc file sources them.
 #   Scripts/check-shell-scripts-driver.py — pty driver (answers fish 4's DA1 query)
-#   Scripts/check-shell-scripts-cases.py  — the case table (B1-B12, Z1-Z2, F1-F5)
+#   Scripts/check-shell-scripts-cases.py  — the case table (B1-B13+B14/B15, Z1-Z3+Z4/Z5, F1-F8)
 #
 # WHY THIS IS SEPARATE FROM check-shell-integration.sh. That gate compiles the Swift
 # CONSUMERS (ShellIntegration.swift, Osc7Directory.swift) and feeds them hand-written
@@ -27,7 +27,7 @@
 # Cases that WOULD be needed if screen were available in the pty harness:
 #   SC1  STY set: OSC 7 arrives at the outer pty wrapped in ESC P ... ESC \
 #   SC2  TERM=screen: same wrapping without STY (login-shell cleared STY)
-#   SC3  neither STY nor TERM=screen*: bare OSC (no wrapping, existing B1-B12/Z1-Z2/F1-F5)
+#   SC3  neither STY nor TERM=screen*: bare OSC (no wrapping, existing B1-B13/Z1-Z3/F1-F8)
 #   SC4  bash/zsh/fish all produce identical DCS-wrapped payloads (cross-shell parity)
 # Blocked by: screen not installed on the CI / build host; no pty-in-pty harness.
 # Track in #207 (multiplexer passthrough).

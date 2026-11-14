@@ -10,7 +10,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         // Upstream SwiftTerm main @ c3436be (post-IO-rewrite), vendored at
-        // ../vendor/SwiftTerm with thirteen local patches (0001-0013, re-vendor 2026-10-27,
+        // ../vendor/SwiftTerm with fifteen local patches (0001-0015, re-vendor 2026-10-27,
         // issue #281). Key patches: 0001 ships the Metal shader as .copy, 0002 fixes
         // the alt-buffer narrowing trim (required — missing it bleeds stale cells across
         // tmux panes), 0004 adds DCS Ptmux passthrough, 0012 bounds OSC 1337 image payloads.

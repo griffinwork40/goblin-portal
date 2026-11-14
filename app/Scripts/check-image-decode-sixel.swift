@@ -1,4 +1,4 @@
-// check-image-decode-sixel.swift — patch 0020 (bound sixel parsing, #280) cases for
+// check-image-decode-sixel.swift — sixel-bounds cases (old patch 0020, fixed upstream in 2026-10-27 re-vendor, #280) for
 // check-image-decode.sh, split from check-image-decode-harness.swift for the 350-LOC ceiling.
 //
 // Each case prints "BEGIN <case>" (flushed) before it runs. A trap in the vendored

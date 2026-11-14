@@ -37,7 +37,7 @@ var draws: [CFTimeInterval] = []
 var vsyncs: [CFTimeInterval] = []
 var period: CFTimeInterval = 0
 var recording = false
-// `slow` mode (case 9, patch 0016): the reference link samples the pacer's link state on
+// `slow` mode (case 9, patch 0010, was 0016): the reference link samples the pacer's link state on
 // every vsync, so `activeTicks` approximates the pacer's tick count and `pauses` counts
 // running -> paused transitions (pause/resume churn).
 var sampling = false
@@ -206,7 +206,7 @@ case "sync":
           "first_phase_ms=\(ph) period=\(String(format: "%.2f", period * 1000))")
 case "slow":
     // A producer at `producerMs` for `seconds`. At 200ms the gap exceeds the eight-tick idle
-    // window at every refresh rate >= 60Hz, so 0016 should pause after one idle tick
+    // window at every refresh rate >= 60Hz, so 0010 should pause after one idle tick
     // (~2 active ticks per paint) where 0010 alone ran ~9. At 33ms it must NOT churn.
     _ = stream(for: 0.3)
     pump(0.4)                      // settle to rest so the window starts clean
