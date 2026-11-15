@@ -209,12 +209,17 @@ run_mutant() {
         exit 2
     fi
     "$TMP/probe_$name" >"$TMP/mutant_$name.out" 2>&1 || mexit=$?
-    flagged="$(grep '^✗ ' "$TMP/mutant_$name.out" | awk '{print $2}' | sort | tr '\n' ' ' | sed 's/ $//')"
-    local want; want="$(echo "$declared" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')"
+    # The exit status is judged BEFORE the rows are read (#314): a probe that crashed is
+    # an environment failure (exit 2), and must not be reported as a mutant missed.
     if [[ "$mexit" -ne 0 && "$mexit" -ne 1 ]]; then
         echo "FALSIFY [$name]: probe exited $mexit — environment failure, verdict unknown." >&2
         exit 2
     fi
+    # `|| true`: no flagged row is a legitimate answer (the mutant flipped nothing). Under
+    # `set -euo pipefail` grep's exit 1 used to end the script here, before the "gate is
+    # BLIND" line below could say why (#314).
+    flagged="$(grep '^✗ ' "$TMP/mutant_$name.out" | awk '{print $2}' | sort | tr '\n' ' ' | sed 's/ $//' || true)"
+    local want; want="$(echo "$declared" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')"
     if [[ "$mexit" -eq 1 && "$flagged" == "$want" ]]; then
         say "  [$name] CAUGHT by its own row(s): $flagged ✓"
         CAUGHT=$((CAUGHT + 1))
@@ -252,9 +257,13 @@ run_mutant B "XTVERSION XTVERSIONbare"
 # :1376); patch 0011's port notes say so. BOTH the declaration and the RIS line must flip:
 # Terminal's init runs the reset, so flipping the declaration alone changes nothing. The
 # reset line is anchored at 8-space indent so the DECSET case (:6809, 16 spaces) is untouched.
+# Each substitution is counted on its own (1 + 1), not as a combined 2, so two hits of one
+# pattern and none of the other cannot pass after a re-vendor (#314).
 fresh_vendor
-mutate "$MSRC/Terminal.swift" 2 \
-    's{public private\(set\) var alternateScrollMode: Bool = true}{public private(set) var alternateScrollMode: Bool = false // MUTANT-C} + s{^        alternateScrollMode = true$}{        alternateScrollMode = false // MUTANT-C}'
+mutate "$MSRC/Terminal.swift" 1 \
+    's{public private\(set\) var alternateScrollMode: Bool = true}{public private(set) var alternateScrollMode: Bool = false // MUTANT-C}'
+mutate "$MSRC/Terminal.swift" 1 \
+    's{^        alternateScrollMode = true$}{        alternateScrollMode = false // MUTANT-C}'
 run_mutant C "altScroll1007"
 
 if [[ "$RAN" -ne 3 ]]; then

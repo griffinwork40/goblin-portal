@@ -94,7 +94,8 @@ struct SessionHighlightStore {
         return accumulatedPaths.subtracting(baseline)
     }
 
-    /// Clear all accumulated state. Called on explicit user action.
+    /// Clear all accumulated state. Called by `accumulate` on a change of repository (or
+    /// no repository), and by `resetSessionHighlights(_:)`, which has no caller yet (#298).
     mutating func reset() {
         accumulatedPaths = []
         baselinePaths = nil
