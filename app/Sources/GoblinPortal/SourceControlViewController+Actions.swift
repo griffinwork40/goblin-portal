@@ -80,6 +80,18 @@ extension SourceControlViewController {
         }
     }
 
+    /// Stage the session's files with one `git add` (#298). The caller,
+    /// `SpaceViewController.stageSessionChanges()`, has already chosen `paths` through
+    /// `SessionStagePolicy`; this only dispatches them. The repository is captured at
+    /// dispatch by `performOperation`, so a completion that lands after a clear or a
+    /// change of repository only triggers a re-poll of whatever is current.
+    func stageSessionPaths(_ paths: [String]) {
+        guard !paths.isEmpty else { return }
+        performOperation(description: "stage session changes") { repo in
+            GitOperations.stage(paths: paths, in: repo)
+        }
+    }
+
     // MARK: - Commit
 
     /// Read the commit message field and run `git commit -m <message>`.

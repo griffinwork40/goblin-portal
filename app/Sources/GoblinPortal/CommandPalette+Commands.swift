@@ -109,6 +109,8 @@ extension CommandPalette {
         PaletteCommand("Commit…",                                      action: #selector(AppDelegate.scCommit(_:))),
         PaletteCommand("Push",                                         action: #selector(AppDelegate.scPush(_:))),
         PaletteCommand("Pull",                                         action: #selector(AppDelegate.scPull(_:))),
+        PaletteCommand("Stage Session Changes",                        action: #selector(AppDelegate.scStageSessionChanges(_:))),
+        PaletteCommand("Clear Session Highlights",                     action: #selector(AppDelegate.scClearSessionHighlights(_:))),
         PaletteCommand("Discard All Changes…",                         action: #selector(AppDelegate.scDiscardAll(_:))),
         // Config
         PaletteCommand("Settings…",                   key: "⌘,",     action: #selector(AppDelegate.openConfigFile(_:))),

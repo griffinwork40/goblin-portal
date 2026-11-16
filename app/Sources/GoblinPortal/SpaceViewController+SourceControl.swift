@@ -171,10 +171,14 @@ extension SpaceViewController: SourceControlDelegate {
         // The panel is created lazily; calling `sourceControlPanel` here guarantees
         // it exists before the first data push, without forcing creation on every
         // `gitStatusDidChange` when the panel has never been opened.
+        //
+        // Session first (#298): it hands the panel this tick's session set, which the
+        // panel's `reloadData` inside `update` then paints on its rows. The other order
+        // drew every row one tick behind, and a cleared session's markers would linger.
+        updateSessionHighlight(snapshot: snapshot, repository: repository)
         sourceControlPanel.update(snapshot: snapshot, repository: repository)
         pushBadgeCount(snapshot.entries.count)
         updateSwitcherVisibility(hasRepo: repository != nil)
-        updateSessionHighlight(snapshot: snapshot, repository: repository)
     }
 
     // MARK: Private helpers

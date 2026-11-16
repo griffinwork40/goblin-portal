@@ -46,6 +46,13 @@ enum SourceControlSection: Int, CaseIterable {
     private(set) var changes:   [GitFileEntry] = []
     private(set) var untracked: [GitFileEntry] = []
 
+    /// Repo-relative paths observed changed since session tracking started or was last
+    /// cleared (#298), pushed by `SpaceViewController.updateSessionHighlight` just before
+    /// each `update(snapshot:repository:)`. Rows whose path is in it get the file tree's
+    /// accent marker (`SourceControlRowView.isSessionTouched`). A plain value the owner
+    /// overwrites each tick, not a store: the session itself lives on SpaceViewController.
+    var sessionTouchedPaths: Set<String> = []
+
     // The section-header strings used as group items in the outline view.
     // Kept as an ordered array so index arithmetic is unambiguous.
     let sections: [String] = SourceControlSection.allCases.map(\.title)

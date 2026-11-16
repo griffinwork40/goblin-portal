@@ -39,6 +39,18 @@ extension AppDelegate {
         focusedSpace?.sourceControlPanel.pullChanges(sender)
     }
 
+    /// Stage the session's files (#298). Routed to the Space, not the panel, because the
+    /// session store lives on `SpaceViewController`; with nothing to stage it does
+    /// nothing, which is what keeps the unvalidated palette path harmless.
+    @objc func scStageSessionChanges(_ sender: Any?) {
+        focusedSpace?.stageSessionChanges()
+    }
+
+    /// Forget the session; the next status snapshot becomes its new baseline (#298).
+    @objc func scClearSessionHighlights(_ sender: Any?) {
+        focusedSpace?.resetSessionHighlights(sender)
+    }
+
     @objc func scDiscardAll(_ sender: Any?) {
         guard let panel = focusedSpace?.sourceControlPanel else { return }
 

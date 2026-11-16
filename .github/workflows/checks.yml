@@ -118,6 +118,7 @@ jobs:
             check-git-status.sh \
             check-git-watch.sh \
             check-session-highlight.sh \
+            check-session-stage.sh \
             check-theme-contrast.sh \
             check-light-theme.sh \
             check-afk-loc.sh \

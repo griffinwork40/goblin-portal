@@ -33,6 +33,19 @@ enum GitOperations {
         run(["add", "--", path], in: repository)
     }
 
+    /// Stage several files with ONE `git add -- <path> <path> …` (#298, Stage Session
+    /// Changes). Each path is its own argument, never joined into a string, so no shell
+    /// and no word splitting are involved.
+    ///
+    /// `--literal-pathspecs` because `--` ends option parsing but NOT pathspec magic: a
+    /// file literally named `:(glob)*` or `*.txt` would otherwise widen the add beyond the
+    /// paths the policy chose. An empty list is a success that spawns nothing, so a
+    /// caller that reaches here with nothing to stage cannot run a bare `git add --`.
+    static func stage(paths: [String], in repository: GitRepository) -> Result<Void, GitOperationError> {
+        guard !paths.isEmpty else { return .success(()) }
+        return run(["--literal-pathspecs", "add", "--"] + paths, in: repository)
+    }
+
     /// Stage all changes: `git add -A`.
     static func stageAll(in repository: GitRepository) -> Result<Void, GitOperationError> {
         run(["add", "-A"], in: repository)
