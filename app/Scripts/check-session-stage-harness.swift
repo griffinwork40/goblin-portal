@@ -5,14 +5,15 @@
 //  A real file rather than a heredoc, the same split check-git-status.sh makes: the shell
 //  half (mutants, compile, exit codes) and this half (cases) together would cross the
 //  350-line ceiling. Copied to `main.swift` by the script and compiled against the
-//  shipped SessionStagePolicy.swift, SessionHighlightPolicy.swift, GitStatus.swift,
-//  GitStatus+Rollup.swift, GitStatusReader.swift and GitOperations.swift (or a mutated
-//  COPY of one of them).
+//  shipped SessionStageOperation.swift, SessionStagePolicy.swift,
+//  SessionHighlightPolicy.swift, GitStatus.swift, GitStatus+Rollup.swift,
+//  GitStatusReader.swift and GitOperations.swift (or a mutated COPY of one of them).
 //
 //  Two halves. T cases are a truth table over hand-built entries, one row per rule of
 //  `SessionStagePolicy.pathsToStage`. G cases build a real repository with real `git`
 //  under $GIT_GATE_WORK, run the real store and policy over real snapshots, stage with
-//  the real `GitOperations.stage(paths:in:)`, and read the index back. Every label is
+//  the real `GitOperations.stage(paths:in:)`, and read the index back; G11–G12 drive the
+//  shipped `SessionStageOperation` after a stale snapshot. Every label is
 //  printed as `FAIL  <label>:` on failure so the script can attribute a mutant to its
 //  declared case.
 //
@@ -93,6 +94,17 @@ expectPaths("T17 mixed sorted", pick(
      entry("c.txt", .conflicted, staged: false, worktree: true),
      entry("s.txt", .added, staged: true, worktree: false)]),
     ["b.txt", "z.txt"])
+
+/// The snapshot a caller would have passed under the pre-fix design (the panel's cached
+/// read). Defined here, never in shipped code: only mutant m6's copy of
+/// `SessionStageOperation.swift` reads it. `nonisolated(unsafe)` for the same reason as
+/// `failed` above: one thread, Swift 5 and 6 modes.
+enum CallerSnapshot { nonisolated(unsafe) static var value: GitStatusSnapshot? }
+extension GitRepository {
+    static func discoverForGate(_ path: String) -> GitRepository? {
+        GitStatusReader.discoverRepository(at: URL(fileURLWithPath: path))
+    }
+}
 
 // ── real repository ─────────────────────────────────────────────────────────
 
@@ -178,9 +190,66 @@ store.reset()
 expectPaths("G9 cleared session stages nothing", SessionStagePolicy.pathsToStage(
     sessionPaths: store.effectivePaths, sessionRoot: store.repositoryRoot,
     snapshot: s2, panelRoot: repo.root.path), [])
+// The empty-list guard in `stage(paths:in:)` is what this checks: run against a repository
+// whose root does not exist, a spawned `git` could not even start (`Process.run` fails to
+// chdir) and the call would report failure, so success means nothing was spawned. Against
+// the real repository a bare `git add --` would change nothing either way, which is why
+// the index check alone could not see the guard go missing.
+let missing = URL(fileURLWithPath: work + "/no-such-repo")
+let nowhere = GitRepository(root: missing, gitDirectory: missing, commonDirectory: missing)
 var emptyOK = false
-if case .success = GitOperations.stage(paths: [], in: repo) { emptyOK = true }
-expect("G10 empty stage is a no-op", emptyOK && sh("git ls-files -s", in: dir) == indexBefore)
+if case .success = GitOperations.stage(paths: [], in: nowhere) { emptyOK = true }
+expect("G10 empty stage spawns nothing", emptyOK
+       && sh("git ls-files -s", in: dir) == indexBefore)
+
+// ── stale snapshot, fresh read (the race the click-time snapshot lost) ──────────
+
+// A session file is plainly unstaged when a snapshot is taken; THEN one of its two hunks is
+// staged (what `git add -p`, or the agent in the terminal, does between two poller reads);
+// then Stage Session Changes runs. Deciding from the earlier snapshot would `git add` the
+// whole file over the hunk-level choice. The shipped `SessionStageOperation` reads status
+// itself, so it must see the partial staging, skip that file, and still stage the other.
+print("\nstale snapshot")
+let dir2 = work + "/repo2"
+guard sh("""
+    mkdir -p repo2 && cd repo2 && git init -q -b main . &&
+    seq 1 20 > late.txt && printf 'peer\\n' > peer.txt && git add -A && git commit -q -m init
+    """, in: work) != nil,
+      let repo2 = GitRepository.discoverForGate(dir2),
+      let base2 = GitStatusReader.snapshot(of: repo2)
+else { envFail("second fixture repository would not build") }
+var store2 = SessionHighlightStore()
+store2.accumulate(entryKeys: Set(base2.entries.keys), repositoryRoot: repo2.root.path)
+// Two hunks far apart (lines 1 and 20), and an unstaged edit to a second session file.
+guard sh("sed -i '' -e '1s/.*/first/' -e '20s/.*/last/' late.txt && printf 'more\\n' >> peer.txt",
+         in: dir2) != nil, let stale = GitStatusReader.snapshot(of: repo2),
+      stale.entries["late.txt"]?.isStaged == false, stale.entries["peer.txt"]?.isStaged == false
+else { envFail("stale snapshot precondition: both files plainly unstaged") }
+store2.accumulate(entryKeys: Set(stale.entries.keys), repositoryRoot: repo2.root.path)
+// Stage only the first hunk: index = HEAD with line 1 changed, worktree also changes 20.
+guard sh("""
+    seq 1 20 | sed '1s/.*/first/' > ../hunk1 &&
+    git update-index --cacheinfo "100644,$(git hash-object -w ../hunk1),late.txt"
+    """, in: dir2) != nil,
+      let lateBefore = sh("git ls-files -s -- late.txt", in: dir2), !lateBefore.isEmpty,
+      let blobBefore = sh("git show :late.txt", in: dir2)
+else { envFail("partial staging of late.txt failed") }
+
+// What a caller-supplied snapshot would carry: the stale read. Shipped code never reads
+// this; mutant m6 makes `SessionStageOperation` decide from it, the pre-fix behaviour.
+CallerSnapshot.value = stale
+let result = SessionStageOperation.stageFromFreshRead(
+    sessionPaths: store2.effectivePaths, sessionRoot: store2.repositoryRoot, in: repo2)
+let lateAfter = sh("git ls-files -s -- late.txt", in: dir2)
+let blobAfter = sh("git show :late.txt", in: dir2)
+expect("G11 late partial staging survives a stale snapshot",
+       lateAfter == lateBefore && blobAfter == blobBefore,
+       "ls-files before \(lateBefore) after \(lateAfter ?? "nil")")
+let peer = GitStatusReader.snapshot(of: repo2)?.entries["peer.txt"]
+var resultOK = false
+if case .success = result { resultOK = true }
+expect("G12 same call stages the eligible peer", resultOK && peer?.isStaged == true
+       && peer?.hasWorkingTreeChange == false, "\(String(describing: peer))")
 
 print("\n\(failed) failed")
 exit(failed > 0 ? 1 : 0)

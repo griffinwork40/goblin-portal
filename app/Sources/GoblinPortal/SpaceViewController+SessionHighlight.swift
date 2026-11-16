@@ -82,10 +82,15 @@ extension SpaceViewController {
     /// Clear session highlights: Source Control > Clear Session Highlights (#298).
     ///
     /// `gitStatusDidChange()` re-enters the single fanout (`notifySourceControlOfChange`
-    /// → `updateSourceControl` → `updateSessionHighlight`) with the poller's CURRENT
-    /// snapshot, so the emptied store takes that snapshot as its new baseline in this
-    /// same turn: every file dirty right now stops being marked, and only files that
-    /// change from here on are marked again.
+    /// → `updateSourceControl` → `updateSessionHighlight`) with the poller's CACHED
+    /// snapshot — its last read, not a fresh one — so the emptied store takes that
+    /// snapshot as its new baseline in this same turn. Deliberately not "the next
+    /// snapshot": the poller fans out only when a read CHANGED
+    /// (`FileTreeViewController+Git.swift`, `guard changed else { return }`), so the next
+    /// delivered snapshot already contains the first file changed after the clear, and
+    /// baselining it would hide exactly that file. The limit: a file that became dirty
+    /// after the last read and before the clear is not in that baseline, so it is treated
+    /// as changed since the clear and marked.
     @objc func resetSessionHighlights(_ sender: Any?) {
         highlightBox.store.reset()
         fileTree.sessionTouchedPaths = []
@@ -101,12 +106,13 @@ extension SpaceViewController {
         (highlightBox.store.effectivePaths, highlightBox.store.repositoryRoot)
     }
 
-    /// What Stage Session Changes would stage right now, decided by the pure
-    /// `SessionStagePolicy` (gated by `check-session-stage.sh`). The snapshot and the
-    /// repository are the panel's own, read at call time: the panel already stores the
-    /// poller's latest delivery, and a second copy would break the poller's
-    /// one-snapshot invariant (`FileTreeViewController+Git.swift:11`). Also read by menu
-    /// validation (`AppDelegate+Validation.swift`) to grey the item out.
+    /// What Stage Session Changes would stage according to the panel's CACHED snapshot,
+    /// decided by the pure `SessionStagePolicy` (gated by `check-session-stage.sh`). Read
+    /// only by menu validation (`AppDelegate+Validation.swift`) to grey the item out, and
+    /// only a hint: that snapshot is the poller's last delivery, up to a read interval old,
+    /// so the action never stages from it (see `stageSessionChanges()`). No second copy is
+    /// stored: a second copy would break the poller's one-snapshot invariant
+    /// (`FileTreeViewController+Git.swift:11`).
     func sessionPathsToStage() -> [String] {
         let scope = sessionHighlightScope
         let panel = sourceControlPanel
@@ -115,14 +121,19 @@ extension SpaceViewController {
             snapshot: panel.snapshot, panelRoot: panel.repository?.root.path)
     }
 
-    /// Source Control > Stage Session Changes (#298): one `git add` over the policy's
-    /// paths. Recomputed here rather than trusted from validation, because the command
-    /// palette fires the selector without validating (`AppDelegate+Validation.swift`
-    /// header) and the snapshot may have moved since the menu was drawn. Nothing to
-    /// stage is a silent no-op: no subprocess, no alert, no re-poll.
+    /// Source Control > Stage Session Changes (#298): one `git add` over the session's
+    /// files that are safe to stage. Captures only values here, on the main actor (the
+    /// session's paths and root); the panel's `performOperation` captures its repository.
+    /// The decision is made in the background by `SessionStageOperation`, from a status
+    /// read taken immediately before the add, because the cached snapshot validation uses
+    /// may predate a partial `git add -p` that a stale "unstaged" would let `git add`
+    /// overwrite. A few milliseconds between that read and the add remain unguarded.
+    /// No session, or a session from another repository, is a silent no-op here (no
+    /// subprocess, no alert); the background policy re-checks the root anyway.
     func stageSessionChanges() {
-        let paths = sessionPathsToStage()
-        guard !paths.isEmpty else { return }
-        sourceControlPanel.stageSessionPaths(paths)
+        let scope = sessionHighlightScope
+        guard !scope.paths.isEmpty, let root = scope.root,
+              root == sourceControlPanel.repository?.root.path else { return }
+        sourceControlPanel.stageSessionChanges(sessionPaths: scope.paths, sessionRoot: root)
     }
 }

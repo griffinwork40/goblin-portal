@@ -2,8 +2,9 @@
 # check-session-stage.sh — headless gate for T5.5 "Stage Session Changes" (#298).
 #
 # WHAT IS UNDER TEST. `SessionStagePolicy.pathsToStage`, the pure function that decides
-# which of the session's files one `git add` may touch, and `GitOperations.stage(paths:in:)`,
-# the multi-path add it feeds. The index has no undo, so this is the part of T5.5 that can
+# which of the session's files one `git add` may touch, `GitOperations.stage(paths:in:)`,
+# the multi-path add it feeds, and `SessionStageOperation.stageFromFreshRead`, the shipped
+# read-decide-add sequence the action runs in the background. The index has no undo, so this is the part of T5.5 that can
 # damage a user's work, and it gets the strongest check the repo has: a truth table, real
 # repositories, and mutants.
 #
@@ -14,16 +15,20 @@
 # `check-session-stage-harness.swift` (copied to `main.swift`), the same split
 # check-git-status.sh makes.
 #
-# Compiled units, all Foundation-only: SessionStagePolicy.swift, SessionHighlightPolicy.swift
-# (the real store feeds the real-repo cases), GitStatus.swift, GitStatus+Rollup.swift,
-# GitStatus+Phrasing.swift, GitStatusReader.swift, GitOperations.swift.
+# Compiled units, all Foundation-only: SessionStageOperation.swift, SessionStagePolicy.swift,
+# SessionHighlightPolicy.swift (the real store feeds the real-repo cases), GitStatus.swift,
+# GitStatus+Rollup.swift, GitStatus+Phrasing.swift, GitStatusReader.swift, GitOperations.swift.
 #
 # T cases: one truth-table row per policy rule (candidates, partial-staging skip, conflict
 # skip, repository identity, rename original, empty results). G cases: a real repository
 # under mktemp, real `git`, the real store and policy, staged with the real writer — a
 # deletion is staged, an untracked file is added, a partially staged file's index entry
 # is byte-identical before and after, an unstaged rename ends fully staged, and a file
-# named like a glob stages only itself.
+# named like a glob stages only itself, and an empty list spawns nothing (G10 stages it
+# against a repository whose root does not exist, so a spawned git would fail). G11–G12,
+# the stale-snapshot race: a snapshot is taken while a session file is plainly unstaged,
+# one of its hunks is staged AFTER that, and the shipped read-decide-add must leave the
+# file's index entry and staged blob byte-identical while staging another session file.
 #
 # FALSIFICATION (AFK.md Conventions): each mutant edits a COPY of shipped source and is
 # counted only when ITS declared case fails. A pattern that no longer applies, a mutant
@@ -39,7 +44,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="${GATE_SRC_DIR:-$SCRIPT_DIR/../Sources/GoblinPortal}"
 HARNESS="$SCRIPT_DIR/check-session-stage-harness.swift"
-UNITS="SessionStagePolicy.swift SessionHighlightPolicy.swift GitStatus.swift GitStatus+Rollup.swift GitStatus+Phrasing.swift GitStatusReader.swift GitOperations.swift"
+UNITS="SessionStageOperation.swift SessionStagePolicy.swift SessionHighlightPolicy.swift GitStatus.swift GitStatus+Rollup.swift GitStatus+Phrasing.swift GitStatusReader.swift GitOperations.swift"
 
 for u in $UNITS; do
     [ -f "$SRC_DIR/$u" ] || { echo "ENV: $u not found in $SRC_DIR" >&2; exit 2; }
@@ -151,6 +156,18 @@ run_mutant m4 GitOperations.swift \
 run_mutant m5 SessionStagePolicy.swift \
     's/if entry\.status == \.untracked || entry\.hasWorkingTreeChange {/if true {/' \
     T5 "candidate rule widened"
+
+# m6: decide from a snapshot the caller passed in (the panel's cached read, the pre-fix
+# design) instead of reading status in the same operation — a hunk staged after that read
+# is overwritten. `CallerSnapshot` exists only in the harness.
+run_mutant m6 SessionStageOperation.swift \
+    's/guard let fresh = GitStatusReader\.snapshot(of: repository) else/guard let fresh = CallerSnapshot.value else/' \
+    G11 "decides from a caller-supplied stale snapshot"
+
+# m7: drop the empty-list guard — an empty selection would spawn a bare `git add --`.
+run_mutant m7 GitOperations.swift \
+    's/guard !paths\.isEmpty else { return \.success(()) }/_ = paths.isEmpty/' \
+    G10 "empty-list guard removed"
 
 echo ""
 echo "falsification: $caught caught, $missed missed"

@@ -5,8 +5,9 @@
 //  Foundation-only on purpose, like `SessionHighlightPolicy.swift` beside it: it is the
 //  one piece of T5.5 that can damage a user's index, so it has to be compilable alone by
 //  `Scripts/check-session-stage.sh`, which runs a truth table, mutants and real-`git`
-//  cases over it. The AppKit action (`SpaceViewController+SessionHighlight.swift`) only
-//  gathers the inputs and dispatches the result.
+//  cases over it. It spawns nothing: `SessionStageOperation.swift` runs the status read
+//  and the `git add` around it, and the AppKit action
+//  (`SpaceViewController+SessionHighlight.swift`) only captures the session's values.
 //
 //  WHY A SEPARATE FILE FROM `SessionHighlightPolicy.swift`. That file answers "which paths
 //  did this session see dirty?" and needs nothing but sets of strings. This one answers
@@ -27,9 +28,10 @@ enum SessionStagePolicy {
     /// - `sessionPaths`: `SessionHighlightStore.effectivePaths` (accumulated minus baseline).
     /// - `sessionRoot`: `SessionHighlightStore.repositoryRoot`, the root those paths are
     ///   relative to.
-    /// - `snapshot`, `panelRoot`: the Source Control panel's latest snapshot and its
-    ///   repository's root (`SourceControlViewController.snapshot` / `.repository`), read at
-    ///   click time — never a second stored copy (`FileTreeViewController+Git.swift:11`).
+    /// - `snapshot`, `panelRoot`: a status snapshot and the root of the repository it was
+    ///   read from. The action passes a read taken immediately before its `git add`
+    ///   (`SessionStageOperation`); menu validation passes the panel's cached snapshot as a
+    ///   hint. Neither is stored (`FileTreeViewController+Git.swift:11`).
     static func pathsToStage(
         sessionPaths: Set<String>,
         sessionRoot: String?,
