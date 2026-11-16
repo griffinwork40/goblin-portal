@@ -62,8 +62,9 @@ extension SpaceViewController {
     ///
     /// Called from `updateSourceControl(snapshot:repository:)` on every 2s
     /// git-status tick. The tree reads `sessionTouchedPaths` during its repaint
-    /// loop, which runs immediately after this returns (the call order in
-    /// `gitStatusDidChange()` guarantees it). The repository's root is passed so a
+    /// loop, which runs once this fanout (this call, then the panel's update, badge
+    /// and switcher) returns to `gitStatusDidChange()`: that method calls
+    /// `notifySourceControlOfChange()` before its loop. The repository's root is passed so a
     /// change of repository starts a new session (#298): the paths are repo-relative,
     /// and the policy decides what a change means (`SessionHighlightPolicy.swift`).
     func updateSessionHighlight(snapshot: GitStatusSnapshot, repository: GitRepository?) {
@@ -71,9 +72,10 @@ extension SpaceViewController {
             entryKeys: Set(snapshot.entries.keys), repositoryRoot: repository?.root.path)
         let effective = highlightBox.store.effectivePaths
         fileTree.sessionTouchedPaths = effective
-        // The Source Control panel draws the same marker on its rows. It reads this set
-        // in its next `reloadData`, which `updateSourceControl` runs AFTER this call, so
-        // the panel and the tree always show the same tick's session.
+        // The Source Control panel draws the same marker on its rows. They read this set
+        // when the outline next makes them, after the `reloadData` that
+        // `updateSourceControl` runs AFTER this call, so the panel and the tree show the
+        // same tick's session (gated pixel-for-pixel by check-session-marker.sh).
         sourceControlPanel.sessionTouchedPaths = effective
     }
 

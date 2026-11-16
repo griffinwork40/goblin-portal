@@ -19,7 +19,12 @@
 
 import Foundation
 
-var failed = 0
+// `nonisolated(unsafe)`: the counter is only touched from this file's top-level code,
+// one thread. Unannotated, Swift 6 mode treats it as main-actor state and rejects the
+// mutation inside `expect` (measured with `swiftc -swift-version 6`); `@MainActor` on
+// the helpers instead breaks the script's default Swift 5 mode, where top-level code is
+// not main-actor isolated.
+nonisolated(unsafe) var failed = 0
 func expect(_ label: String, _ ok: Bool, _ detail: @autoclosure () -> String = "") {
     if ok { print("  ok  \(label)") } else { print("  FAIL  \(label): \(detail())"); failed += 1 }
 }
