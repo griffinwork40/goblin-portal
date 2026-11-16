@@ -26,10 +26,21 @@
 //  The fresh snapshot is used once and dropped: the poller's snapshot stays the only
 //  stored copy (`FileTreeViewController+Git.swift:11`).
 //
+//  A FAILED READ IS REPORTED, NOT SWALLOWED. If `git status` cannot be read (git will not
+//  launch, the index is unreadable, the repository has gone), nothing is staged and the
+//  call returns `.failure`, which the panel's `performOperation` shows as an alert like
+//  every other Source Control operation. The first cut returned success here, so the
+//  click did nothing and said nothing; a refusal the user cannot see looks like the
+//  action being broken. A read that succeeds and leaves nothing to stage stays silent.
+//
 
 import Foundation
 
 enum SessionStageOperation {
+    /// Shown, after `performOperation`'s "git stage session changes failed:" line, when
+    /// the fresh status read fails. Says both halves: why, and that the index is untouched.
+    static let statusReadFailedMessage = "Could not read git status, so nothing was staged."
+
     /// Read `repository`'s status now, choose with `SessionStagePolicy.pathsToStage`
     /// against that read, and stage the result with ONE `GitOperations.stage(paths:in:)`.
     ///
@@ -38,15 +49,18 @@ enum SessionStageOperation {
     /// values captured on the main actor at click time (`sessionHighlightScope`); the
     /// repository's root is the panel root the policy compares against.
     ///
-    /// A failed read, or a read that leaves nothing to stage, stages nothing and reports
-    /// success without spawning `git add`: refusing to write is always safe here, and the
-    /// caller's success path only re-polls.
+    /// Neither a failed read nor a read that leaves nothing to stage spawns `git add`.
+    /// A failed read returns `.failure` with `statusReadFailedMessage`, so the user sees an
+    /// alert instead of a click that silently does nothing; a successful read with nothing
+    /// eligible returns success (the caller's success path only re-polls).
     static func stageFromFreshRead(
         sessionPaths: Set<String>,
         sessionRoot: String?,
         in repository: GitRepository
     ) -> Result<Void, GitOperationError> {
-        guard let fresh = GitStatusReader.snapshot(of: repository) else { return .success(()) }
+        guard let fresh = GitStatusReader.snapshot(of: repository) else {
+            return .failure(GitOperationError(message: statusReadFailedMessage))
+        }
         let paths = SessionStagePolicy.pathsToStage(
             sessionPaths: sessionPaths, sessionRoot: sessionRoot,
             snapshot: fresh, panelRoot: repository.root.path)

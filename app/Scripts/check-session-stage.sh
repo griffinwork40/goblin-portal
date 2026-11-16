@@ -29,6 +29,8 @@
 # the stale-snapshot race: a snapshot is taken while a session file is plainly unstaged,
 # one of its hunks is staged AFTER that, and the shipped read-decide-add must leave the
 # file's index entry and staged blob byte-identical while staging another session file.
+# G13: the shipped read-decide-add against a repository whose folder does not exist must
+# return failure (the panel shows it) and leave every index unchanged.
 #
 # FALSIFICATION (AFK.md Conventions): each mutant edits a COPY of shipped source and is
 # counted only when ITS declared case fails. A pattern that no longer applies, a mutant
@@ -168,6 +170,11 @@ run_mutant m6 SessionStageOperation.swift \
 run_mutant m7 GitOperations.swift \
     's/guard !paths\.isEmpty else { return \.success(()) }/_ = paths.isEmpty/' \
     G10 "empty-list guard removed"
+
+# m8: report success when the fresh status read fails — the click does nothing, silently.
+run_mutant m8 SessionStageOperation.swift \
+    's/return \.failure(GitOperationError(message: statusReadFailedMessage))/return .success(())/' \
+    G13 "failed status read reported as success"
 
 echo ""
 echo "falsification: $caught caught, $missed missed"

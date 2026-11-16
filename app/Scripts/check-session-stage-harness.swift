@@ -13,7 +13,7 @@
 //  `SessionStagePolicy.pathsToStage`. G cases build a real repository with real `git`
 //  under $GIT_GATE_WORK, run the real store and policy over real snapshots, stage with
 //  the real `GitOperations.stage(paths:in:)`, and read the index back; G11–G12 drive the
-//  shipped `SessionStageOperation` after a stale snapshot. Every label is
+//  shipped `SessionStageOperation` after a stale snapshot, G13 after a failed read. Every label is
 //  printed as `FAIL  <label>:` on failure so the script can attribute a mutant to its
 //  declared case.
 //
@@ -250,6 +250,21 @@ var resultOK = false
 if case .success = result { resultOK = true }
 expect("G12 same call stages the eligible peer", resultOK && peer?.isStaged == true
        && peer?.hasWorkingTreeChange == false, "\(String(describing: peer))")
+
+// A status read that fails reports failure and stages nothing. `nowhere` (G10) has no
+// folder, so the fresh `git status` cannot start and the read returns nil. Before this was
+// fixed the call returned success, so the click did nothing and showed nothing; mutant m8
+// restores that. Both real indexes are compared to prove no add ran anywhere.
+let indexes = [sh("git ls-files -s", in: dir), sh("git ls-files -s", in: dir2)]
+let unread = SessionStageOperation.stageFromFreshRead(
+    sessionPaths: ["x.txt"], sessionRoot: nowhere.root.path, in: nowhere)
+var unreadMessage: String?
+if case .failure(let e) = unread { unreadMessage = e.message }
+expect("G13 failed status read reports failure",
+       unreadMessage == SessionStageOperation.statusReadFailedMessage
+       && [sh("git ls-files -s", in: dir), sh("git ls-files -s", in: dir2)] == indexes
+       && !FileManager.default.fileExists(atPath: missing.path),
+       "result \(unread)")
 
 print("\n\(failed) failed")
 exit(failed > 0 ? 1 : 0)
