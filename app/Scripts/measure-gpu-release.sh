@@ -10,12 +10,13 @@ OUT="${GPU_RELEASE_OUT:-$ROOT/../.afk/research/gpu-release-raw-$(date +%Y%m%d-%H
 mkdir -p "$OUT"
 exec > >(tee "$OUT/driver.log") 2>&1
 trap 'exit 0' EXIT
-MODE=--all; PRESENTATION=invisible; HOLD=0; SAMPLES=40; REPEATS=3; CENSUS=0
+MODE=--all; PRESENTATION=invisible; HOLD=0; SAMPLES=40; REPEATS=3; CENSUS=0; ARM=released
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --all|--quick|--memory|--timing|--breakdown) MODE="$1"; shift ;;
         --presentation) PRESENTATION="${2:-}"; shift 2 ;;
         --hold) HOLD="${2:-}"; shift 2 ;;
+        --arm) ARM="${2:-}"; shift 2 ;;
         --samples) SAMPLES="${2:-}"; shift 2 ;;
         --repeats) REPEATS="${2:-}"; shift 2 ;;
         --census) CENSUS=1; shift ;;
@@ -23,6 +24,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 case "$PRESENTATION" in invisible|visible) ;; *) echo ERROR=presentation; exit 0 ;; esac
+case "$ARM" in released|control) ;; *) echo ERROR=arm; exit 0 ;; esac
 if ! python3 - "$HOLD" "$SAMPLES" "$REPEATS" <<'PY'
 import sys
 assert float(sys.argv[1]) >= 0
@@ -66,8 +68,9 @@ grep -v '/GoblinPortal.build/main.swift.o$' "$PRODUCTS/GoblinPortal.product/Obje
 BIN="$PRODUCTS/gpu-release-measure"
 cp Scripts/measure-gpu-release-harness.swift "$OUT/main.swift"
 cp Scripts/measure-gpu-release-resources.swift "$OUT/resources.swift"
+cp Scripts/measure-gpu-release-timing.swift "$OUT/timing.swift"
 if ! swiftc -O -Xlinker -dead_strip -swift-version 6 -default-isolation MainActor "${SWIFTFLAGS[@]}" -o "$BIN" \
-    "$OUT/main.swift" "$OUT/resources.swift" -I "$PRODUCTS/Modules" -I "$PRODUCTS" -I "$PRODUCTS/include" -L "$PRODUCTS" \
+    "$OUT/main.swift" "$OUT/resources.swift" "$OUT/timing.swift" -I "$PRODUCTS/Modules" -I "$PRODUCTS" -I "$PRODUCTS/include" -L "$PRODUCTS" \
     @"$OUT/objects.list" \
     -framework AppKit -framework Metal -framework MetalKit >"$OUT/compile.log" 2>&1; then
     echo "ERROR=compile"; cat "$OUT/compile.log"; exit 0
@@ -99,7 +102,7 @@ else
     fi
     if [ "$MODE" != --memory ]; then
         # One explicit command = one uncensored timing population.
-        run timing timing "$SAMPLES" 1 metal
+        run timing timing "$SAMPLES" 1 "$ARM"
     fi
 fi
 echo "Raw observations: $OUT"

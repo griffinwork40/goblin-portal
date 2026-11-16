@@ -37,22 +37,31 @@ nonisolated final class Counter: @unchecked Sendable {
 nonisolated final class Presentation: @unchecked Sendable {
     let lock = NSLock()
     var armed = false, generation = 0
-    var acquisitions = 0, callbacks = 0
+    var acquisitions = 0, callbacks = 0, zeroTimes = 0
     var firstTime = 0.0
     var completionTime = 0.0
     var drawable: CAMetalDrawable?
     var excluded: CAMetalLayer?
-    func arm() { lock.lock(); generation += 1; firstTime = 0; completionTime = 0; drawable = nil; armed = true; lock.unlock() }
+    var trace: [String] = []
+    func diagnostics() -> String { lock.lock(); defer { lock.unlock() }; return trace.joined(separator: ";") }
+    func arm() { lock.lock(); generation += 1; firstTime = 0; completionTime = 0; drawable = nil; zeroTimes = 0; trace = []; armed = true; lock.unlock() }
     // Do not pin the preceding sample's drawable through the hidden hold.
     func clear() { lock.lock(); generation += 1; drawable = nil; armed = false; lock.unlock() }
     // GPU completion is a diagnostic floor only, never a presentation substitute.
     // MetalTerminalRenderer.swift:1461-1466 calls this before compositor presentation.
     func completed() { lock.lock(); if armed && completionTime == 0 { completionTime = CACurrentMediaTime() }; lock.unlock() }
     func observe(_ layer: CAMetalLayer, _ d: CAMetalDrawable) {
-        lock.lock(); acquisitions += 1; let active = armed && layer !== excluded; let g = generation; lock.unlock()
+        lock.lock(); acquisitions += 1
+        let active = armed && layer !== excluded
+        if active { trace.append("acquire:\(acquisitions):\(CACurrentMediaTime())") }
+        let g = generation; lock.unlock()
         if !active { return }
         d.addPresentedHandler { [self] drawn in
             lock.lock(); defer { lock.unlock() }; callbacks += 1
+            if generation == g {
+                trace.append("callback:\(drawn.presentedTime)")
+                if drawn.presentedTime == 0 { zeroTimes += 1 }
+            }
             if armed && generation == g && firstTime == 0 && drawn.presentedTime > 0 {
                 firstTime = drawn.presentedTime; drawable = d; armed = false
             }
@@ -86,10 +95,18 @@ let releaseArm = args.count > 4 ? args[4] : "shrink"
 let presentation = args.count > 5 ? args[5] : "invisible"
 let hold = args.count > 6 ? Double(args[6]) ?? 0 : 0
 if mode == "timing" && load() > 0.70 { print("SKIP=load-per-CPU load=\(load())"); exit(0) }
-print("CONFIG presentation=\(presentation) hold=\(hold) samples=\(n) load=\(load())")
+print("CONFIG presentation=\(presentation) hold=\(hold) samples=\(n) arm=\(releaseArm) load=\(load())")
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
-let screen: NSScreen = { guard let s = NSScreen.main else { fail("no-screen") }; return s }()
+let screen: NSScreen = {
+    let preferred = ProcessInfo.processInfo.environment["GPU_RELEASE_SCREEN"]
+    let s = preferred == "builtin" ? NSScreen.screens.first(where: {
+        guard let id = $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 else { return false }
+        return CGDisplayIsBuiltin(id) != 0
+    }) : NSScreen.screens.first
+    guard let s else { fail("no-screen") }; return s
+}()
+print("DISPLAY name=\(screen.localizedName) frame=\(screen.frame) backingScale=\(screen.backingScaleFactor) displayID=\(screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] ?? "unknown")")
 let device: MTLDevice = { guard let d = MTLCreateSystemDefaultDevice() else { fail("no-metal") }; return d }()
 let win = NSWindow(contentRect: NSRect(x: screen.frame.minX + 10, y: screen.frame.minY + 10,
                                      width: 1100, height: 800),
@@ -182,23 +199,6 @@ func awaitFirst(_ start: Double) -> (Double, Data) {
     guard time > start, let d else { fail("no-presented-drawable windowVisible=\(win.occlusionState.contains(.visible)) time=\(time) acquired=\(probe.acquisitions) callbacks=\(probe.callbacks) completed=\(counter.read()) completionFloorMS=\((probe.completionTime - start) * 1000)") }
     return ((time - start) * 1000, pixels(d))
 }
-// nil = the window server does not list this window as on screen (cgOnScreen), so
-// no re-show reached the screen and there is nothing to time. Attempts 1 of both visible
-// runs (2026-11-14) died this way while the user worked in another app. ONLY that recorded
-// condition invalidates a sample; a listed window with no presentation is still fatal, so
-// a slow re-show can never be dropped by this path. NSWindow.occlusionState is NOT usable
-// here: attempt 3 read it false for 60 s while frames presented and the window was listed.
-func awaitFirstIfVisible(_ start: Double) -> (Double, Data)? {
-    let deadline = CACurrentMediaTime() + 3
-    while probe.result().0 == 0 && CACurrentMediaTime() < deadline { pump(0.001) }
-    if probe.result().0 == 0 && !cgOnScreen() { return nil }
-    return awaitFirst(start)
-}
-func waitVisible() {
-    let until = CACurrentMediaTime() + 60
-    while !cgOnScreen() && CACurrentMediaTime() < until { pump(0.1) }
-    if !cgOnScreen() { fail("window-not-listed-on-screen-for-60s") }
-}
 if mode == "breakdown" {
     breakdown()
 } else if mode == "memory" {
@@ -226,67 +226,7 @@ if mode == "breakdown" {
     }
     withExtendedLifetime((visible, hidden)) {}
 } else {
-    hookPresentation()
-    let visible = makePane(0, coreText: false)
-    probe.excluded = visible.view.metalView?.layer as? CAMetalLayer
-    let p = makePane(1, coreText: false)
-    // Warm reference and a different-content negative control, using actual presented frames.
-    func capture(_ token: Int) -> Data {
-        probe.arm(); let start = CACurrentMediaTime()
-        p.view.feed(text: payload(token)); return awaitFirst(start).1
-    }
-    let oracle = capture(2), decoy = capture(3)
-    if oracle == decoy || Set(oracle).count < 10 { fail("pixel-control-vacuous") }
-    var samples: [Double] = []
-    let beforeLoad = load()
-    var peakLoad = beforeLoad
-    var correctCount = 0
-    var i = 0, invalid = 0
-    print("VISIBILITY occlusionVisible=\(win.occlusionState.contains(.visible)) cgOnScreen=\(cgOnScreen())")
-    while i < n {
-        autoreleasepool {
-            if presentation == "visible" { waitVisible() }
-            peakLoad = max(peakLoad, load())
-            if peakLoad > 0.70 { fail("timing-load-guard sample=\(i) load=\(peakLoad)") }
-            probe.clear()
-            p.clipView.removeFromSuperview()
-            do { try p.view.setUseMetal(false) } catch { fail("timing-release-\(error)") }
-            if p.view.isUsingMetalRenderer { fail("timing-release-still-metal") }
-            // No fixed sleep added to hold=0: the requested duration starts at release.
-            let hiddenAt = CACurrentMediaTime()
-            let token = i % 2 == 0 ? 2 : 3
-            p.view.feed(text: payload(token))
-            while CACurrentMediaTime() - hiddenAt < hold { autoreleasepool { pump(min(0.05, hold)) } }
-            peakLoad = max(peakLoad, load())
-            if peakLoad > 0.70 { fail("timing-load-after-hold sample=\(i) load=\(peakLoad)") }
-            probe.arm(); let start = CACurrentMediaTime()
-            // Attach first to avoid creating a hidden surface immediately replaced on rebind
-            // (MacTerminalView.swift:1089-1091,898-950).
-            container.addSubview(p.clipView)
-            do { try p.view.setUseMetal(true) } catch { fail("timing-enable-\(error)") }
-            // Explicitly submit the AppKit transaction in this manually pumped app.
-            win.displayIfNeeded(); CATransaction.flush()
-            guard let (ms, actual) = awaitFirstIfVisible(start) else {
-                invalid += 1
-                print("INVALID i=\(i) reason=window-not-listed-on-screen count=\(invalid)"); fflush(stdout)
-                if invalid > 10 { fail("too-many-invalid-samples count=\(invalid)") }
-                waitVisible(); pump(1.0); return
-            }
-            let correct = actual == (token == 2 ? oracle : decoy) && actual != (token == 2 ? decoy : oracle)
-            print("SHOW rep=\(rep) i=\(i) ms=\(ms) correct=\(correct) bytes=\(actual.count) load=\(load())")
-            if correct { correctCount += 1 }
-            samples.append(ms)
-            peakLoad = max(peakLoad, load())
-            // Let Core Animation retire this presentation before another detach.
-            pump(0.1); i += 1
-        }
-    }
-    let sorted = samples.sorted()
-    func pct(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(ceil(Double(sorted.count) * p)) - 1)] }
-    let afterLoad = load()
-    print("INVALIDATED count=\(invalid) rule=window-not-listed-on-screen-only")
-    print("TIMING rep=\(rep) count=\(samples.count) requested=\(n) hold=\(hold) presentation=\(presentation) p50=\(pct(0.5)) p95=\(pct(0.95)) max=\(sorted.last ?? 0) correct=\(correctCount)/\(n) allCorrect=\(correctCount == n) loadBefore=\(beforeLoad) loadAfter=\(afterLoad) peakLoad=\(peakLoad) valid=\(max(peakLoad, afterLoad) <= 0.70)")
-    withExtendedLifetime((visible, p)) {}
+    runTiming()
 }
 print("COMPLETE")
 exit(0)
