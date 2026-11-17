@@ -72,11 +72,17 @@ func multipart(_ payload: Data, parts: Int, inline: Int = 1, extra: String = "")
         check("multipart-inline0", images(v).isEmpty, "images=\(images(v).count)")
     }
     if want("multipart-reset") {
-        // RIS mid-transfer abandons it: the remaining parts + FileEnd are stray.
+        // ED 2 (CSI 2 J) mid-transfer abandons it: the remaining parts + FileEnd are stray.
+        //
+        // Previously used RIS (ESC c), but at c86e1d8 the iTermMultipart = nil that carries
+        // the PATCH 0019 comment (Terminal.swift:4998) lives inside eraseDisplay's `case 2`
+        // (ED 2), not in resetToInitialState. cmdReset → resetToInitialState → setup never
+        // touches iTermMultipart, so RIS no longer abandons the transfer. ED 2 (ESC [2J)
+        // hits eraseDisplay case 2 directly and clears iTermMultipart as intended.
         let b64 = png4.base64EncodedString()
         let half = b64.index(b64.startIndex, offsetBy: b64.count / 2)
         let (v, _) = makeView()
-        v.feed(text: mpHeader() + mpPart(b64[..<half]) + "\u{1b}c" + mpPart(b64[half...]) + mpEnd)
+        v.feed(text: mpHeader() + mpPart(b64[..<half]) + "\u{1b}[2J" + mpPart(b64[half...]) + mpEnd)
         check("multipart-reset", images(v).isEmpty, "images=\(images(v).count)")
     }
     if want("multipart-stale") {
