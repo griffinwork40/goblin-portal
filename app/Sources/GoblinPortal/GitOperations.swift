@@ -33,17 +33,38 @@ enum GitOperations {
         run(["add", "--", path], in: repository)
     }
 
-    /// Stage several files with ONE `git add -- <path> <path> …` (#298, Stage Session
-    /// Changes). Each path is its own argument, never joined into a string, so no shell
-    /// and no word splitting are involved.
+    /// Stage several files with ONE `git add` (#298, Stage Session Changes).
     ///
-    /// `--literal-pathspecs` because `--` ends option parsing but NOT pathspec magic: a
+    /// Paths are fed via `--pathspec-from-file=- --pathspec-file-nul` on stdin rather than
+    /// appended to argv. WHY: a large untracked tree can exceed ARG_MAX (~256 KB on macOS
+    /// for execve(2)) when every path goes into a single argv array. stdin has no such
+    /// bound. Each path is written as a NUL-terminated string (`\0`), which matches the
+    /// `--pathspec-file-nul` contract and is safe for any file name including ones with
+    /// spaces, newlines, or special characters.
+    ///
+    /// `--literal-pathspecs` is kept: `--` ends option parsing but NOT pathspec magic, so a
     /// file literally named `:(glob)*` or `*.txt` would otherwise widen the add beyond the
-    /// paths the policy chose. An empty list is a success that spawns nothing, so a
-    /// caller that reaches here with nothing to stage cannot run a bare `git add --`.
+    /// paths the policy chose. The flag applies to pathspecs from stdin too (git
+    /// pathspec.c: `--literal-pathspecs` sets `PATHSPEC_LITERAL_PATH` globally before the
+    /// file is read).
+    ///
+    /// An empty list is a success that spawns nothing, so a caller that reaches here with
+    /// nothing to stage cannot run a bare `git add`.
     static func stage(paths: [String], in repository: GitRepository) -> Result<Void, GitOperationError> {
         guard !paths.isEmpty else { return .success(()) }
-        return run(["--literal-pathspecs", "add", "--"] + paths, in: repository)
+        // Build NUL-terminated stdin payload: each path followed by \0.
+        // Data(path.utf8) + 0x00 for each path, no separator between items needed
+        // because NUL IS the separator that --pathspec-file-nul reads.
+        var stdinPayload = Data()
+        for path in paths {
+            stdinPayload.append(contentsOf: path.utf8)
+            stdinPayload.append(0x00)
+        }
+        return run(
+            ["--literal-pathspecs", "add", "--pathspec-from-file=-", "--pathspec-file-nul"],
+            stdin: stdinPayload,
+            in: repository
+        )
     }
 
     /// Stage all changes: `git add -A`.
@@ -138,7 +159,15 @@ enum GitOperations {
     /// Follows `GitStatusReader.run`'s subprocess shape: hardcoded `/usr/bin/git`,
     /// read-before-wait to prevent pipe deadlock, but WITHOUT `GIT_OPTIONAL_LOCKS=0`
     /// because these operations need locks.
-    private static func run(_ arguments: [String], in repository: GitRepository) -> Result<Void, GitOperationError> {
+    ///
+    /// `stdin`: when non-nil, written to the process's stdin pipe after launch. Used by
+    /// `stage(paths:in:)` to supply pathspecs via `--pathspec-from-file=-` without
+    /// touching argv. The pipe's write end is closed after the write so git sees EOF.
+    private static func run(
+        _ arguments: [String],
+        stdin: Data? = nil,
+        in repository: GitRepository
+    ) -> Result<Void, GitOperationError> {
         guard FileManager.default.isExecutableFile(atPath: GitStatusReader.gitPath) else {
             return .failure(GitOperationError(message: "git not found at \(GitStatusReader.gitPath)"))
         }
@@ -167,6 +196,17 @@ enum GitOperations {
         // with no buffer, so the subprocess never stalls writing to stdout.
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errPipe
+        // stdin pipe: only wired when the caller supplies data (pathspec-from-file).
+        // When nil, Process inherits the parent's stdin, which is correct for
+        // interactive commands like commit that might open an editor.
+        let stdinPipe: Pipe?
+        if stdin != nil {
+            let p = Pipe()
+            process.standardInput = p
+            stdinPipe = p
+        } else {
+            stdinPipe = nil
+        }
 
         // F-1: Hard 30-second timeout so a hung credential helper or stalled remote
         // cannot block the caller indefinitely. terminationHandler MUST be set before
@@ -176,6 +216,14 @@ enum GitOperations {
 
         guard (try? process.run()) != nil else {
             return .failure(GitOperationError(message: "Failed to launch git"))
+        }
+        // Write stdin payload after launch, then close the write end so git receives
+        // EOF. Must happen after run() so the pty is set up, and before we drain
+        // stderr so git's read() on stdin doesn't block while we wait on a full
+        // stderr pipe (no deadlock: git reads stdin first, then writes any output).
+        if let data = stdin, let pipe = stdinPipe {
+            try? pipe.fileHandleForWriting.write(contentsOf: data)
+            try? pipe.fileHandleForWriting.close()
         }
 
         // Drain stderr BEFORE waiting on the semaphore. The pipe's kernel buffer
