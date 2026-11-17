@@ -280,13 +280,20 @@ MainActor.assumeIsolated {
 
     // T2.3: real parser -> registered handler -> pane state, without a notification
     // center delegate (so this probe never posts a desktop notification).
+    // pump() after each feed: since the c86e1d8 re-vendor, registerOscHandler callbacks
+    // run on the swiftterm-io-reader background thread and dispatch to main
+    // (GoblinPortalTerminalView+Notify.swift:36-39). Without a run-loop tick the async
+    // block has not landed when the check runs. BEL does not need this — bell(source:)
+    // is a synchronous virtual call on the view, not a registered handler.
     for escape in ["\u{1b}]9;finished\u{7}", "\u{1b}]777;notify;title;body;tail\u{7}"] {
         bgPane.clearAttention()
         bgPane.view.feed(text: escape)
+        pump(0.15)
         if bgPane.documentStatus == .attention { ok("OSC notification reaches pane") }
         else { fail("OSC notification did not reach pane") }
         if isKey {
             fgPane.view.feed(text: escape)
+            pump(0.15)
             if fgPane.documentStatus == .idle { ok("visible OSC stays idle") }
             else { fail("visible OSC raised attention") }
         }
@@ -294,6 +301,7 @@ MainActor.assumeIsolated {
     bgPane.clearAttention()
     for escape in ["\u{1b}]777;notify;title\u{7}", "\u{1b}]9;4;invalid\u{7}"] {
         bgPane.view.feed(text: escape)
+        pump(0.15)
         if bgPane.documentStatus == .idle { ok("malformed OSC ignored") }
         else { fail("malformed OSC raised attention") }
     }
@@ -302,9 +310,11 @@ MainActor.assumeIsolated {
     let bar = bgPane.view.subviews.first { String(describing: type(of: $0)) == "TerminalProgressBarView" }
     if let bar {
         bgPane.view.feed(text: "\u{1b}]9;4;1;50\u{7}")
+        pump(0.15)
         if !bar.isHidden && bgPane.documentStatus == .idle { ok("9;4 reaches native progress bar, not attention") }
         else { fail("9;4 progress swallowed or became a notification") }
         bgPane.view.feed(text: "\u{1b}]9;4;0\u{7}")
+        pump(0.15)
         if bar.isHidden { ok("9;4 remove clears native progress bar") }
         else { fail("9;4 remove swallowed") }
     } else { fail("vendor progress bar missing") }
