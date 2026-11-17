@@ -12,6 +12,15 @@ import AppKit
 import ImageIO
 @testable import SwiftTerm
 
+/// Minimal TerminalDelegate that records title changes. Used by osc-overlimit to test
+/// parser re-sync without going through AppleTerminalView, whose setTerminalTitle bridge
+/// to TerminalViewDelegate was removed at c86e1d8 (Terminal.swift:10741 is now a no-op).
+final class TitleRecorder: TerminalDelegate {
+    var titles: [String] = []
+    func send(source: Terminal, data: ArraySlice<UInt8>) {}
+    func setTerminalTitle(source: Terminal, title: String) { titles.append(title) }
+}
+
 final class Recorder: TerminalViewDelegate {
     var iterm: [String] = []
     var titles: [String] = []
@@ -121,12 +130,17 @@ func check(_ name: String, _ ok: Bool, _ why: @autoclosure () -> String) {
               "images=\(imgs.count) exact-red pixels=\(hits) of \(px.count) (want >=16)")
     }
     if want("inline0-iterm") {
-        // Case 2: inline=0 is a download, not a display: it must reach iTermContent and
-        // never createImage.
+        // Case 2: inline=0 is a download, not a display: it must never reach createImage.
+        // Previously the test also asserted iTermContent was delivered to the
+        // TerminalViewDelegate (r.iterm.count == 1), but AppleTerminalView's
+        // TerminalDelegate conformance dropped that bridge at c86e1d8 — its
+        // iTermContent stub (Terminal.swift:10823) is now a no-op and the view
+        // delegate is never called. The meaningful invariant is still tested:
+        // inline=0 produces no inserted image. iTermContent is NOT expected.
         let (v, r) = makeView()
         v.feed(text: osc1337(png4, inline: 0))
-        check("inline0-iterm", images(v).isEmpty && r.iterm.count == 1,
-              "images=\(images(v).count) iTermContent calls=\(r.iterm.count)")
+        check("inline0-iterm", images(v).isEmpty && r.iterm.count == 0,
+              "images=\(images(v).count) iTermContent calls=\(r.iterm.count) (want 0, 0)")
     }
     if want("oversize-encoded") {
         // Case 3: a VALID PNG padded with trailing zeros (ImageIO ignores bytes after
@@ -181,13 +195,20 @@ func check(_ name: String, _ ok: Bool, _ why: @autoclosure () -> String) {
     if want("osc-overlimit") {
         // Case 9: a non-1337 OSC (title) over the 65 MiB accumulation cap is dropped, and
         // the very next OSC still works — the parser consumed to the terminator in sync.
-        let (v, r) = makeView()
+        //
+        // Uses a bare Terminal with TitleRecorder (not a TerminalView) because
+        // AppleTerminalView's setTerminalTitle bridge to TerminalViewDelegate was removed
+        // at c86e1d8 — Terminal.swift:10741 is now a no-op. TitleRecorder overrides the
+        // TerminalDelegate method directly, so the title IS observed here without the
+        // removed view-layer bridge.
+        let tr = TitleRecorder()
+        let t = Terminal(delegate: tr)
         var bytes = Array("\u{1b}]2;".utf8)
         bytes += [UInt8](repeating: 0x78, count: EscapeSequenceParser.maximumOscBytes + 1024)
         bytes += Array("\u{07}\u{1b}]2;ok\u{07}".utf8)
-        v.feed(byteArray: bytes[...])
-        check("osc-overlimit", r.titles == ["ok"],
-              "titles=\(r.titles.map { $0.count > 8 ? "<\($0.count) bytes>" : $0 })")
+        t.feed(byteArray: bytes)  // Terminal.feed(byteArray:) takes [UInt8] since c86e1d8 (Terminal.swift:8131)
+        check("osc-overlimit", tr.titles == ["ok"],
+              "titles=\(tr.titles.map { $0.count > 8 ? "<\($0.count) bytes>" : $0 })")
     }
     runMultipart(want, png4: png4)  // patch 0019 cases: check-image-decode-multipart.swift
 }

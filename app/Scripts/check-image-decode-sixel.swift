@@ -55,13 +55,30 @@ let validSixel = sixel("#1;2;100;0;0#1~~~~-")
     }
     if want("sixel-oversize") {
         begin("sixel-oversize")
-        // 15 bytes asking for 16384x6: 0018's side cap would drop the INSERT, but only
-        // 0020 stops the bitmap being ALLOCATED from input. Drive the handler directly to
-        // observe the allocation.
+        // Drive the handler directly with Limits that make a small-but-valid bitmap oversize
+        // by pixel-write budget, so the maximumPixelWrites cap stops the allocation.
+        //
+        // The old test used the default SixelDcsHandler and asserted that `#0!8192~!8192~-`
+        // was rejected. The old guard was `reps <= SixelDcsHandler.maximumSide - x` where
+        // maximumSide = 8192 (now gone). At c86e1d8 the repeat-count guard in case 33 is
+        // `guard value <= limits.maximumPixels` — with maximumPixels=100 this fires first,
+        // before the case-63 reps guard ever runs, so removing the case-63 guard is not the
+        // last line of defence and the mutant survives. The invariant (there IS a cap that
+        // stops the allocation before pixels[] is populated) is preserved by:
+        //   - maximumPixels=100, maximumPixelWrites=10: validDimensions passes for small w/h,
+        //     but after 1 tilde (~ = 0b111111, nonzeroBitCount=6, workPerColumn=6) pixelWrites
+        //     reaches 6, and the second tilde (workPerColumn=6) finds (10-6)/6=0 → rejected.
+        //   - Input: 3 tildes with no !N prefix so case-33 never fires; only the pixelWrites
+        //     guard (SixelDcsHandler.swift:285) stops it.
+        //   - The falsification mutant (side-bound) removes that pixelWrites guard; with it
+        //     gone validDimensions(3,6) passes (3<=100, 6<=100, 3<=100/6) and pixels is allocated.
         let (v, _) = makeView()
-        let h = SixelDcsHandler(terminal: v.getTerminal())
+        let smallLimits = SixelDcsHandler.Limits(maximumInputBytes: SixelDcsHandler.maximumInputBytes,
+                                                 maximumPixels: 100,
+                                                 maximumPixelWrites: 10)
+        let h = SixelDcsHandler(terminal: v.getTerminal(), limits: smallLimits)
         h.hook(collect: [], parameters: .empty, flag: 0)
-        h.put(data: Array("#0!8192~!8192~-".utf8)[...])
+        h.put(data: Array("#0~~~-".utf8)[...])  // 3 tildes, no !N — only pixelWrites guard fires
         h.unhook()
         v.feed(text: validSixel)
         check("sixel-oversize", h.pixels.isEmpty && images(v).count == 1,

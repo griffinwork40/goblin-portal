@@ -9,9 +9,21 @@ Port notes for c3436be:
 - MacTerminalView backing Bool, AppleTerminalView open property + getAttributes injection:
   unchanged from v1.15.0 port; context lines adjusted for upstream rewrite.
 
+Re-ported to c86e1d8 (77 commits ahead of c3436be):
+- FrameViewState gained enableOsc8Hyperlinks, useBrightColors, translucentCellBackgrounds,
+  collapseBrightColorsToBase fields between glyphFallbackProvider and the closing brace.
+  disableLigatures is added after glyphFallbackProvider in both struct and init.
+- SnapshotRenderContext gained enableOsc8Hyperlinks, useBrightColors fields before
+  collapseBrightColorsToBase. disableLigatures is added after useBrightColors.
+  identity hasher combines disableLigatures after translucentCellBackgroundAlpha.
+- ExternalRenderOwner.swift (new file) adds a FrameViewState.init(renderView:) extension;
+  it must also assign disableLigatures = false (TerminalRenderView has no such property).
+- MetalTerminalRenderer.swift: fallbackTag call site at line 2889, ShaperKey struct
+  at 3586, shape() func at 3630, attributedString construction at 3646.
+
 --- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
 +++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
-@@ -297,6 +297,11 @@
+@@ -290,6 +290,11 @@
      private var findBar: TerminalFindBarView?
      private var findBarTerm: String = ""
      private var findBarOptions: SearchOptions = SearchOptions()
@@ -25,42 +37,51 @@ Port notes for c3436be:
      ///
 --- a/Sources/SwiftTerm/Apple/AppleTerminalView.swift
 +++ b/Sources/SwiftTerm/Apple/AppleTerminalView.swift
-@@ -566,6 +566,7 @@
-     let minimumContrastRatio: CGFloat
+@@ -562,6 +562,7 @@
+     let translucentCellBackgrounds: Bool
      let bidiHostPolicy: BidiHostPolicy
      let glyphFallbackProvider: (any TerminalGlyphFallbackProvider)?
 +    let disableLigatures: Bool
  
      var effectiveForegroundColor: FrameColor { appearance.effectiveForegroundColor }
      var effectiveBackgroundColor: FrameColor { appearance.effectiveBackgroundColor }
-@@ -607,6 +608,7 @@
-         minimumContrastRatio = view.minimumContrastRatio
+@@ -611,6 +612,7 @@
+ #endif
          bidiHostPolicy = view.bidiHostPolicy
          glyphFallbackProvider = view.glyphFallbackProvider
 +        disableLigatures = view.disableLigatures
      }
  }
  
-@@ -676,6 +678,7 @@
-     let linkHighlightMode: LinkHighlightMode
-     let commandActive: Bool
+@@ -684,6 +686,7 @@
      let customBlockGlyphs: Bool
-+    let disableLigatures: Bool
+     let enableOsc8Hyperlinks: Bool
      let useBrightColors: Bool
++    let disableLigatures: Bool
+     let collapseBrightColorsToBase: Bool
      let minimumContrastRatio: CGFloat
-     let bidiHostPolicy: BidiHostPolicy
-@@ -738,6 +741,7 @@
+     /// The alpha explicit cell backgrounds are drawn with, or nil when they
+@@ -764,6 +767,7 @@
+         enableOsc8Hyperlinks = style.enableOsc8Hyperlinks
          customBlockGlyphs = viewState.customBlockGlyphs
          useBrightColors = viewState.useBrightColors
-         minimumContrastRatio = viewState.minimumContrastRatio
 +        disableLigatures = viewState.disableLigatures
-         bidiHostPolicy = viewState.bidiHostPolicy
-         glyphFallbackProvider = viewState.glyphFallbackProvider
-         self.cols = cols
-@@ -1634,6 +1638,40 @@
+         collapseBrightColorsToBase = viewState.collapseBrightColorsToBase
+         minimumContrastRatio = viewState.minimumContrastRatio
+         let defaultBackgroundAlpha = effectiveBackgroundColor.cgColor.alpha
+@@ -800,6 +804,7 @@
+         identityHasher.combine(collapseBrightColorsToBase)
+         identityHasher.combine(minimumContrastRatio)
+         identityHasher.combine(translucentCellBackgroundAlpha)
++        identityHasher.combine(disableLigatures)
+         identity = UInt64(bitPattern: Int64(identityHasher.finalize()))
+     }
+ 
+@@ -1640,6 +1645,40 @@
+         self.urlAttributes = [:]
          self.colors = Array(repeating: nil, count: 256)
          self.trueColors = [:]
-     }
++    }
 +
 +    /// When `true`, OpenType ligature substitution is suppressed in BOTH renderers.
 +    ///
@@ -94,15 +115,13 @@ Port notes for c3436be:
 +    /// so the host app compiles unchanged.
 +    public func getTerminal () -> Terminal {
 +        return terminal!
-+    }
+     }
      
      // This is invoked when the font changes to recompute state
-     func resetFont()
-@@ -2741,6 +2780,17 @@
+@@ -2756,6 +2795,17 @@
              nsattr [.strikethroughStyle] = NSUnderlineStyle.single.rawValue
          }
  
-+
 +        // Patch 0014 - ligature disable (Core Text path).
 +        // kCTLigatureAttributeName = 0 instructs Core Text to skip OpenType ligature
 +        // substitution for this run. The attribute is part of the cached entry so every
@@ -113,12 +132,13 @@ Port notes for c3436be:
 +        if disableLigatures {
 +            nsattr[kCTLigatureAttributeName as NSAttributedString.Key] = 0
 +        }
++
          if withUrl {
              nsattr [.underlineStyle] = NSUnderlineStyle.single.rawValue
              nsattr [.underlineColor] = linkUnderlineColor ?? fgColor
 --- a/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
 +++ b/Sources/SwiftTerm/Apple/Metal/MetalTerminalRenderer.swift
-@@ -2886,8 +2886,11 @@
+@@ -2891,8 +2891,11 @@
                  // font, so the object identity is a stable discriminator.
                  let fallbackTag: UInt64 = attributes[SwiftTermGlyphPolicyKey] != nil
                      ? UInt64(bitPattern: Int64(ObjectIdentifier(runFont).hashValue)) : 0
@@ -131,7 +151,7 @@ Port notes for c3436be:
                      return
                  }
                  shapedRuns.append(ShapedRun(attributes: attributes,
-@@ -3589,6 +3592,10 @@
+@@ -3594,6 +3597,10 @@
          /// size but are different fonts (for example after the host reloads
          /// its font and bumps the provider generation). 0 for ordinary runs.
          let fallbackTag: UInt64
@@ -142,7 +162,7 @@ Port notes for c3436be:
      }
  
      private struct ShaperGlyphRun {
-@@ -3625,14 +3632,15 @@
+@@ -3630,14 +3637,15 @@
              self.maxEntries = maxEntries
          }
  
@@ -160,7 +180,7 @@ Port notes for c3436be:
              if let cached = cache[key] {
                  return cached
              }
-@@ -3641,10 +3649,15 @@
+@@ -3646,10 +3654,15 @@
              // screen order. Keep that order when CoreText shapes glyphs for
              // the Metal atlas; otherwise CoreText applies BiDi a second time.
              let writingDirectionKey = NSAttributedString.Key(kCTWritingDirectionAttributeName as String)
@@ -178,3 +198,13 @@ Port notes for c3436be:
              let line = CTLineCreateWithAttributedString(attributedString)
              guard let runs = CTLineGetGlyphRuns(line) as? [CTRun], !runs.isEmpty else {
                  return nil
+--- a/Sources/SwiftTerm/Apple/ExternalRenderOwner.swift
++++ b/Sources/SwiftTerm/Apple/ExternalRenderOwner.swift
+@@ -173,6 +173,7 @@
+         minimumContrastRatio = view.minimumContrastRatio
+         bidiHostPolicy = view.bidiHostPolicy
+         glyphFallbackProvider = view.glyphFallbackProvider
++        disableLigatures = false
+     }
+ }
+ 

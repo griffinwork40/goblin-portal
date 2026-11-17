@@ -106,3 +106,25 @@
          }
          if shouldPause {
              pauseBackendOnMain()
+--- a/Sources/SwiftTerm/Mac/MacTerminalRenderView.swift
++++ b/Sources/SwiftTerm/Mac/MacTerminalRenderView.swift
+@@ -253,7 +253,7 @@
+         caretView = CaretView(frame: CGRect(origin: .zero, size: cellDimension),
+                               cursorStyle: .blinkBlock, terminal: self)
+         caretView.focused = hasFocus
+-        driver.onTick = { [weak self] in self?.frameTick() }
++        driver.onTick = { [weak self] _ in self?.frameTick() }
+         updateLayerBackground()
+     }
+ 
+--- a/Sources/SwiftTerm/iOS/iOSTerminalRenderView.swift
++++ b/Sources/SwiftTerm/iOS/iOSTerminalRenderView.swift
+@@ -259,7 +259,7 @@
+         cellDimension = computeCellDimension()
+         caretView = CaretView(frame: CGRect(origin: .zero, size: cellDimension),
+                               cursorStyle: .blinkBlock, terminal: self)
+-        driver.onTick = { [weak self] in self?.frameTick() }
++        driver.onTick = { [weak self] _ in self?.frameTick() }
+         driver.setWindowAttachedOnMain(window != nil)
+         updateLayerBackground()
+     }

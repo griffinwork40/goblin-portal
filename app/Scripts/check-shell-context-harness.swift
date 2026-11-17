@@ -187,21 +187,22 @@ MainActor.assumeIsolated {
     _ = pump(0.5)  // let any in-flight refresh land first
     let state = pane.directoryState
     let staleKey = TmuxClientKey(pid: pid + 100_000, tty: tty)
-    pane.deliverTmuxDirectory(URL(fileURLWithPath: "/late/answer"), for: staleKey,
+    // deliverTmuxDirectory takes TmuxPaneState? (not URL?) since the #207 tmux-ssh refactor
+    pane.deliverTmuxDirectory(TmuxPaneState(path: URL(fileURLWithPath: "/late/answer"), command: "bash"), for: staleKey,
                               generation: state.tmuxGeneration)
     expect("delivery for another client does not enter the cache",
-           state.tmuxCache?.directory?.path != "/late/answer",
+           state.tmuxCache?.state?.path.path != "/late/answer",
            "cache=\(state.tmuxCache.map { "\($0)" } ?? "nil")")
     expect("…and is never what a reader sees", pane.currentDirectory?.path != "/late/answer",
            "currentDirectory=\(pane.currentDirectory?.path ?? "nil")")
     // SAME key as the live client, but scheduled before an invalidation (the generation
     // was bumped since). Only `generation == state.tmuxGeneration` can drop this one: the
     // key check passes. Same shape as leaving tmux and returning to the same client pid/tty.
-    pane.deliverTmuxDirectory(URL(fileURLWithPath: "/late/old-generation"),
+    pane.deliverTmuxDirectory(TmuxPaneState(path: URL(fileURLWithPath: "/late/old-generation"), command: "bash"),
                               for: TmuxClientKey(pid: pid, tty: tty),
                               generation: state.tmuxGeneration - 1)
     expect("delivery for the live client under an older generation is dropped",
-           state.tmuxCache?.directory?.path != "/late/old-generation",
+           state.tmuxCache?.state?.path.path != "/late/old-generation",
            "cache=\(state.tmuxCache.map { "\($0)" } ?? "nil")")
 
     print("CASE 8 — detach returns to the shell, and the cache is invalidated")
@@ -213,7 +214,7 @@ MainActor.assumeIsolated {
     expect("after detach: the tmux cache is gone", pane.directoryState.tmuxCache == nil,
            "cache=\(pane.directoryState.tmuxCache.map { "\($0)" } ?? "nil")")
     // A late answer for the detached client, delivered now, must not be stored either.
-    pane.deliverTmuxDirectory(URL(fileURLWithPath: "/late/detached"),
+    pane.deliverTmuxDirectory(TmuxPaneState(path: URL(fileURLWithPath: "/late/detached"), command: "bash"),
                               for: TmuxClientKey(pid: pid, tty: tty),
                               generation: pane.directoryState.tmuxGeneration)
     expect("late answer after detach is dropped", pane.directoryState.tmuxCache == nil

@@ -59,25 +59,25 @@ fi
 # --- falsification -------------------------------------------------------------
 # mutant table: name | file (rel. to Sources/SwiftTerm) | perl substitution | declared case
 MUTANTS=(
-  "osc-cap|EscapeSequenceParser.swift|s{\\} else if osc.count < EscapeSequenceParser.maximumOscBytes \\{}{\\} else if true \\{}|osc-overlimit"
+  "osc-cap|EscapeSequenceParser.swift|s{if range\\.count > remaining \\{\\n\\s+oscLimitExceeded = true}{if false \\{ oscLimitExceeded = true}s|osc-overlimit"
   "encoded-cap|Terminal.swift|s{guard data.endIndex - \\(colonIdx\\+1\\) <= Terminal.maximumInlineImageEncodedBytes else}{guard true else}|oversize-encoded"
   "type-allowlist|Apple/AppleTerminalView.swift|s{TerminalView.inlineImageTypes.contains\\(type\\),}{type.count > 0,}|type-allowlist"
   "pdf-header|Apple/AppleTerminalView.swift|s{guard let src = CGImageSourceCreateWithData\\(data as CFData, nil\\),.*?w > 0, h > 0, max\\(w, h\\) <= TerminalView.maximumInlineImageSide else \\{\\s*return\\s*\\}}{}s|pdf-rejected"
   "dimension-cap|Apple/AppleTerminalView.swift|s{max\\(w, h\\) <= TerminalView.maximumInlineImageSide else}{true else}|dimension-cap"
   # 0019 mutants
   "cap-per-part|Terminal.swift|s{if transfer.encoded.count \\+ part.count > }{if part.count > }|multipart-overcap"
-  "fileend-unrouted|Terminal.swift|s{insertInlineImage \\(transfer.params, transfer.encoded\\[...\\], dimension: parseDimension\\)}{_ = transfer.params}|multipart-3part"
+  "fileend-unrouted|Terminal.swift|s{insertInlineImage \\(transfer\\.params, transfer\\.encoded\\[\\.\\.\\.]\\)}{_ = transfer.params}|multipart-3part"
   "inline0-buffered|Terminal.swift|s{kv\\[\\x22inline\\x22\\] == \\x221\\x22 \\? ITermMultipartTransfer\\(params: kv\\) : nil}{ITermMultipartTransfer(params: kv)}|multipart-inline0"
   "reset-keeps-state|Terminal.swift|s{iTermMultipart = nil  // PATCH 0019: RIS}{// RIS}|multipart-reset"
   # #283 inactivity release: the watchdog never armed / FilePart never refreshes the stamp
   "no-stale-watchdog|Terminal.swift|s{if iTermMultipart != nil \\{ armITermMultipartWatchdog \\(after: iTermMultipartInactivitySeconds\\) \\}}{}|multipart-stale"
-  "part-not-stamped|Terminal.swift|s{transfer.lastActivity = DispatchTime.now\\(\\)  // #283}{// #283}|multipart-slow-alive"
+  "part-not-stamped|Terminal.swift|s{transfer\\.lastActivity = DispatchTime\\.now\\(\\)}{// #283 stamp removed}|multipart-slow-alive"
   # 0020 mutants (#280). The first two restore upstream's TRAP: caught only as a death in
   # the declared case. sixel-short-buffer has no mutant: removing 0018's bytes.count guard
   # is equivalent (CGImage itself rejects a short provider) — see the case comment.
-  "open-band-fold|SixelDcsHandler.swift|s{maxX = max\\(maxX, x\\)\\n\\s*guard !oversize, maxX > 0, maxY > 0 else}{guard !oversize else}|sixel-unclosed"
-  "number-saturate|SixelDcsHandler.swift|s{min\\(10 \\* existing \\+ digit, SixelDcsHandler.maximumSide \\+ 1\\)}{10 * existing + digit}|sixel-overflow"
-  "side-bound|SixelDcsHandler.swift|s{guard reps <= SixelDcsHandler.maximumSide - x, y <= SixelDcsHandler.maximumSide - 6 else}{guard true else}|sixel-oversize"
+  "open-band-fold|SixelDcsHandler.swift|s{// A sixel stream is allowed to end without.*?\\n\\s*maxX = max\\(maxX, x\\)}{}s|sixel-unclosed"
+  "number-saturate|SixelDcsHandler.swift|s{guard existing <= \\(Int\\.max - digit\\) / 10 else \\{\\n\\s*reject\\(\\)\\n\\s*p = data\\.count\\n\\s*return nil\\n\\s*\\}}{}s|sixel-overflow"
+  "side-bound|SixelDcsHandler.swift|s{guard reps <= \\(limits\\.maximumPixelWrites - pixelWrites\\) / workPerColumn else \\{\\s*\\n\\s*reject\\(\\)\\s*\\n\\s*return\\s*\\n\\s*\\}}{}s|sixel-oversize"
 )
 RAN=0; CAUGHT=0; MISSED=0
 for m in "${MUTANTS[@]}"; do
