@@ -62,6 +62,14 @@ extension AppDelegate: NSMenuItemValidation {
         if sel == #selector(selectNextOccurrence(_:)) {
             return focusedSpace?.activeDocument is FileViewerPane
         }
+        // Session items (#298): greyed when there is no Space, and Stage Session Changes
+        // also when the policy, over the panel's CACHED snapshot, would stage nothing. A
+        // hint only: that snapshot can be a read interval old, and the action decides from
+        // a fresh read instead (`SessionStageOperation`); the palette never asks here.
+        if sel == #selector(scStageSessionChanges(_:)) {
+            return !(focusedSpace?.sessionPathsToStage().isEmpty ?? true)
+        }
+        if sel == #selector(scClearSessionHighlights(_:)) { return focusedSpace != nil }
         // ⌘⇧P — always available (palette surfaces all commands).
         if sel == #selector(showCommandPalette(_:)) { return true }
         // `openSearch(_:)` falls through: valid in both terminal and editor contexts.

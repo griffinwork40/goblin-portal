@@ -291,6 +291,26 @@ check("a sibling with the root as a string prefix is NOT inside it",
       plainRepo.relativePath(for: URL(fileURLWithPath: work + "/plainer/x.txt")) == nil,
       "guards against dropFirst on a bare hasPrefix")
 
+// ONE PATH, TWO RECORDS. After `git rm --cached` git reports the staged deletion (`1 D.`)
+// and then the file on disk (`? `). A parser keyed by path that lets the second overwrite
+// the first loses the index side, and Stage Session Changes then re-adds a file the user
+// deliberately untracked (#317 review). Status stays the `?` record's; `isStaged` survives.
+print("TWO RECORDS — staged deletion, then untracked, for one path")
+if let (_, rmc) = snapshot("rmcached") {
+    let e = rmc.entries["f.env"]
+    check("rm --cached file reads untracked AND staged",
+          e?.status == .untracked && e?.isStaged == true && e?.hasWorkingTreeChange == true
+          && rmc.entries.count == 1, String(describing: e))
+    check("...and its tooltip says both", e?.tooltip == "Untracked, staged", e?.tooltip ?? "nil")
+} else {
+    print("  ✗ rmcached fixture unreadable"); failures += 1
+}
+let twoRecords = Array(("1 D. N... 100644 000000 000000 aaa 000 f.env\u{0}? f.env\u{0}"
+    + "? plain.txt\u{0}").utf8)
+check("the second record keeps the first's index side, and only for its own path",
+      GitStatus.parse(porcelain: twoRecords).entries["f.env"]?.isStaged == true
+      && GitStatus.parse(porcelain: twoRecords).entries["plain.txt"]?.isStaged == false)
+
 print("DEGENERATE INPUT — must not trap")
 check("empty bytes -> empty snapshot", GitStatus.parse(porcelain: [UInt8]()) == .empty)
 check("garbage -> empty entries, no crash",

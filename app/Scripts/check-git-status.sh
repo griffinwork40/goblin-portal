@@ -203,6 +203,13 @@ build_fixtures() {
     # is asserted against a file that is genuinely dirty rather than against an empty tree.
     printf 'DIRTY\n' >> "$WORK/outer/inner-wt/o.txt"
 
+    # --- rmcached: ONE path, TWO records. `git rm --cached` leaves a staged deletion in
+    # the index and the file on disk, so git emits `1 D. …` and then `? …` for it ---
+    git init -q "$WORK/rmcached"
+    cd "$WORK/rmcached"
+    printf 'secret\n' > f.env && git add -A && git commit -qm base
+    git rm -q --cached f.env
+
     # --- notrepo: a plain directory, to prove discovery declines ---
     mkdir -p "$WORK/notrepo/sub"
     return 0

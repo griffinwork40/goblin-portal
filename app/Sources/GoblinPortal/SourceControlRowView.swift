@@ -47,9 +47,18 @@ import AppKit
     /// and read by the controller's action methods to identify the target file.
     private(set) var entry: GitFileEntry?
 
+    /// Whether this row's path was observed changed since session tracking started or
+    /// was last cleared (#298). Drawn as the file tree's accent fill
+    /// (`FileTreeViewController+OutlineView.swift`, `FileCellView.applyTint`).
+    private(set) var isSessionTouched = false
+
     /// Called by the data source every time this row view is recycled for a new item.
     func configure(entry: GitFileEntry, controller: SourceControlViewController) {
         self.entry = entry
+        // Written on EVERY configure, false included: row views are recycled, so a row
+        // that held a session file would otherwise hand its marker to the next file.
+        isSessionTouched = controller.sessionTouchedPaths.contains(entry.path)
+        applySessionMarker()
         // Detach all buttons from previous configuration
         for b in allButtons {
             b.target            = nil
@@ -148,6 +157,25 @@ import AppKit
     override var isEmphasized: Bool {
         get { super.isEmphasized }
         set { super.isEmphasized = newValue }
+    }
+
+    // MARK: - Session marker
+
+    /// The file tree's treatment (`FileCellView.applyTint`, an 8% accent fill), drawn as
+    /// the row's background. `drawBackground(in:)` rather than a layer colour because
+    /// AppKit owns this row view's layer. Skipped on the selected row, as the tree's fill
+    /// yields inside the selection pill; AppKit redraws a row whose selection changes.
+    /// An `NSColor` set at draw time also re-resolves on an appearance change by itself,
+    /// which the tree's `CGColor` needs `viewDidChangeEffectiveAppearance` for.
+    private func applySessionMarker() {
+        needsDisplay = true
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        guard isSessionTouched, !isSelected else { return }
+        NSColor.controlAccentColor.withAlphaComponent(0.08).setFill()
+        dirtyRect.intersection(bounds).fill(using: .sourceOver)
     }
 
     // MARK: - Helpers

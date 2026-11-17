@@ -101,6 +101,7 @@ jobs:
         working-directory: app
         run: |
           set -e
+          # check-session-marker.sh (beside check-session-stage.sh below) is local-only: it needs a window server.
           for s in \
             check-file-size.sh \
             check-keybindings.sh \
@@ -118,6 +119,7 @@ jobs:
             check-git-status.sh \
             check-git-watch.sh \
             check-session-highlight.sh \
+            check-session-stage.sh \
             check-theme-contrast.sh \
             check-light-theme.sh \
             check-afk-loc.sh \

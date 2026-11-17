@@ -247,9 +247,18 @@ enum GitStatus {
                 // that turning the flag on later cannot silently mis-key a record.
                 let path = String(record.dropFirst(2))
                 guard !path.isEmpty else { continue }
+                // ONE PATH, TWO RECORDS. After `git rm --cached f.env` git emits
+                // `1 D. N... … f.env` and THEN `? f.env` (git 2.53 and 2.54, verified):
+                // the index holds a staged deletion and the worktree an untracked file.
+                // Overwriting dropped the index side, so Stage Session Changes saw a plain
+                // untracked file and re-added one the user had just untracked (#298
+                // review). The status stays this record's (the file on disk is what the
+                // tree shows) but `isStaged` survives from the earlier record, and
+                // `SessionStagePolicy`'s partial-staging rule refuses the pair.
+                let stagedEarlier = entries[path]?.isStaged ?? false
                 entries[path] = GitFileEntry(
                     path: path, status: kind == "?" ? .untracked : .ignored,
-                    isStaged: false, hasWorkingTreeChange: true, originalPath: nil)
+                    isStaged: stagedEarlier, hasWorkingTreeChange: true, originalPath: nil)
             default:
                 continue
             }

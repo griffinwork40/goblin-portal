@@ -80,6 +80,22 @@ extension SourceControlViewController {
         }
     }
 
+    /// Stage the session's files with one `git add` (#298). The caller,
+    /// `SpaceViewController.stageSessionChanges()`, passes only values captured on the main
+    /// actor at click time; which of those files to stage is decided in the background by
+    /// `SessionStageOperation.stageFromFreshRead`, from a status read taken immediately
+    /// before the add rather than from this panel's cached `snapshot` (which can be a read
+    /// interval old; see that file's header). The repository is captured at dispatch by
+    /// `performOperation`, so a completion that lands after a clear or a change of
+    /// repository only triggers a re-poll of whatever is current.
+    func stageSessionChanges(sessionPaths: Set<String>, sessionRoot: String?) {
+        guard !sessionPaths.isEmpty else { return }
+        performOperation(description: "stage session changes") { repo in
+            SessionStageOperation.stageFromFreshRead(
+                sessionPaths: sessionPaths, sessionRoot: sessionRoot, in: repo)
+        }
+    }
+
     // MARK: - Commit
 
     /// Read the commit message field and run `git commit -m <message>`.
