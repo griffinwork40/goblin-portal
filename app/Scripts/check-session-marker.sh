@@ -19,8 +19,9 @@
 #   M1   the session row's strip carries the fill; M1b the non-session row's does not;
 #        M1c the fill is the accent colour
 #   M2   the selected session row yields to the selection
-#   M3   after Clear Session Highlights, the row loses the marker; M3b one row view
-#        re-configured for a non-session file (what a recycle does) loses it too
+#   M3   Clear's same-turn baseline seeding via gitStatusDidChange() empties the
+#        session immediately; the cleared row also loses the marker pixel; M3b one row
+#        view re-configured for a non-session file (what a recycle does) loses it too
 #
 # FALSIFICATION (--falsify; AFK.md Conventions). app/ is APFS-cloned, a mutant is
 # applied to the CLONE's source with sed, the clone is rebuilt and the harness relinked
@@ -31,6 +32,7 @@
 #   x2  configure no longer clears the flag on recycle    → M3b
 #   x3  the fanout no longer pushes the set to the panel  → M4
 #   x4  the selected-row guard deleted                    → M2
+#   x5  gitStatusDidChange() removed from resetSession…   → M3 (same-turn baseline)
 #
 # exit 0 = all pass; 1 = a case failed or a mutant was missed; 2 = environmental.
 #
@@ -94,7 +96,7 @@ case "$rc" in
     *) echo "ENV: shipped harness exited $rc" >&2; exit 2 ;;
 esac
 if [[ $FALSIFY -eq 0 ]]; then
-    echo ""; echo "all session-marker cases passed (run with --falsify for the 4 mutants)"
+    echo ""; echo "all session-marker cases passed (run with --falsify for the 5 mutants)"
     exit 0
 fi
 
@@ -141,9 +143,12 @@ run_mutant x3 SpaceViewController+SessionHighlight.swift \
 run_mutant x4 SourceControlRowView.swift \
     's/guard isSessionTouched, !isSelected else { return }/guard isSessionTouched else { return }/' \
     M2 "selected-row guard deleted"
+run_mutant x5 SpaceViewController+SessionHighlight.swift \
+    '/fileTree\.gitStatusDidChange()/d' \
+    M3 "gitStatusDidChange removed from resetSessionHighlights"
 
 echo ""
 echo "falsification: $caught caught, $missed missed"
 [[ $caught -eq 0 && $missed -eq 0 ]] && { echo "ENV: no mutant ran" >&2; exit 2; }
 [[ $missed -gt 0 ]] && { echo "FAIL: falsification" >&2; exit 1; }
-echo ""; echo "all session-marker cases passed, 4 mutants caught"
+echo ""; echo "all session-marker cases passed, 5 mutants caught"

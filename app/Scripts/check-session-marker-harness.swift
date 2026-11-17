@@ -161,11 +161,20 @@ MainActor.assumeIsolated {
         pump(0.3)
     }
 
-    // Clear: the store empties and the next snapshot is the new baseline. Rows are
-    // recycled by the reload, so a row that held the marker must lose it.
+    // Clear: `resetSessionHighlights` resets the store AND calls
+    // `fileTree.gitStatusDidChange()` synchronously, which re-enters the fanout
+    // (`notifySourceControlOfChange` → `updateSourceControl` → `updateSessionHighlight`)
+    // with the poller's cached snapshot so those paths become the new baseline in the
+    // SAME TURN. The immediately-following `updateSourceControl` with the same snapshot
+    // must therefore produce an empty session set — not re-mark a.txt.
+    // Rows are recycled by the reload, so a row that held the marker must lose it.
+    // `resetSessionHighlights` calls `fileTree.gitStatusDidChange()` synchronously, which
+    // re-enters the fanout and triggers `panel.reloadData` — the only repaint between Clear
+    // and this pixel check. Without that call the existing row views keep their old
+    // `isSessionTouched = true` state and the marker pixel survives. The two lines that
+    // set `sessionTouchedPaths = []` before `gitStatusDidChange()` are necessary but not
+    // sufficient: they clear the flag for future configures but do not repaint live rows.
     space.resetSessionHighlights(nil)
-    space.updateSourceControl(snapshot: snap(["a.txt", "b.txt"]), repository: repo)
-    space.updateSourceControl(snapshot: snap(["a.txt", "b.txt"]), repository: repo)
     for t in panel.sections { ov.expandItem(t) }
     pump(0.4)
     print("after clear")
