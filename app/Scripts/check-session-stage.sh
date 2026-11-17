@@ -151,10 +151,11 @@ run_mutant m3 SessionStagePolicy.swift \
     's/guard let sessionRoot, let panelRoot, sessionRoot == panelRoot else { return \[] }/_ = (sessionRoot, panelRoot)/' \
     T9 "root check removed"
 
-# m4: drop --literal-pathspecs — a file named like a glob widens the add.
+# m4: drop --pathspec-from-file=- — paths are never written to stdin so git
+# stages nothing, and G7's glob-named file is never added.
 run_mutant m4 GitOperations.swift \
-    's/\["--literal-pathspecs", "add", "--"]/["add", "--"]/' \
-    G7 "literal pathspecs dropped"
+    's/"--pathspec-from-file=-", "--pathspec-file-nul"/"--pathspec-file-nul"/' \
+    G7 "pathspec-from-file arg dropped; paths never reach git add"
 
 # m5: stage staged-only entries too (candidate rule widened to every entry).
 run_mutant m5 SessionStagePolicy.swift \

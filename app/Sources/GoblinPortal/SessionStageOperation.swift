@@ -64,7 +64,31 @@ enum SessionStageOperation {
         let paths = SessionStagePolicy.pathsToStage(
             sessionPaths: sessionPaths, sessionRoot: sessionRoot,
             snapshot: fresh, panelRoot: repository.root.path)
-        guard !paths.isEmpty else { return .success(()) }
+        guard !paths.isEmpty else {
+            // Nothing to stage — policy skipped everything. Under GOBLIN_PORTAL_DIAG,
+            // explain WHY each session path was not chosen: the user sees a silent no-op
+            // and without this line there is no observable record of which rule fired.
+            // Pattern: `GitStatusWatch.swift` cached `diag` bool; here the call is
+            // uncommon enough that a one-shot env read is fine.
+            if ProcessInfo.processInfo.environment["GOBLIN_PORTAL_DIAG"] != nil {
+                let skipped: [String] = sessionPaths.sorted().map { path in
+                    guard let entry = fresh.entries[path] else {
+                        return "  \(path): not in status (committed or reverted)"
+                    }
+                    if entry.isStaged && entry.hasWorkingTreeChange {
+                        return "  \(path): partially staged — skipped to protect hunk-level work"
+                    }
+                    if entry.status == .conflicted {
+                        return "  \(path): conflicted — staging would mark it resolved"
+                    }
+                    if entry.status == .ignored { return "  \(path): ignored" }
+                    return "  \(path): staged-only (no worktree change to add)"
+                }
+                let lines = (["[diag] session-stage: \(sessionPaths.count) session path(s), 0 chosen — skips:"] + skipped).joined(separator: "\n")
+                fputs(lines + "\n", stderr)
+            }
+            return .success(())
+        }
         return GitOperations.stage(paths: paths, in: repository)
     }
 }
