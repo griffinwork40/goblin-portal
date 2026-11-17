@@ -19,10 +19,10 @@
 # SessionHighlightPolicy.swift (the real store feeds the real-repo cases), GitStatus.swift,
 # GitStatus+Rollup.swift, GitStatus+Phrasing.swift, GitStatusReader.swift, GitOperations.swift.
 #
-# T cases: one truth-table row per policy rule (candidates, partial-staging skip, conflict
-# skip, repository identity, rename original, empty results). G cases: a real repository
-# under mktemp, real `git`, the real store and policy, staged with the real writer — a
-# deletion is staged, an untracked file is added, a partially staged file's index entry
+# T cases: one truth-table row per policy rule (candidates, partial-staging skip incl. an
+# untracked file over a staged deletion, conflict skip, repository identity, rename
+# original, empty results). G cases: a real repository under mktemp, real `git`, the
+# real store and policy, staged with the real writer — a deletion is staged, an untracked file is added, a partially staged file's index entry
 # is byte-identical before and after, an unstaged rename ends fully staged, and a file
 # named like a glob stages only itself, and an empty list spawns nothing (G10 stages it
 # against a repository whose root does not exist, so a spawned git would fail). G11–G12,
@@ -30,7 +30,9 @@
 # one of its hunks is staged AFTER that, and the shipped read-decide-add must leave the
 # file's index entry and staged blob byte-identical while staging another session file.
 # G13: the shipped read-decide-add against a repository whose folder does not exist must
-# return failure (the panel shows it) and leave every index unchanged.
+# return failure (the panel shows it) and leave every index unchanged. G14: a session file
+# the user took out of the index with `git rm --cached` (porcelain emits `1 D.` and then `?`
+# for the same path) must stay out of it while another session file is staged.
 #
 # FALSIFICATION (AFK.md Conventions): each mutant edits a COPY of shipped source and is
 # counted only when ITS declared case fails. A pattern that no longer applies, a mutant
@@ -175,6 +177,12 @@ run_mutant m7 GitOperations.swift \
 run_mutant m8 SessionStageOperation.swift \
     's/return \.failure(GitOperationError(message: statusReadFailedMessage))/return .success(())/' \
     G13 "failed status read reported as success"
+
+# m9: let the `?` record overwrite the `1 D.` record for the same path (the pre-fix parser)
+# — a file the user untracked with `git rm --cached` reads as plain untracked and is re-added.
+run_mutant m9 GitStatus.swift \
+    's/isStaged: stagedEarlier, hasWorkingTreeChange: true/isStaged: false, hasWorkingTreeChange: true/' \
+    G14 "untracked record overwrites a staged deletion"
 
 echo ""
 echo "falsification: $caught caught, $missed missed"

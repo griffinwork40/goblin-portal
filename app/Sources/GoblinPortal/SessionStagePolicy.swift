@@ -53,6 +53,10 @@ enum SessionStagePolicy {
             guard let entry = snapshot.entries[path] else { continue }
             // Partially staged: the index already holds a hunk-level choice and the
             // worktree differs again. `git add` would overwrite that choice wholesale.
+            // Also refuses an untracked file whose index side holds a staged deletion
+            // (`git rm --cached`): the parser keeps that record's `isStaged` when the
+            // later `?` record for the same path arrives (`GitStatus.parse`), and adding
+            // it would put back a file the user deliberately took out of the index.
             if entry.isStaged && entry.hasWorkingTreeChange { continue }
             // Conflicted: `git add` is how git records "resolved", so staging a file
             // that still holds conflict markers would mark it done.

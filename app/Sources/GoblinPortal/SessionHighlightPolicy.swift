@@ -96,7 +96,8 @@ struct SessionHighlightStore {
 
     /// Clear all accumulated state. Called by `accumulate` on a change of repository (or
     /// no repository), and by `resetSessionHighlights(_:)`, the Source Control menu's
-    /// "Clear Session Highlights" (#298); the next snapshot becomes the new baseline.
+    /// "Clear Session Highlights" (#298), which then re-feeds the poller's last (cached)
+    /// read in the same turn, so that read, not the next snapshot, is the new baseline.
     mutating func reset() {
         accumulatedPaths = []
         baselinePaths = nil

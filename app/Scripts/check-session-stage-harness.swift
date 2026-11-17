@@ -13,7 +13,8 @@
 //  `SessionStagePolicy.pathsToStage`. G cases build a real repository with real `git`
 //  under $GIT_GATE_WORK, run the real store and policy over real snapshots, stage with
 //  the real `GitOperations.stage(paths:in:)`, and read the index back; G11–G12 drive the
-//  shipped `SessionStageOperation` after a stale snapshot, G13 after a failed read. Every label is
+//  shipped `SessionStageOperation` after a stale snapshot, G13 after a failed read, G14
+//  after `git rm --cached` on a session file. Every label is
 //  printed as `FAIL  <label>:` on failure so the script can attribute a mutant to its
 //  declared case.
 //
@@ -85,6 +86,10 @@ expectPaths("T15 rename original not added",
             pick(["new.txt"], [entry("new.txt", .renamed, staged: false, worktree: true, from: "old.txt")]),
             ["new.txt"])
 expectPaths("T16 ignored", pick(["i.log"], [entry("i.log", .ignored, staged: false, worktree: true)]), [])
+// Untracked on disk with a staged deletion in the index (`git rm --cached`): the parser
+// keeps `isStaged` from the `1 D.` record when the `?` record for the same path follows.
+expectPaths("T18 untracked over staged deletion",
+            pick(["f.env"], [entry("f.env", .untracked, staged: true, worktree: true)]), [])
 // Mixed, and sorted so the one `git add` argument list is deterministic.
 expectPaths("T17 mixed sorted", pick(
     ["z.txt", "b.txt", "p.txt", "c.txt", "s.txt", "gone.txt"],
@@ -265,6 +270,37 @@ expect("G13 failed status read reports failure",
        && [sh("git ls-files -s", in: dir), sh("git ls-files -s", in: dir2)] == indexes
        && !FileManager.default.fileExists(atPath: missing.path),
        "result \(unread)")
+
+// A file the user deliberately took out of the index stays out. After `git rm --cached`
+// git emits `1 D. … f.env` then `? f.env`; the parser used to let the second record
+// overwrite the first, so the action saw a plain untracked session file and re-added it
+// (round-1 review of #317). Mutant m9 restores the overwrite.
+print("\nuntracked on purpose")
+let dir3 = work + "/repo3"
+guard sh("""
+    mkdir -p repo3 && cd repo3 && git init -q -b main . &&
+    printf 'secret\\n' > f.env && printf 'peer\\n' > peer.txt && git add -A && git commit -q -m init
+    """, in: work) != nil,
+      let repo3 = GitRepository.discoverForGate(dir3),
+      let base3 = GitStatusReader.snapshot(of: repo3)
+else { envFail("third fixture repository would not build") }
+var store3 = SessionHighlightStore()
+store3.accumulate(entryKeys: Set(base3.entries.keys), repositoryRoot: repo3.root.path)
+guard sh("git rm -q --cached f.env && printf 'more\\n' >> peer.txt", in: dir3) != nil,
+      let after3 = GitStatusReader.snapshot(of: repo3),
+      let envBefore = sh("git ls-files -s -- f.env", in: dir3), envBefore.isEmpty
+else { envFail("git rm --cached precondition: f.env out of the index") }
+store3.accumulate(entryKeys: Set(after3.entries.keys), repositoryRoot: repo3.root.path)
+guard store3.effectivePaths.contains("f.env") else { envFail("f.env not in the session") }
+let result3 = SessionStageOperation.stageFromFreshRead(
+    sessionPaths: store3.effectivePaths, sessionRoot: store3.repositoryRoot, in: repo3)
+var result3OK = false
+if case .success = result3 { result3OK = true }
+let peer3 = GitStatusReader.snapshot(of: repo3)?.entries["peer.txt"]
+expect("G14 rm --cached file stays out of the index",
+       result3OK && sh("git ls-files -s -- f.env", in: dir3) == envBefore
+       && peer3?.isStaged == true,
+       "ls-files after \(sh("git ls-files -s -- f.env", in: dir3) ?? "nil"), peer \(String(describing: peer3))")
 
 print("\n\(failed) failed")
 exit(failed > 0 ? 1 : 0)

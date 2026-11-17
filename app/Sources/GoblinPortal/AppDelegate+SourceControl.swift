@@ -46,7 +46,8 @@ extension AppDelegate {
         focusedSpace?.stageSessionChanges()
     }
 
-    /// Forget the session; the next status snapshot becomes its new baseline (#298).
+    /// Forget the session; the poller's last (cached) status read becomes its new
+    /// baseline in the same turn, not the next snapshot (#298).
     @objc func scClearSessionHighlights(_ sender: Any?) {
         focusedSpace?.resetSessionHighlights(sender)
     }
