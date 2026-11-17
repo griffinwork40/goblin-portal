@@ -295,13 +295,21 @@ check("a sibling with the root as a string prefix is NOT inside it",
 // and then the file on disk (`? `). A parser keyed by path that lets the second overwrite
 // the first loses the index side, and Stage Session Changes then re-adds a file the user
 // deliberately untracked (#317 review). Status stays the `?` record's; `isStaged` survives.
+// `SourceControlViewController.update` branches on status + isStaged: an untracked entry
+// with isStaged == true synthesises a staged .deleted row for Staged Changes AND keeps
+// the original .untracked row in Untracked (#320). These cases pin the properties that
+// routing branches on; a regression here makes the staged deletion invisible in the panel.
 print("TWO RECORDS — staged deletion, then untracked, for one path")
 if let (_, rmc) = snapshot("rmcached") {
     let e = rmc.entries["f.env"]
-    check("rm --cached file reads untracked AND staged",
+    check("rm --cached: status .untracked, isStaged true, hasWorkingTreeChange true",
           e?.status == .untracked && e?.isStaged == true && e?.hasWorkingTreeChange == true
           && rmc.entries.count == 1, String(describing: e))
-    check("...and its tooltip says both", e?.tooltip == "Untracked, staged", e?.tooltip ?? "nil")
+    check("...tooltip names both conditions (shown in Staged Changes row too)",
+          e?.tooltip == "Untracked, staged", e?.tooltip ?? "nil")
+    // A plain untracked file must NOT gain isStaged; that would put it in Staged Changes.
+    check("a plain untracked file has isStaged false",
+          rmc.entries.values.filter { $0.path != "f.env" }.allSatisfy { !$0.isStaged })
 } else {
     print("  ✗ rmcached fixture unreadable"); failures += 1
 }

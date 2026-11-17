@@ -222,6 +222,28 @@ enum SourceControlSection: Int, CaseIterable {
         for entry in snapshot.entries.values.sorted(by: { $0.path < $1.path }) {
             switch entry.status {
             case .untracked:
+                // ONE PATH, TWO RECORDS. After `git rm --cached f` porcelain v2 emits
+                // `1 D. … f` and then `? f`. `GitStatus.parse` keeps one entry per path
+                // and preserves `isStaged` from the earlier record (#317 review), so this
+                // entry arrives as `status: .untracked, isStaged: true`.
+                //
+                // Without this guard the staged deletion is invisible: `.untracked` went
+                // straight to `u`, the row offered Stage, and pressing it silently re-added
+                // the file the user had just untracked (#320).
+                //
+                // The fix matches the two-row treatment partially-staged files already get:
+                // synthesise a `.deleted` entry for Staged Changes (what the index holds)
+                // and keep the original `.untracked` entry in Untracked (what the disk holds).
+                // A synthesised entry is needed because one struct cannot have two statuses;
+                // the row delegate resolves the section from the outline's own parent link
+                // (SourceControlViewController.swift:287, menuNeedsUpdate) so the same path
+                // appearing in two sections with different statuses is handled correctly.
+                if entry.isStaged {
+                    s.append(GitFileEntry(
+                        path: entry.path, status: .deleted,
+                        isStaged: true, hasWorkingTreeChange: false,
+                        originalPath: nil))
+                }
                 u.append(entry)
             case .ignored:
                 break  // Ignored files are not shown in the source control panel
