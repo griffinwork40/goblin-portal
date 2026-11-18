@@ -1,0 +1,24 @@
+--- a/Sources/SwiftTerm/Mac/MacTerminalView.swift
++++ b/Sources/SwiftTerm/Mac/MacTerminalView.swift
+@@ -338,6 +338,21 @@
+ 
+     nonisolated let diagnosticsState = Locked(TerminalView.Diagnostics())
+ #if canImport(MetalKit)
++    // MARK: - Drawable resize facade (patch 0016)
++    // Narrow public surface so the host app can resize the Metal drawable on
++    // hidden tabs without exposing the full MetalRenderTarget protocol or the
++    // metalView stored property. Used by TerminalPane+DrawableShrink.swift
++    // (shrink-on-hide GPU memory optimisation, ~14.2 MiB/pane).
++
++    /// Read/write the Metal drawable pixel size. `nil` when no Metal view exists.
++    public var metalDrawableSize: CGSize? {
++        get { metalView?.renderDrawableSize }
++        set { if let sz = newValue { metalView?.renderDrawableSize = sz } }
++    }
++
++    /// The Metal surface's backing-store scale, for computing pixel sizes.
++    public var metalContentsScale: CGFloat { metalView?.renderContentsScale ?? 1 }
++
+     var metalView: (NSView & MetalRenderTarget)?
+     private var metalDrawDelegate: MetalMainActorDrawDelegate?
+     /// Prepares and draws frames off the main thread. Non-nil only for the

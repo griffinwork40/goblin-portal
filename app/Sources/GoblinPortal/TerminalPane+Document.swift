@@ -31,7 +31,19 @@ extension TerminalPane: SpaceDocument {
 
     var documentStatus: DocumentStatus { status }
 
+    func documentWillResignActive() {
+        // Collapse the Metal drawable to 1×1 to release the CAMetalLayer texture
+        // pool (~14.2 MiB/pane) while this tab is hidden. The render loop is already
+        // paused by patch 0010 (FrameDriver idle-pause); this reclaims the memory too.
+        // `restoreDrawable()` below undoes this before the first frame on re-activation.
+        shrinkDrawable()
+    }
+
     func documentDidBecomeActive() {
+        // Restore the Metal drawable to full resolution before making the view first
+        // responder — belt-and-suspenders; `updateDrawableSize()` self-heals on the
+        // next `setFrameSize`, but this ensures the very first frame is full-res.
+        restoreDrawable()
         // The pane's own view, not the container: SwiftTerm reads key events on
         // the terminal view itself, and a container in the responder chain would
         // swallow the first keystroke.

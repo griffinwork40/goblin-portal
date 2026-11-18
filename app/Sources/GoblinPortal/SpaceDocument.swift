@@ -270,4 +270,8 @@ extension SpaceDocument {
     func clearAttention() {}
     /// No-op for non-terminal documents; terminal panes override to forward focus events.
     func notifyWindowFocus(_ focused: Bool) {}
+    /// Called on the outgoing document just before the incoming one becomes active.
+    /// Default no-op; `TerminalPane` overrides to shrink the Metal drawable and reclaim
+    /// GPU memory (~14.2 MiB/pane). See `TerminalPane+DrawableShrink.swift`.
+    func documentWillResignActive() {}
 }

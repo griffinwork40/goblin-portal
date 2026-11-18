@@ -28,7 +28,7 @@ if [[ "$GOT_MTV" != "$WANT_MTV" ]]; then
   err "error: MacTerminalView.swift hash mismatch."
   err "  expected (patched): $WANT_MTV"
   err "  found:              $GOT_MTV"
-  err "  Hash covers patches 0005, 0006, and performKeyEquivalent open fix."
+  err "  Hash covers patches 0005, 0006, 0016, and performKeyEquivalent open fix."
   exit 3
 fi
 

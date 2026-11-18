@@ -64,7 +64,7 @@ ptmux_dcs_handler = b9db2695bbb09e6762ac05e12a713a81cfa086ffe1b479ec5b6e8f379903
 # and the performKeyEquivalent open fix (compatibility for GoblinPortalTerminalView).
 # Note: 0006/0007 (selection-clear gates) DROPPED — obsolete post-IO-rewrite.
 # Note: 0010 (DisplayLink pacer) DROPPED — upstream now uses FrameDriver.
-patched_mac_terminal_view  = a27dcde0583238d6c84f7c586007afba30abad1cedae7b4833d2dc772975066c
+patched_mac_terminal_view  = c2e1f6b89985864b179f88ae974df8ad4250331ef6aaa2376b19214f1eb79e38
 upstream_mac_terminal_view = 280cf244319dae1bb56f331c6da7d2a1e206fd30d788a34b95e6543889bf024a
 
 # AppleTerminalView.swift AFTER applying 0007 (colour emoji rasterizer backingScale field in

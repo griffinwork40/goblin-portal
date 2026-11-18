@@ -99,6 +99,7 @@ PATCHES=(
   "0013-osc1337-multipart-file.patch"
   "0014-promotion-immediate-draw.patch"
   "0015-fullscreen-transition-observers.patch"
+  "0016-expose-metal-view-for-drawable-resize.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then

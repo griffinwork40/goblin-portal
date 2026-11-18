@@ -220,6 +220,9 @@ final class SpaceViewController: NSSplitViewController {
 
     func selectDocument(at index: Int) {
         guard documents.indices.contains(index) else { return }
+        // Notify the outgoing document before activeIndex moves (split-peer guard needs
+        // the old index). TerminalPane shrinks its Metal drawable; others are no-ops.
+        if documents.indices.contains(activeIndex) { documents[activeIndex].documentWillResignActive() }
         // Capture the outgoing tab's live divider ratio before the container is
         // repurposed for the incoming tab. Method lives in +Splits.swift.
         snapshotOutgoingDividerRatio()
@@ -236,12 +239,8 @@ final class SpaceViewController: NSSplitViewController {
         syncDocumentChrome()
         spaceDelegate?.spaceViewController(self, didChangeDocumentTitle: document.documentTitle)
         // Re-check staleness on activation, not just on window-level focus
-        // (`windowDidBecomeKey()` below): switching tabs within an already-key
-        // window — e.g. terminal to file viewer, the app's own core scenario —
-        // used to skip this check entirely, so a dirty viewer's ⌘S could silently
-        // clobber a file the agent in the adjacent tab had just rewritten. A no-op
-        // for `TerminalPane` (`SpaceDocument`'s default), so this only matters for
-        // viewers (PR #2 review, finding 1).
+        // (`windowDidBecomeKey()` below): a dirty viewer's ⌘S would silently clobber
+        // a file the adjacent terminal rewrote. No-op for TerminalPane (PR #2 F1).
         document.documentWindowDidBecomeKey()
         document.documentDidBecomeActive()
         // Switching tabs changes which shell `focusedShellHost` resolves to, so the
