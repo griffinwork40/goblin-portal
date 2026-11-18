@@ -81,7 +81,7 @@ fi
 
 # Locate GoblinPortal object directory produced by the build we just ran.
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null -print -quit)"
 [[ -n "$TOBJ" && -f "$TOBJ/TerminalClipView.o" ]] || {
   echo "error: GoblinPortal objects not found — cannot @testable import." >&2
   echo "  Expected: .build/out/Intermediates.noindex/.../GoblinPortal-p.build/Objects-normal/<arch>/TerminalClipView.o" >&2

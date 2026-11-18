@@ -129,7 +129,7 @@ fi
 
 # Locate clone's object directory.
 MTOBJ="$(find "$CLONE_APP/.build/out/Intermediates.noindex" -type d \
-  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null -print -quit)"
 [[ -n "$MTOBJ" ]] || {
   echo "error: clone object dir not found after build." >&2; exit 2; }
 

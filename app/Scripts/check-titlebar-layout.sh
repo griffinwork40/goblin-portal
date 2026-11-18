@@ -171,7 +171,7 @@ fi
 
 # Same object lookup as check-first-window.sh (N2: only the pinned backend writes -p.build).
 TOBJ="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null -print -quit)"
 [[ -n "$TOBJ" && -f "$TOBJ/DocumentAreaViewController.o" ]] || {
   echo "error: GoblinPortal objects not found under .build/out (expected GoblinPortal-p.build)." >&2
   exit 2; }

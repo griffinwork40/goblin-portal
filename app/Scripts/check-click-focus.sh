@@ -65,7 +65,7 @@ build_and_link() {
     fi
     local products="$dir/.build/out/Products/Debug" tobj
     tobj="$(find "$dir/.build/out/Intermediates.noindex" -type d \
-        -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+        -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null -print -quit)"
     [[ -n "$tobj" && -f "$tobj/SpaceViewController.o" && -e "$products/SwiftTerm.o" ]] || {
         echo "error: GoblinPortal objects or SwiftTerm.o not found under $dir/.build" >&2; exit 2; }
     local objs; objs=$(ls "$tobj"/*.o | grep -v '/main\.o$' | tr '\n' ' ')

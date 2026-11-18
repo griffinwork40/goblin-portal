@@ -84,7 +84,7 @@ fi
 PRODUCTS="$(swift build "${FLAGS[@]}" --show-bin-path 2>/dev/null)"
 [[ -f "$PRODUCTS/SwiftTerm.o" ]] || { echo "error: SwiftTerm.o absent after swift build" >&2; exit 2; }
 OBJS="$(find "$ROOT/.build/out/Intermediates.noindex" -type d \
-  -path '*GoblinPortal.build/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+  -path '*GoblinPortal.build/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null -print -quit)"
 [[ -n "$OBJS" && -f "$OBJS/TerminalPane.o" ]] || { echo "error: no GoblinPortal-p.build objects" >&2; exit 2; }
 cp Scripts/check-image-render-harness.swift "$TMP/main.swift"
 # Built INTO the products dir so MetalTerminalRenderer finds SwiftTerm_SwiftTerm.bundle (the

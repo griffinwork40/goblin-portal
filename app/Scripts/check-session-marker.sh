@@ -67,7 +67,7 @@ build_and_run() {
     fi
     local products="$appdir/.build/out/Products/Debug" tobj objs
     tobj="$(find "$appdir/.build/out/Intermediates.noindex" -type d \
-        -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null | head -1)"
+        -path '*/Debug/GoblinPortal-p.build/Objects-normal/*' 2>/dev/null -print -quit)"
     if [[ -z "$tobj" || ! -e "$products/SwiftTerm.o" ]]; then
         echo "error: objects or SwiftTerm.o missing for $label." >&2; echo 2; return
     fi
