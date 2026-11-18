@@ -91,10 +91,12 @@ PRODUCTS="$APP_ROOT/.build/out/Products/Debug"
 RES_BUNDLE="$PRODUCTS/SwiftTerm_SwiftTerm.bundle"
 TMP="$(mktemp -d)"
 HIDDEN=""
+HIDDEN_METALLIB=""
 cleanup() {
-  # Restore the shader first and unconditionally: case 3 deliberately breaks the build
-  # products, and leaving them broken would make the NEXT run of anything fail for a
-  # reason that has nothing to do with its own subject.
+  # Restore in reverse order and unconditionally: the falsification case deliberately hides
+  # files from the build products, and leaving them hidden would make the NEXT run fail for
+  # a reason that has nothing to do with its own subject.
+  [[ -n "$HIDDEN_METALLIB" && -f "$HIDDEN_METALLIB" ]] && mv "$HIDDEN_METALLIB" "$PRODUCTS/default.metallib"
   [[ -n "$HIDDEN" && -f "$HIDDEN" && -n "$SHADER" ]] && mv "$HIDDEN" "$SHADER"
   rm -rf "$TMP"
 }
@@ -135,9 +137,9 @@ say "  ok  shader artifact in SwiftPM resource bundle ($(basename "$SHADER"))"
 
 # --- static case B: does the packaged .app carry it too? --------------------------
 # The dev path (`swift run`) and the shipped path (`open "build/Goblin Portal.app"`) resolve the
-# bundle from DIFFERENT places — Bundle.main.bundleURL versus Bundle.main.resourceURL
-# (candidateBundles(), MetalTerminalRenderer.swift:2825) — so checking one proves nothing
-# about the other. make-app-bundle.sh:51 is what carries it across; this asserts it did.
+# bundle from DIFFERENT places — Bundle.main for a bare executable is its containing directory,
+# whereas the packaged app reads from its own Contents/Resources — so checking one proves
+# nothing about the other. make-app-bundle.sh:51 is what carries it across; this asserts it did.
 if ! ./Scripts/make-app-bundle.sh >/dev/null 2>&1; then
   echo "error: make-app-bundle.sh failed — cannot check the packaged path." >&2
   exit 2
@@ -270,15 +272,30 @@ report "metal -> coretext teardown (real control)" "coretext" "$(run_case downgr
 # Recreate the pre-2026-07-31 state exactly — shader absent from the bundle — and require
 # that asking for Metal now FAILS. If it still succeeds, this gate is not measuring our
 # packaging and its other three cases mean nothing.
+#
+# TWO artifacts must be hidden, not one:
+#
+#   a) $SHADER — the bundle resource (Shaders.metal or default.metallib) that patch 0001
+#      places in SwiftTerm_SwiftTerm.bundle. This is what we are testing.
+#
+#   b) $PRODUCTS/default.metallib — a compiled metallib that the Metal toolchain (Xcode,
+#      not CLT) writes into the products directory as a side effect of `swift build`.
+#      MTLDevice.makeDefaultLibrary() (MetalTerminalRenderer.swift:4745) probes Bundle.main,
+#      which for a bare executable resolves to its containing directory — i.e. $PRODUCTS —
+#      so a stale metallib there satisfies makeLibrary() regardless of whether the bundle
+#      resource is present. Without busting this cache the falsification is blind on any
+#      machine that has ever run a full Xcode build.
 HIDDEN="$TMP/Shaders.metal.hidden"
 mv "$SHADER" "$HIDDEN"
+# Bust the makeDefaultLibrary() cache: hide any compiled metallib in the products dir.
+# Only move it if it actually exists; CLT-only machines never produce one.
+HIDDEN_METALLIB="$TMP/default.metallib.hidden"
+[[ -f "$PRODUCTS/default.metallib" ]] && mv "$PRODUCTS/default.metallib" "$HIDDEN_METALLIB" || HIDDEN_METALLIB=""
 falsify_out="$(run_case metal)"
-# Clear the sentinel ONLY if the restore actually worked. `set -e` is deliberately off (see
-# the top of the file), so a failed `mv` here would otherwise fall straight through to
-# `HIDDEN=""`, disarming the trap that is the only other thing holding a copy — and then
-# cleanup's `rm -rf "$TMP"` would delete the file this case moved out of the way. The blast
-# radius is build products, not vendor/, so this is recoverable with `swift build`; it is
-# still not a thing to leave to luck in the one case that deliberately breaks the tree.
+# Restore in reverse order. Clear each sentinel ONLY if its mv succeeded — a failed restore
+# leaves the sentinel set so the trap still holds the copy. See the original comment on
+# HIDDEN for the blast-radius reasoning; same logic applies to both files.
+[[ -n "$HIDDEN_METALLIB" ]] && mv "$HIDDEN_METALLIB" "$PRODUCTS/default.metallib" && HIDDEN_METALLIB=""
 mv "$HIDDEN" "$SHADER" && HIDDEN=""
 # Same rule as `report`: a dead harness is environmental. Checked after the restore above, so
 # exiting here cannot leave the shader hidden.
@@ -294,7 +311,7 @@ else
   echo "✗ FAIL: with shader hidden, Metal still came up: $falsify_out" >&2
   echo "  This gate is BLIND: its passing cases are not caused by the shipped shader." >&2
   echo "  Most likely a stale default.metallib or a cached library is satisfying" >&2
-  echo "  makeLibrary() (MetalTerminalRenderer.swift:2746). Do not trust case 1 until" >&2
+  echo "  makeDefaultLibrary() (MetalTerminalRenderer.swift:4745). Do not trust case 1 until" >&2
   echo "  this case fails as designed." >&2
   failures=$((failures + 1))
 fi
