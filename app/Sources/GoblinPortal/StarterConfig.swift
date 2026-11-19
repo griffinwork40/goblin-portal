@@ -81,6 +81,9 @@ enum StarterConfig {
 
       "// titlebar": "standard (default) | compact. compact hides the window title and lets the terminal (or the document tab strip) use the titlebar row wherever no window button sits above it — about +2 rows with the sidebar showing; no change with the sidebar collapsed, 2+ Spaces (tab bar), or a config warning showing. The band over the terminal no longer drags the window; drag from the sidebar's top. Unknown values warn and fall back to standard. Applies on reload (CmdR).",
 
+      "// sidebar": "object, both keys default true. autoReveal selects the active editor file in the tree. revealOnHover lets a COLLAPSED sidebar slide in when the pointer touches the window's left edge in full screen (macOS's own behaviour; a normal window never does this). Set revealOnHover to false to keep it hidden until CmdB or the titlebar button. Applies on reload (CmdR).",
+      "// sidebar-example": { "revealOnHover": false },
+
       "// editor": "editing behaviour for the file viewer (the tab you get when you double-click a file in the sidebar)",
       "// editor.tabWidth": "spaces per indent level, 1-16. Default 4.",
       "// editor.softTabs": "true inserts spaces when you press Tab; false inserts a literal tab character",
