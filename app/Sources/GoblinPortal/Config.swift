@@ -89,6 +89,9 @@ struct ConfigFile: Decodable {
     /// scroll to and select its file in the tree without stealing focus.
     struct SidebarSpec: Decodable {
         var autoReveal: Bool?
+        /// `"sidebar": { "revealOnHover": false }` — stop a collapsed sidebar sliding in when
+        /// the pointer touches the left edge in full screen. ⌘B and the titlebar button still work.
+        var revealOnHover: Bool?
     }
     var sidebar: SidebarSpec?
 
@@ -224,6 +227,9 @@ struct AppConfig {
     /// its file in the sidebar tree — without stealing keyboard focus from the editor.
     /// Default: true. Configured via `"sidebar": { "autoReveal": true }`.
     var sidebarAutoReveal: Bool
+    /// Full-screen left-edge hover reveal of a collapsed sidebar. Default true (AppKit's own
+    /// behaviour). Applied by `SpaceViewController+SidebarHover.swift`.
+    var sidebarRevealOnHover: Bool
     /// When to close a pane after its shell exits.
     /// `"clean"` (default, Terminal.app's behaviour): close on exit 0, keep on nonzero
     /// or signal. `"always"`: always close (pre-T2.2 behaviour). `"never"`: always keep.
@@ -326,7 +332,7 @@ struct AppConfig {
                     userOpacity: nil,
                     warnings: &w)
             }(),
-            sidebarAutoReveal: true,
+            sidebarAutoReveal: true, sidebarRevealOnHover: true,
             // Terminal.app's default: close on a clean exit (code 0), keep on anything
             // else so the user can read what went wrong. `"always"` restores pre-T2.2
             // behaviour; `"never"` keeps every pane regardless.

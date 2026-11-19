@@ -165,6 +165,7 @@ final class SpaceWindowController: NSWindowController, NSWindowDelegate,
             LiquidGlass.configureWindow(window)
         }
         window.contentViewController = space
+        space.applySidebarHoverReveal()  // needs the split items viewDidLoad just built
         // That assignment shrinks the window to the split view's 500x500 default (measured
         // 500x532); restore 1100x680, centred. See `SpaceWindowController+InitialFrame.swift`.
         Self.applyDefaultFrame(to: window, contentSize: frame.size)
