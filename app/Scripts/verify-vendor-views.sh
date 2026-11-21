@@ -1,5 +1,5 @@
 # Sourced by verify-vendor.sh — never run on its own. The VIEW-LAYER half of the vendor
-# verdict: every check on the files patches 0005-0015 touch (MacTerminalView.swift,
+# verdict: every check on the files patches 0005-0017 touch (MacTerminalView.swift,
 # AppleTerminalView.swift, TerminalViewSearch.swift, FrameDriver.swift,
 # Apple/Metal/MetalTerminalRenderer.swift, Apple/Metal/CoreTextGlyphRasterizer.swift).
 #
@@ -13,7 +13,7 @@
 #   willEnter/didEnter/willExit/didExit/didFail fullscreen observers in FrameDriver.swift,
 #   plus NSWorkspace.activeSpaceDidChange backstop; fixes #302.
 
-# --- MacTerminalView.swift (patches 0005 draw() open, 0006 search hook) ------
+# --- MacTerminalView.swift (0005 draw, 0006 search, 0016 resize) ---
 MTV="$VENDOR/Sources/SwiftTerm/Mac/MacTerminalView.swift"
 if [[ ! -f "$MTV" ]]; then err "error: MacTerminalView.swift missing."; exit 1; fi
 GOT_MTV="$(sha256_of "$MTV")"
@@ -21,7 +21,7 @@ WANT_MTV="$(pin_value patched_mac_terminal_view)"
 WANT_MTV_UP="$(pin_value upstream_mac_terminal_view)"
 if [[ "$GOT_MTV" == "$WANT_MTV_UP" ]]; then
   err "error: MacTerminalView.swift is UNPATCHED upstream."
-  err "Patches 0005 (draw open) and 0006 (search hook) are required."
+  err "Patches 0005 (draw), 0006 (search), 0016 (resize) are required."
   exit 2
 fi
 if [[ "$GOT_MTV" != "$WANT_MTV" ]]; then
@@ -29,6 +29,19 @@ if [[ "$GOT_MTV" != "$WANT_MTV" ]]; then
   err "  expected (patched): $WANT_MTV"
   err "  found:              $GOT_MTV"
   err "  Hash covers patches 0005, 0006, 0016, and performKeyEquivalent open fix."
+  exit 3
+fi
+
+# --- MacCaretView.swift (0017 blink restart; isolated to macOS) ------------
+MCV="$VENDOR/Sources/SwiftTerm/Mac/MacCaretView.swift"
+if [[ ! -f "$MCV" ]]; then err "error: MacCaretView.swift missing."; exit 1; fi
+GOT_MCV="$(sha256_of "$MCV")"
+if [[ "$GOT_MCV" == "$(pin_value upstream_mac_caret_view)" ]]; then
+  err "error: MacCaretView.swift is UNPATCHED (0017 blink restart required)."
+  exit 2
+fi
+if [[ "$GOT_MCV" != "$(pin_value patched_mac_caret_view)" ]]; then
+  err "error: MacCaretView.swift hash mismatch (0017 blink restart timer)."
   exit 3
 fi
 
