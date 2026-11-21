@@ -105,6 +105,7 @@ jobs:
           for s in \
             check-file-size.sh \
             check-keybindings.sh \
+            check-key-latency.sh \
             check-space-restore.sh \
             check-cursor-style.sh \
             check-renderer-config.sh \

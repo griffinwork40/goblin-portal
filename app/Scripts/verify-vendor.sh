@@ -1,11 +1,11 @@
 #!/bin/bash
 #
 # Verify the vendored SwiftTerm copy is the revision this app was built against,
-# WITH its fifteen local patches applied (re-vendor 2026-10-27, upstream c3436be).
+# WITH its seventeen local patches applied (re-vendor 2026-10-27, upstream c3436be).
 #
 # Why: vendor/ is gitignored, so a re-vendored UNPATCHED tree compiles and runs
 # fine while silently corrupting behaviour. This script makes that loud.
-# Patches 0001-0015 (renumbered from v1.15.0's 0001-0019, plus two new additions):
+# Patches 0001-0017 (renumbered from v1.15.0's 0001-0019, plus four additions):
 #   0001 Metal shader as .copy (was 0001)
 #   0002 alt-buffer narrowing trim (was 0003)
 #   0003 #if DEBUG resize guard (was 0004)
@@ -21,6 +21,8 @@
 #   0013 OSC 1337 multipart (was 0019)
 #   0014 ProMotion immediate-draw: isImmediate path in frameTick/submitFrameDraw
 #   0015 fullscreen Space transition observers in FrameDriver (fixes #302)
+#   0016 Metal drawable resize facade in MacTerminalView
+#   0017 caret blink restart timer (SWIFTTERM_CARET_DELAYED_BLINK=1 restores old path)
 # Dropped (ALREADY-UPSTREAM or OBSOLETE post-IO-rewrite):
 #   0002 (isWrapped), 0006/0007 (selection-clear), 0010 (MacDisplayLinkPacer),
 #   0011 (empty-glyph cache), 0013 (combining-mark), 0020 (sixel bounds)

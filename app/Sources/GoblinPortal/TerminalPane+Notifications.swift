@@ -25,7 +25,10 @@ extension TerminalPane {
         // timestamp there (accurate) and dispatch the write to main (safe).
         view.setProcessOutputHandler { [weak view] in
             let now = CACurrentMediaTime()
-            DispatchQueue.main.async { view?.lastDrawTimestamp = now }
+            DispatchQueue.main.async {
+                view?.lastDrawTimestamp = now
+                KeyLatencyDiag.noteOutput(at: now)
+            }
         }
         startAgentActivityTimer()  // output-activity heuristic — see TerminalPane+AgentActivity
     }
