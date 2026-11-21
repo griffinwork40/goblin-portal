@@ -27,6 +27,63 @@ swift run GoblinPortal
 The bundle path is what you want for real use — it gets a Dock icon, appears in
 Spotlight, and behaves like an app rather than a stray process.
 
+## Key-to-frame latency recorder
+
+For a controlled run, launch with `GOBLIN_PORTAL_DIAG=1`; `[diag] keys:` lines
+are written to stderr alongside the existing frame-pacing diagnostics. To retain
+evidence from the installed app after an intermittent typing stall:
+
+```sh
+defaults write com.griffinlong.goblin-portal GoblinPortal.keyLatencyLog -bool true
+```
+
+Relaunch the app. The persistent log is
+`~/Library/Logs/GoblinPortal/key-latency.log`, with ISO 8601 timestamps; it is
+truncated before appending once it exceeds 1 MiB. Disable with the same command
+using `false`, then relaunch. With neither opt-in, no monitor, frame hook or timer
+is installed. Key characters are never recorded.
+
+At a quiet prompt, type normally in the terminal. Each active one-second window
+reports `keys`, `paired` (completed samples), `unechoed` (no echo after 2 seconds,
+or pending-cap eviction), and millisecond p50/p95/max triples for `key_output`,
+`output_frame`, and `key_frame`. Zero triples with `paired=0` mean no completed
+samples, not instant presentation. Pending keys survive window boundaries, so a
+late completion or timeout can produce a line with `keys=0`. Context is read at
+flush time: fullscreen, screen name, maximum refresh rate (`fps`), visibility,
+and focused-terminal driver counter deltas (ticks, frames, idle, immediate,
+renders). These help distinguish ProMotion throttling from late output.
+
+The recorder is a proxy, with four important biases:
+
+1. Metal timestamps GPU command-buffer completion, not photons; compositor and
+   scan-out delay are excluded. Core Text timestamps the end of draw instead.
+2. A frame already in flight when output arrives can complete a key, understating
+   latency by up to one frame.
+3. One output batch credits several keys when typing outpaces echoes: p50
+   under-reports, and max is the trustworthy figure.
+4. Unrelated terminal output (for example a running build) pairs falsely. The
+   output/frame hooks aggregate panes, so use a quiet prompt with other panes
+   idle, and keep focus on that terminal during the run.
+
+`./Scripts/check-key-latency.sh` headlessly checks the shipped pairing model,
+line format and three declared-case falsification mutants. The local
+`./Scripts/check-fullscreen-latency.sh` takes focus for about two minutes and needs
+Accessibility plus an online built-in variable-refresh display. It drives a copied
+bundle in its own defaults domain, gates W/F output-to-frame max <60 ms and >=20 F
+pairs, then restores `SWIFTTERM_CARET_DELAYED_BLINK=1` and requires F >150 ms while W stays
+<60 ms. `--no-falsify` skips that second run; exit 2 means the machine or OS cannot
+judge the defect, never green. GPU completion is still not photons.
+
+Caret blinking restarts from a cancellable 0.7s main-queue timer after input
+(patch 0017), not a future-beginTime CA animation. The visible solid interval and
+fade are unchanged. `SWIFTTERM_CARET_DELAYED_BLINK=1` restores the old animation
+at launch for falsification. Built-in ProMotion fullscreen interleaved trials:
+old animation echo max 380/637/407 ms, timer max 2.8/11.9/6.6 ms; glass presents
+max 548–694 ms versus 17–18 ms (0/73, 0/73, 0/74 above 100 ms with timer).
+WHY the compositor defers presents behind a pending animation is unknown.
+Other macOS versions and variable-refresh panels are not gated, nor would this
+gate prevent a future-dated animation introduced elsewhere in a terminal window.
+
 ## Checks
 
 There is no test target: this app is mostly AppKit glue, and what has actually
@@ -36,7 +93,7 @@ of pure logic would have caught. So the checks are the `check-*.sh` scripts, a v
 verifier, and a diagnostic env var, each aimed at something that has really gone wrong:
 
 ```sh
-./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all fifteen patches?
+./Scripts/verify-vendor.sh       # is vendor/SwiftTerm the pinned revision, WITH all seventeen patches?
 ./Scripts/check-file-size.sh     # enforces the 350-LOC ceiling on Sources/ + Scripts/ — headless
 ./Scripts/check-info-plist.sh    # every privacy usage-description key (incl. Local Network) is in the shipped Info.plist — headless
 ./Scripts/check-afk-loc.sh      # every `| \`X.swift\` | N |` row in AFK.md equals wc -l — headless (#178)
@@ -433,7 +490,7 @@ existing dark users too, so it is deliberately not done.
 
 ## Dependency note
 
-Depends on `../vendor/SwiftTerm` — upstream main @ `c3436be` with **fifteen** local patches:
+Depends on `../vendor/SwiftTerm` — upstream main @ `c3436be` with **seventeen** local patches:
 
 1. `0001-ship-metal-shader-as-copy-resource.patch` — declares the Metal GPU renderer's
    shader as a **`.copy`** resource where upstream has `.process`. `.process` invokes the
@@ -530,6 +587,13 @@ Depends on `../vendor/SwiftTerm` — upstream main @ `c3436be` with **fifteen** 
     suppresses occlusion reads during transitions and forces a re-check after each one.
     Fixes #302.
 
+16. `0016-expose-metal-view-for-drawable-resize.patch` — exposes drawable size and
+    contents scale to the host without exposing the full render target protocol.
+17. `0017-restart-caret-blink-from-timer.patch` — MacCaretView restarts blink from
+    a cancellable main-queue timer, with no pending CA animation during typing.
+    `SWIFTTERM_CARET_DELAYED_BLINK=1` restores the old path. See the latency gate and
+    `../.afk/research/fullscreen-typing-lag-2026-11-20.md` for measured evidence.
+
 Dropped from the v1.15.0 patch set during the 2026-10-27 re-vendor (all incorporated
 upstream at c3436be): isWrapped fix (was 0002), selection-clear gates (were 0006/0007),
 MacDisplayLinkPacer (was 0010, replaced by upstream FrameDriver), empty-glyph cache (was
@@ -538,7 +602,7 @@ superseded by upstream `cellOrdinal`/`anchorOrdinal` glyph positioning), sixel b
 0020, fixed upstream in 58915b1).
 
 `vendor/` is gitignored, so the patches are committed as real artifacts instead —
-`0001` through `0015` (fifteen patches) in `../patches/swiftterm/`, all pinned by
+`0001` through `0017` (seventeen patches) in `../patches/swiftterm/`, all pinned by
 `../patches/swiftterm/SwiftTerm.pin`. Recreate the tree with:
 
 ```sh
@@ -558,11 +622,11 @@ The manual equivalent, if you would rather see the steps than trust a script:
 ```sh
 # upstream_tag = MAIN; no v1.x tag at c3436be, so a full clone + checkout is required
 git clone https://github.com/migueldeicaza/SwiftTerm.git vendor/SwiftTerm
-git -C vendor/SwiftTerm checkout c3436be32e3dc26d5e2181b1e451d91e21e50d53
+git -C vendor/SwiftTerm checkout c86e1d85bc6c5f4bca0c7e1f14fa4d1f950c434d
 rm -rf vendor/SwiftTerm/.git       # keep the tree clean; verify-vendor.sh expects no .git
 chmod -R u+w vendor/SwiftTerm      # SPM checkouts are read-only; patch fails otherwise
-for p in patches/swiftterm/00{01,02,03,04,05,06,07,08,09,10,11,12,13,14,15}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
-app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all fifteen patches)
+for p in patches/swiftterm/00{01,02,03,04,05,06,07,08,09,10,11,12,13,14,15,16,17}-*.patch; do patch -p1 -d vendor/SwiftTerm < "$p"; done  # bash only: brace expansion
+app/Scripts/verify-vendor.sh       # confirms the result matches the pin (all seventeen patches)
 (cd app && ./Scripts/check-reflow.sh)            # proves the tree has upstream's #494 fix (no local patch since the re-vendor)
 (cd app && ./Scripts/check-altbuffer-resize.sh)  # proves 0002 actually took
 (cd app && ./Scripts/check-metal-renderer.sh)    # proves 0001 ships a REACHABLE shader
@@ -584,7 +648,7 @@ byte-for-byte.
 
 *(The next paragraph is v1.15.0-era history. The tree is now upstream main @ `c3436be`, and
 `SwiftTerm.pin` records an upstream and a patched hash for each of the eleven files the
-fifteen patches touch.)*
+seventeen patches touch.)*
 
 Provenance is mechanically established rather than assumed: a full recursive diff of the
 vendored tree against the upstream `v1.15.0` tarball (commit `dd2fb8a`) reported **exactly
