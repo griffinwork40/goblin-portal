@@ -166,6 +166,10 @@ extension FileTreeViewController: NSOutlineViewDelegate {
         return cell
     }
 
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView {
+        FileTreeRowView()
+    }
+
     /// Put this row's git status on the cell — or take it off.
     ///
     /// Called from two places, and the second is why this is a function rather than four

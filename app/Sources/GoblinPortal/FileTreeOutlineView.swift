@@ -107,4 +107,79 @@ final class FileTreeOutlineView: NSOutlineView {
         if action == #selector(paste(_:)) { return delegate.hasFileClipboard }
         return selectedRow >= 0
     }
+
+    // MARK: - Hover tracking
+    //
+    // A single tracking area on the outline view, with `mouseMoved:` doing
+    // row-level hit-testing. One area instead of one per row avoids
+    // tracking-area churn during scroll (the OmniFocus lesson).
+
+    /// The row index currently under the cursor, or -1 when outside.
+    var hoveredRow: Int = -1
+
+    private var hoverTrackingArea: NSTrackingArea?
+    private var scrollObserver: NSObjectProtocol?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = hoverTrackingArea { removeTrackingArea(existing) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited,
+                      .activeInKeyWindow, .inVisibleRect],
+            owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let obs = scrollObserver { NotificationCenter.default.removeObserver(obs) }
+        scrollObserver = nil
+        guard let clipView = enclosingScrollView?.contentView,
+              window != nil else { return }
+        clipView.postsBoundsChangedNotifications = true
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clipView, queue: .main
+        ) { [weak self] _ in self?.rehoverFromMousePosition() }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        setHoveredRow(row(at: point))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHoveredRow(-1)
+    }
+
+    override func reloadData() {
+        super.reloadData()
+        // Row views are discarded during reload. Defer re-hover until
+        // AppKit creates the new ones during the next layout pass.
+        DispatchQueue.main.async { [weak self] in
+            self?.rehoverFromMousePosition()
+        }
+    }
+
+    private func setHoveredRow(_ newRow: Int) {
+        guard newRow != hoveredRow else { return }
+        (rowView(atRow: hoveredRow, makeIfNecessary: false) as? FileTreeRowView)?
+            .isHovered = false
+        hoveredRow = newRow
+        guard newRow >= 0 else { return }
+        (rowView(atRow: newRow, makeIfNecessary: false) as? FileTreeRowView)?
+            .isHovered = true
+    }
+
+    /// Re-derive hover from the current mouse position. Called after scroll
+    /// and after `reloadData` so the highlight follows the cursor even when
+    /// `mouseMoved:` has not fired.
+    private func rehoverFromMousePosition() {
+        guard let window = window else { setHoveredRow(-1); return }
+        let mouseInWindow = window.mouseLocationOutsideOfEventStream
+        let mouseInView = convert(mouseInWindow, from: nil)
+        setHoveredRow(bounds.contains(mouseInView) ? row(at: mouseInView) : -1)
+    }
 }
