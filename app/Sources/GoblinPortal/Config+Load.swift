@@ -190,6 +190,7 @@ extension AppConfig {
             if let autoReveal = s.autoReveal {
                 config.sidebarAutoReveal = autoReveal
             }
+            if let v = s.revealOnHover { config.sidebarRevealOnHover = v }
         }
         return config
     }
