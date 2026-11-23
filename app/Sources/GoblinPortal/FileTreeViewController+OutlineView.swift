@@ -166,7 +166,7 @@ extension FileTreeViewController: NSOutlineViewDelegate {
         return cell
     }
 
-    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView {
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
         FileTreeRowView()
     }
 

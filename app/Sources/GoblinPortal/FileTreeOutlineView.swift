@@ -142,7 +142,7 @@ final class FileTreeOutlineView: NSOutlineView {
         scrollObserver = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
             object: clipView, queue: .main
-        ) { [weak self] _ in self?.rehoverFromMousePosition() }
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.rehoverFromMousePosition() } }
     }
 
     override func mouseMoved(with event: NSEvent) {
