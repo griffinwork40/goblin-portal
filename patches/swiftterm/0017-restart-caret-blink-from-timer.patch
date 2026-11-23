@@ -1,0 +1,66 @@
+--- a/Sources/SwiftTerm/Mac/MacCaretView.swift
++++ b/Sources/SwiftTerm/Mac/MacCaretView.swift
+@@ -29,6 +29,18 @@
+     var renderCustomBlockGlyphs = true
+     var renderNormalFont: NSFont?
+     var bgColor: CGColor
++    // Pending future-beginTime blink animations delayed fullscreen presents on
++    // the built-in ProMotion panel: 19–27 frames/trial exceeded 100 ms, maxima
++    // 548–694 ms. Timer restart: 0/73, 0/73, 0/74 exceeded 100 ms, max 17–18 ms;
++    // echo max 2.8–11.9 ms vs 380–637 ms. WHY the compositor defers presents is
++    // unknown. Evidence: .afk/research/fullscreen-typing-lag-2026-11-20.md.
++    // Same visible solid-for-0.7s then fade; one cancellable work item per input
++    // batch instead of a pending CA animation. Launch switch preserves the old
++    // behaviour for local falsification, not as a second production strategy.
++    private static let delayedBlinkEnabled =
++        ProcessInfo.processInfo.environment["SWIFTTERM_CARET_DELAYED_BLINK"] == "1"
++    private var blinkRestart: DispatchWorkItem?
++
+     var tracksFocus = true {
+         didSet {
+             updateCursorStyle()
+@@ -103,6 +115,8 @@
+     }
+     
+     func updateAnimation (to: Bool) {
++        blinkRestart?.cancel()
++        blinkRestart = nil
+         layer?.removeAllAnimations()
+         self.layer?.opacity = 1
+         if to {
+@@ -121,6 +135,8 @@
+     }
+ 
+     func disableAnimations () {
++        blinkRestart?.cancel()
++        blinkRestart = nil
+         layer?.removeAllAnimations()
+         layer?.opacity = 1
+     }
+@@ -134,6 +150,26 @@
+         case .blinkUnderline, .blinkBlock, .blinkBar:
+             layer?.removeAllAnimations()
+             layer?.opacity = 1
++            blinkRestart?.cancel()
++            blinkRestart = nil
++            if !Self.delayedBlinkEnabled {
++                let work = DispatchWorkItem { [weak self] in
++                    MainActor.assumeIsolated {
++                        guard let self else { return }
++                        let canBlink = !self.tracksFocus || (self.terminal?.hasFocus ?? true)
++                        guard canBlink else { return }
++                        switch self.style {
++                        case .blinkUnderline, .blinkBlock, .blinkBar:
++                            self.updateAnimation(to: true)
++                        case .steadyBar, .steadyBlock, .steadyUnderline:
++                            break
++                        }
++                    }
++                }
++                blinkRestart = work
++                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
++                return
++            }
+             guard let layer else { return }
+             let anim = CABasicAnimation(keyPath: #keyPath(CALayer.opacity))
+             anim.duration = 0.7

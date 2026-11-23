@@ -8,7 +8,8 @@
 # cellOrdinal/anchorOrdinal combining fix, and upstream's sixel bounds (58915b1).
 # Remaining: 13 patches (0001-0013), renumbered sequentially.
 # Added since: 0014 (ProMotion immediate draw, commit 3d21b931) and 0015 (fullscreen
-# transition observers, #302, commit 89c1d340). Fifteen in total; verify-vendor.sh counts
+# transition observers, #302, commit 89c1d340), 0016 (drawable resize facade), and
+# 0017 (caret blink restart timer). Seventeen in total; verify-vendor.sh counts
 # the files on disk and fails if they differ from bootstrap-vendor.sh's PATCHES list.
 #
 # NOTE: upstream_tag = MAIN because upstream has no v1.99.x tag at c86e1d8.
@@ -61,11 +62,16 @@ upstream_escape_seq_parser = 986e60d2cf95f156ad8abf1d34841bd13439fa5c1cf4209317e
 ptmux_dcs_handler = b9db2695bbb09e6762ac05e12a713a81cfa086ffe1b479ec5b6e8f379903ad3d
 
 # MacTerminalView.swift AFTER applying 0005 (draw() open), 0006 (search hook),
-# and the performKeyEquivalent open fix (compatibility for GoblinPortalTerminalView).
+# 0016 (drawable resize facade), and the performKeyEquivalent open fix.
 # Note: 0006/0007 (selection-clear gates) DROPPED — obsolete post-IO-rewrite.
 # Note: 0010 (DisplayLink pacer) DROPPED — upstream now uses FrameDriver.
 patched_mac_terminal_view  = c2e1f6b89985864b179f88ae974df8ad4250331ef6aaa2376b19214f1eb79e38
 upstream_mac_terminal_view = 280cf244319dae1bb56f331c6da7d2a1e206fd30d788a34b95e6543889bf024a
+
+# MacCaretView.swift AFTER 0017: cancellable main-queue blink restart rather than
+# a pending future-beginTime animation; SWIFTTERM_CARET_DELAYED_BLINK=1 restores it.
+patched_mac_caret_view  = e06d453d67b56592ba307d8817e72dcb6bf4c6914eb21bb9b0c116ee62f756c0
+upstream_mac_caret_view = e5ff31c016d3146f3636ebad96d783986692a014eafe85fb461a39a79729f341
 
 # AppleTerminalView.swift AFTER applying 0007 (colour emoji rasterizer backingScale field in
 # FrameViewState/SnapshotRenderContext + disableLigatures field), 0008 (disableLigatures open

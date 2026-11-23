@@ -16,6 +16,7 @@ app.setActivationPolicy(.regular)
 // GOBLIN_PORTAL_DIAG only: log paint-interval pacing against the display refresh
 // (FramePacingDiag.swift). Before any view exists, so the first frames are counted.
 FramePacingDiag.installIfRequested()
+KeyLatencyDiag.installIfRequested()
 
 let delegate = AppDelegate()
 app.delegate = delegate

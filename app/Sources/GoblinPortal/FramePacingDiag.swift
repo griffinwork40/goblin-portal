@@ -20,11 +20,11 @@
 //
 //  DRIVER LINE (new): every second, whether or not any frame paints:
 //
-//    [diag] driver: ticks=120 frames=7 idle=113 imm=0 deliveries=7
+//    [diag] driver: ticks=120 frames=7 idle=113 imm=0 renders=7 batches=7 bytes=70
 //
-//  `ticks` = display link callbacks per second (should be ~120 on ProMotion).
-//  `frames` = ticks where dirty was true (actual paints).
-//  `idle` = ticks where dirty was false.
+//  `ticks` includes display and immediate ticks; `frames` counts frame-producing ticks.
+//  `idle` counts ticks with nothing to draw; `imm` counts out-of-cadence requests.
+//  `renders` counts GPU submissions/Core Graphics draws (AppleTerminalView.swift:4474-4487).
 //  If ticks is low, the display link is being throttled by macOS (ProMotion).
 //  If ticks is high but frames is low, dirty signals are not arriving.
 //
@@ -51,6 +51,8 @@ enum FramePacingDiag {
     private static var timestamps: [CFTimeInterval] = []
     private static var lastFlush: CFTimeInterval = 0
     private static var driverTimer: Timer?
+    private static weak var previousDriverView: TerminalView?
+    private static var previousDriverCounters: [Int] = []
 
     /// Installs the observer when GOBLIN_PORTAL_DIAG is set. Idempotent.
     static func installIfRequested() {
@@ -86,13 +88,21 @@ enum FramePacingDiag {
     private static func flushDriverCounters() {
         guard let view = findTerminalView() else { return }
         let d = view.diagnostics
-        // Skip if nothing happened (no ticks = driver not running yet)
-        guard d.ticks > 0 else { return }
-        let line = "[diag] driver: ticks=\(d.ticks) frames=\(d.frames) "
-            + "idle=\(d.idleTicks) batches=\(d.batches) "
-            + "bytes=\(d.bytesFed)\n"
+        // Lifetime counters have multiple consumers (KeyLatencyDiag.swift:69-83).
+        // Resetting them here made that consumer read zero after every timer fire.
+        let current = [d.ticks, d.frames, d.idleTicks, d.immediateTicks,
+                       d.renders, d.batches, d.bytesFed]
+        let baseline = previousDriverView === view ? previousDriverCounters : []
+        let delta = current.enumerated().map { index, count in
+            KeyLatencyModel.counterDelta(count, previous: baseline.indices.contains(index) ? baseline[index] : 0)
+        }
+        previousDriverView = view
+        previousDriverCounters = current
+        guard delta[0] > 0 else { return }
+        let line = "[diag] driver: ticks=\(delta[0]) frames=\(delta[1]) "
+            + "idle=\(delta[2]) imm=\(delta[3]) renders=\(delta[4]) "
+            + "batches=\(delta[5]) bytes=\(delta[6])\n"
         FileHandle.standardError.write(Data(line.utf8))
-        view.resetDiagnostics()
     }
 
     /// Walk the key window to find a terminal view for diagnostics.

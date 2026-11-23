@@ -82,6 +82,8 @@ pin_value() {
 # 0012 bounds the OSC 1337 encoded payload (32 MiB) and adds ImageIO type/dimension
 #      header checks to createImage and createImageFromBitmap; OSC cap already upstream (#18 partial);
 # 0013 adds OSC 1337 MultipartFile/FilePart/FileEnd (modern imgcat default) (#19).
+# 0014 adds IO-arrival immediate draw; 0015 fixes fullscreen visibility observers;
+# 0016 exposes drawable sizing; 0017 restarts caret blink from a timer (MacCaretView).
 # A tree missing any one of them is not the tree this project is tested against.
 PATCHES=(
   "0001-ship-metal-shader-as-copy-resource.patch"
@@ -100,6 +102,7 @@ PATCHES=(
   "0014-promotion-immediate-draw.patch"
   "0015-fullscreen-transition-observers.patch"
   "0016-expose-metal-view-for-drawable-resize.patch"
+  "0017-restart-caret-blink-from-timer.patch"
 )
 
 if [[ ! -f "$PIN" ]]; then
