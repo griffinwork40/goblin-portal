@@ -21,7 +21,7 @@ compile() {
 compile "$MODEL" "$TMP/baseline"
 "$TMP/baseline" || exit 1
 
-echo "==> falsification (3 mutants on shipped-source copies)"
+echo "==> falsification (4 mutants on shipped-source copies)"
 ran=0
 caught=0
 mutate() {
@@ -51,6 +51,7 @@ mutate() {
 mutate output-order 's/pending\[index\].key <= time/pending[index].key >= time/' output-before-key
 mutate frame-order 's/output <= time/output >= time/' frame-before-output
 mutate timeout 's/let echoTimeout: TimeInterval = 2.0/let echoTimeout: TimeInterval = 20.0/' unechoed-timeout
+mutate frame-timeout 's/let frameTimeout: TimeInterval = 5.0/let frameTimeout: TimeInterval = 50.0/' output-no-frame-expires
 [ "$ran" -gt 0 ] || { echo "no mutant ran (exit 2)"; exit 2; }
 echo "$caught/$ran falsification mutants caught"
 [ "$caught" -eq "$ran" ] || exit 1
