@@ -17,6 +17,7 @@ enum KeyLatencyDiag {
     private static weak var previousView: TerminalView?
     private static var previousCounters: [Int] = []
     private static let dateFormatter = ISO8601DateFormatter()
+    private static var logHandle: FileHandle?
 
     static func installIfRequested() {
         guard !installed else { return }
@@ -94,17 +95,22 @@ enum KeyLatencyDiag {
     }
 
     private static func appendLog(_ line: String) {
-        let directory = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/GoblinPortal", isDirectory: true)
-        // Logging must never prevent typing or launch if the home is unwritable.
-        // Filesystem operations fail soft, as required by AFK.md Conventions.
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("key-latency.log")
-        if !FileManager.default.fileExists(atPath: url.path) {
-            try? Data().write(to: url)
+        if logHandle == nil {
+            let directory = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Logs/GoblinPortal", isDirectory: true)
+            // Logging must never prevent typing or launch if the home is unwritable.
+            // Filesystem operations fail soft, as required by AFK.md Conventions.
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appendingPathComponent("key-latency.log")
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try? Data().write(to: url)
+            }
+            logHandle = try? FileHandle(forWritingTo: url)
         }
-        guard let handle = try? FileHandle(forWritingTo: url) else { return }
-        defer { try? handle.close() }
+        guard let handle = logHandle else { return }
+        // seekToEnd both positions the cursor for writing and returns the size
+        // for the rotation check. The handle stays open for the app's lifetime
+        // (KeyLatencyDiag is an enum with no deinit; acceptable for opt-in diag).
         if let size = try? handle.seekToEnd(), size > 1_048_576 {
             try? handle.truncate(atOffset: 0)
             try? handle.seek(toOffset: 0)

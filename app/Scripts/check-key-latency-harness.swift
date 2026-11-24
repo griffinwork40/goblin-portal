@@ -111,6 +111,15 @@ do {
     model.frameCompleted(at: 10.2)
     expect("first-output-kept", near(model.drain(at: 10.3)?.keyToOutput.max, 0))
 }
+do {
+    var model = KeyLatencyModel()
+    model.keyDown(at: 10)
+    model.outputArrived(at: 10.025)
+    // Output arrived but frame never completed; boundary at output + frameTimeout.
+    expect("output-no-frame-boundary", model.drain(at: 15.024)?.droppedFrames == 0 && model.pending.count == 1)
+    let summary = model.drain(at: 15.026)
+    expect("output-no-frame-expires", summary?.droppedFrames == 1 && model.pending.isEmpty)
+}
 let percentiles = KeyLatencyModel.Percentiles(seconds: (1...20).reversed().map { Double($0) / 1000 })
 expect("percentile-known-set", near(percentiles.p50, 10) && near(percentiles.p95, 19) && near(percentiles.max, 20))
 let empty = KeyLatencyModel.Percentiles(seconds: [])
@@ -129,7 +138,7 @@ if let one {
     context.immediate = 2
     context.renders = 4
     let line = KeyLatencyModel.format(one, context: context)
-    let fields = ["[diag] keys: keys=1", "paired=1", "unechoed=0",
+    let fields = ["[diag] keys: keys=1", "paired=1", "unechoed=0", "dropped=0",
                   "key_output_p50=25.00", "key_output_p95=25.00", "key_output_max=25.00",
                   "output_frame_p50=15.00", "output_frame_p95=15.00", "output_frame_max=15.00",
                   "key_frame_p50=40.00", "key_frame_p95=40.00", "key_frame_max=40.00",
