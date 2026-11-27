@@ -155,6 +155,9 @@ final class FileTreeOutlineView: NSOutlineView {
     }
 
     override func reloadData() {
+        // Reset before reload: the old row views are about to be discarded
+        // and hoveredRow could point past the new row count (#330).
+        hoveredRow = -1
         super.reloadData()
         // Row views are discarded during reload. Defer re-hover until
         // AppKit creates the new ones during the next layout pass.
@@ -165,10 +168,14 @@ final class FileTreeOutlineView: NSOutlineView {
 
     private func setHoveredRow(_ newRow: Int) {
         guard newRow != hoveredRow else { return }
-        (rowView(atRow: hoveredRow, makeIfNecessary: false) as? FileTreeRowView)?
-            .isHovered = false
+        // Bounds-check the stale index: the tree may have shrunk since
+        // hoveredRow was recorded (collapsed dir, filter, reload) (#330).
+        if hoveredRow >= 0, hoveredRow < numberOfRows {
+            (rowView(atRow: hoveredRow, makeIfNecessary: false) as? FileTreeRowView)?
+                .isHovered = false
+        }
         hoveredRow = newRow
-        guard newRow >= 0 else { return }
+        guard newRow >= 0, newRow < numberOfRows else { return }
         (rowView(atRow: newRow, makeIfNecessary: false) as? FileTreeRowView)?
             .isHovered = true
     }
